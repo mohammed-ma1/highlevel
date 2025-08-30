@@ -22,7 +22,7 @@ class ClientIntegrationController extends Controller
                     'client_secret' => config('services.external_auth.client_secret'),
                     'code'          => $request->input('code'),
                 ]);
-
+                dd(config('services.external_auth.client_id'),config('services.external_auth.client_secret'),$request->input('code'));
         dd([
             'status'  => $tokenResponse->status(),
             'headers' => $tokenResponse->headers(),
