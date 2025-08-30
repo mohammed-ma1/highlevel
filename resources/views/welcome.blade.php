@@ -280,4 +280,7 @@ footer {
             <div class="h-14.5 hidden lg:block"></div>
         @endif
     </body>
+    <script>
+    document.getElementById('parent_url').value = window.location.href;
+</script>
 </html>
