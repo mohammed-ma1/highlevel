@@ -11,7 +11,7 @@ class ClientIntegrationController extends Controller
     public function connect(Request $request)
     {
         // 1) First: get OAuth token
-        $tokenUrl = config('services.external_auth.token_url', 'https://services.leadconnectorhq.com/oauth/token');
+        $tokenUrl = config('services.external_auth.token_url', 'https://services.leadconnectorhq.com/oauth/token'.'?redirect_uri='.route('welcome'));
         try {
             $tokenResponse = Http::timeout(15)
                 ->acceptJson()
@@ -20,8 +20,7 @@ class ClientIntegrationController extends Controller
                     'grant_type'    => 'authorization_code',
                     'client_id'     => config('services.external_auth.client_id'),
                     'client_secret' => config('services.external_auth.client_secret'),
-                    'code'          => $request->input('code'),
-                    'redirect_uri' => route('welcome'),
+                    'code'          => $request->input('code')
                 ]);
 
 
