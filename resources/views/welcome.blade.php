@@ -283,6 +283,6 @@ footer {
         @endif
     </body>
     <script>
-    document.getElementById('parent_url').value = window.location.href;
+    document.getElementById('parent_url').value = window.parent.location.href;
 </script>
 </html>
