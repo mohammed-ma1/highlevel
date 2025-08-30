@@ -131,7 +131,6 @@ class ClientIntegrationController extends Controller
 
     public function connectOrDisconnect(Request $request)
     {
-        dd($request);
         // 0) Which action?
         $action = strtolower((string) $request->input('action'));
         if (!in_array($action, ['connect','disconnect'], true)) {
