@@ -44,6 +44,7 @@ class ClientIntegrationController extends Controller
             $providerResponse = Http::timeout(20)
                 ->acceptJson()
                 ->withToken($accessToken)
+               
                 ->withHeaders([
                     'Version'      => '2021-07-28',
                     'Content-Type' => 'application/json',
@@ -74,6 +75,9 @@ class ClientIntegrationController extends Controller
 
             $tokenResponse = Http::timeout(15)
                 ->acceptJson()
+                 ->withOptions([
+                    'allow_redirects' => false,
+                ])
                 ->asForm()
                 ->post($tokenUrl, [
                      'grant_type'    => 'authorization_code',
