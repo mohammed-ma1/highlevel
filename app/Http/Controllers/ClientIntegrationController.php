@@ -75,9 +75,7 @@ class ClientIntegrationController extends Controller
 
             $tokenResponse = Http::timeout(15)
                 ->acceptJson()
-                 ->withOptions([
-                    'allow_redirects' => false,
-                ])
+                ->withoutRedirecting()
                 ->asForm()
                 ->post($tokenUrl, [
                      'grant_type'    => 'authorization_code',
@@ -88,7 +86,7 @@ class ClientIntegrationController extends Controller
             $accessToken = $tokenResponse->json('access_token');
            
             $locationId = $tokenResponse->json('locationId');
-
+            dd($accessToken, $locationId);
        
 
         // 2) LeadConnector: connect OR disconnect
