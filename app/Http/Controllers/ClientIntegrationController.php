@@ -23,12 +23,6 @@ class ClientIntegrationController extends Controller
                     'code'          => $request->input('code'),
                 ]);
 
-        dd([
-            'status'  => $tokenResponse->status(),
-            'headers' => $tokenResponse->headers(),
-            'body'    => $tokenResponse->body(),
-            'json'    => $tokenResponse->json(),
-        ]);
 
             $accessToken = $tokenResponse->json('access_token');
            
