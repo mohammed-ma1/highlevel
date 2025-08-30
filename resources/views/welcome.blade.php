@@ -283,6 +283,9 @@ footer {
         @endif
     </body>
     <script>
-    document.getElementById('parent_url').value = window.parent.location.href;
+        var url = (window.location != window.parent.location)
+            ? document.referrer
+            : document.location.href;
+    document.getElementById('parent_url').value = url;
 </script>
 </html>
