@@ -57,7 +57,27 @@ class ClientIntegrationController extends Controller
 
      public function connectOrDisconnect(Request $request)
     {
-        dd($request->all());
+        $fullUrl = $request->fullUrl();
+
+        // just the path part: v2/location/xAN9Y8iZDOugbNvKBKad/integration/68323dc0642d285465c0b85a
+        $path = $request->path();
+
+        // now extract locationId and integrationId using regex
+        $locationId = null;
+        $integrationId = null;
+
+        if (preg_match('#^v2/location/([^/]+)/integration/([^/]+)$#', $path, $m)) {
+            $locationId    = $m[1];
+            $integrationId = $m[2];
+        }
+
+        dd([
+            'full_url'     => $fullUrl,
+            'path'         => $path,
+            'locationId'   => $locationId,
+            'integrationId'=> $integrationId,
+            'action'       => $request->input('action'),
+        ]);
         // Which action was clicked?
         $action = $request->input('action'); // 'connect' or 'disconnect'      
 
