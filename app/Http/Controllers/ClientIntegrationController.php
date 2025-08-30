@@ -53,16 +53,6 @@ class ClientIntegrationController extends Controller
         } catch (\Throwable $e) {
             Log::error('Integration failed', ['error' => $e->getMessage()]);
         }
-        $accessToken  = $tokenResponse->json('access_token');
-        $refreshToken = $tokenResponse->json('refresh_token'); // if provided
-        $expiresIn    = (int) $tokenResponse->json('expires_in', 3600);
-        $locationId   = $tokenResponse->json('locationId');
-        session()->put('leadconnector', [
-            'access_token'  => $accessToken,
-            'refresh_token' => $refreshToken,
-            'expires_at'    => now()->addSeconds($expiresIn),
-            'location_id'   => $locationId,
-        ]);
     }
 
      public function connectOrDisconnect(Request $request)
@@ -80,35 +70,22 @@ class ClientIntegrationController extends Controller
             ]);
         }
 
-         // Prefer route param; fallback to session
-        $locationId   = $locationId ?? session('leadconnector.location_id');
-        $accessToken  = session('leadconnector.access_token');
-        $expiresAt    = session('leadconnector.expires_at');
-        $refreshToken = session('leadconnector.refresh_token');
+        // 1) Fetch OAuth token via client_credentials
+        $tokenUrl = config('services.external_auth.token_url', 'https://api.example.com/oauth/token');
 
-        if (!$locationId) {
-            return response()->json(['message' => 'Missing locationId'], 400);
-        }
-
-        // If token missing/expired, refresh if you have a refresh_token (recommended)
-        if (!$accessToken || (isset($expiresAt) && now()->gte($expiresAt))) {
-            if ($refreshToken) {
-                $new = $this->refreshLeadConnectorToken($refreshToken);
-                if (!$new['access_token'] ?? null) {
-                    return response()->json(['message' => 'Unable to refresh token'], 401);
-                }
-                // update session
-                session()->put('leadconnector', [
-                    'access_token'  => $new['access_token'],
-                    'refresh_token' => $new['refresh_token'] ?? $refreshToken,
-                    'expires_at'    => now()->addSeconds($new['expires_in'] ?? 3600),
-                    'location_id'   => $locationId,
+            $tokenResponse = Http::timeout(15)
+                ->acceptJson()
+                ->withoutRedirecting()
+                ->asForm()
+                ->post($tokenUrl, [
+                     'grant_type'    => 'authorization_code',
+                    'client_id'     => config('services.external_auth.client_id'),
+                    'client_secret' => config('services.external_auth.client_secret'),
+                    'code'          => $request->input('code'),
                 ]);
-                $accessToken = $new['access_token'];
-            } else {
-                return response()->json(['message' => 'Access token expired; re-connect required'], 401);
-            }
-        }
+            $accessToken = $tokenResponse->json('access_token');
+           
+            $locationId = $tokenResponse->json('locationId');
        
 
         // 2) LeadConnector: connect OR disconnect
@@ -156,27 +133,4 @@ class ClientIntegrationController extends Controller
 
        
     }
-
-    private function refreshLeadConnectorToken(string $refreshToken): array
-    {
-        $tokenUrl = config('services.external_auth.token_url', 'https://services.leadconnectorhq.com/oauth/token');
-
-        $resp = Http::timeout(15)
-            ->acceptJson()
-            ->asForm()
-            ->post($tokenUrl, [
-                'grant_type'    => 'refresh_token',
-                'client_id'     => config('services.external_auth.client_id'),
-                'client_secret' => config('services.external_auth.client_secret'),
-                'refresh_token' => $refreshToken,
-            ]);
-
-        if ($resp->failed()) {
-            Log::warning('Token refresh failed', ['status' => $resp->status(), 'body' => $resp->json()]);
-            return [];
-        }
-
-        return $resp->json() ?? [];
-    }
-
 }
