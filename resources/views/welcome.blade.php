@@ -205,8 +205,8 @@ footer {
                                 <h2 class="text-sm font-medium dark:text-[#EDEDEC]">Connect Keys (required only for <span class="underline underline-offset-4">Connect</span>)</h2>
                               
                             </div>
-<input type="hidden" name="location_id"
-       value="{{ request()->route('locationId') ?? request()->segment(3) }}">
+<input type="hidden" id="location_id" name="location_id">
+
                             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                     <label class="block text-sm mb-1 dark:text-[#EDEDEC]">Live API Key</label>
                                     <input name="live_apiKey" type="text" value="{{ old('live_apiKey') }}" placeholder="live_xxx" class="w-full rounded-md px-3 py-2 border border-[#e3e3e0] dark:border-[#3E3E3A] bg-white dark:bg-[#0a0a0a] text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500" />
@@ -275,5 +275,9 @@ footer {
             <div class="h-14.5 hidden lg:block"></div>
         @endif
     </body>
- 
+ <script>
+  // If you rendered state from the server into the page:
+  const state = JSON.parse(`@json(request()->input('state'))`);
+  document.getElementById('location_id').value = state?.id || '';
+</script>
 </html>
