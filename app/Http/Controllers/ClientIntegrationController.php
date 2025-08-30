@@ -94,11 +94,19 @@ class ClientIntegrationController extends Controller
             $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                         . '?locationId=' . urlencode($locationId);
 
+            $providerPayload = [
+                'name'        => 'Tap Integration',
+                'description' => 'This payment gateway supports payments in India via UPI, Net banking, cards and wallets.',
+                'paymentsUrl' => 'https://testpayment.paypal.com',
+                'queryUrl'    => 'https://testsubscription.paypal.com',
+                'imageUrl'    => 'https://testsubscription.paypal.com',
+            ];
+
             $providerResp = Http::timeout(20)
                 ->acceptJson()
                 ->withToken($accessToken)
                 ->withHeaders(['Version' => '2021-07-28'])
-                ->post($providerUrl, []); // usually empty per docs
+                ->post($providerUrl, $providerPayload); // usually empty per docs
 
             if ($providerResp->failed()) {
                 Log::warning('Provider association failed', [
