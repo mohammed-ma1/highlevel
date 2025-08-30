@@ -303,4 +303,9 @@ class ClientIntegrationController extends Controller
             }
             return $resp->json() ?? [];
         }
+
+        public function webhook(Request $request)
+        {
+            Log::info('webhook', ['request' => $request->all()]);
+        }
 }
