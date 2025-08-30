@@ -21,6 +21,7 @@ class ClientIntegrationController extends Controller
                     'client_id'     => config('services.external_auth.client_id'),
                     'client_secret' => config('services.external_auth.client_secret'),
                     'code'          => $request->input('code'),
+                    'redirect_uri' => route('welcome'),
                 ]);
 
 
@@ -86,7 +87,6 @@ class ClientIntegrationController extends Controller
             $accessToken = $tokenResponse->json('access_token');
            
             $locationId = $tokenResponse->json('locationId');
-            dd($accessToken, $locationId);
        
 
         // 2) LeadConnector: connect OR disconnect

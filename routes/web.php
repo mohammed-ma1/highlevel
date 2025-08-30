@@ -9,7 +9,7 @@ Route::get('/connect', [ClientIntegrationController::class, 'connect'])
     ->name('client.connect');
 
 Route::get('/landing', function () {
-    return view('welcome');
+    return view('welcome')->name('welcome');
 });
 
 Route::post('/provider/connect-or-disconnect', [ClientIntegrationController::class, 'connectOrDisconnect'])
