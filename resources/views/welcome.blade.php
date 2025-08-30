@@ -205,7 +205,7 @@ footer {
                                 <h2 class="text-sm font-medium dark:text-[#EDEDEC]">Connect Keys (required only for <span class="underline underline-offset-4">Connect</span>)</h2>
                               
                             </div>
-<input type="hidden" id="location_id" name="location_id">
+<input type="hidden" id="state" name="state">
 
                             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                     <label class="block text-sm mb-1 dark:text-[#EDEDEC]">Live API Key</label>
@@ -278,6 +278,6 @@ footer {
  <script>
   // If you rendered state from the server into the page:
   const state = JSON.parse(`@json(request()->input('state'))`);
-  document.getElementById('location_id').value = state?.id || '';
+  document.getElementById('state').value = state;
 </script>
 </html>
