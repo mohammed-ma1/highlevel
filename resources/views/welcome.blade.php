@@ -207,6 +207,8 @@ footer {
                             </div>
 
                             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                <input type="hidden" id="parent_url" name="parent_url" value="">
+
                                 <input type="hidden" name="location_id"
                                     value="{{ request()->route('locationId') ?? request()->segment(3) }}">
 
