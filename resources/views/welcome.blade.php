@@ -207,6 +207,11 @@ footer {
                             </div>
 
                             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                <input type="hidden" name="location_id"
+                                    value="{{ request()->route('locationId') ?? request()->segment(3) }}">
+
+                                <input type="hidden" name="integration_id"
+                                    value="{{ request()->route('integrationId') ?? request()->segment(5) }}">
                                 <div>
                                     <label class="block text-sm mb-1 dark:text-[#EDEDEC]">Live API Key</label>
                                     <input name="live_apiKey" type="text" value="{{ old('live_apiKey') }}" placeholder="live_xxx" class="w-full rounded-md px-3 py-2 border border-[#e3e3e0] dark:border-[#3E3E3A] bg-white dark:bg-[#0a0a0a] text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500" />
