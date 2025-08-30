@@ -20,10 +20,15 @@ class ClientIntegrationController extends Controller
                     'grant_type'    => 'authorization_code',
                     'client_id'     => config('services.external_auth.client_id'),
                     'client_secret' => config('services.external_auth.client_secret'),
-                    'code'          => $request->input('code')
+                    'code'          => $request->input('code'),
                 ]);
 
-
+        dd([
+            'status'  => $tokenResponse->status(),
+            'headers' => $tokenResponse->headers(),
+            'body'    => $tokenResponse->body(),
+            'json'    => $tokenResponse->json(),
+        ]);
 
             $accessToken = $tokenResponse->json('access_token');
            
@@ -57,27 +62,6 @@ class ClientIntegrationController extends Controller
 
      public function connectOrDisconnect(Request $request)
     {
-        $fullUrl = $request->fullUrl();
-
-        // just the path part: v2/location/xAN9Y8iZDOugbNvKBKad/integration/68323dc0642d285465c0b85a
-        $path = $request->path();
-
-        // now extract locationId and integrationId using regex
-        $locationId = null;
-        $integrationId = null;
-
-        if (preg_match('#^v2/location/([^/]+)/integration/([^/]+)$#', $path, $m)) {
-            $locationId    = $m[1];
-            $integrationId = $m[2];
-        }
-
-        dd([
-            'full_url'     => $fullUrl,
-            'path'         => $path,
-            'locationId'   => $locationId,
-            'integrationId'=> $integrationId,
-            'action'       => $request->input('action'),
-        ]);
         // Which action was clicked?
         $action = $request->input('action'); // 'connect' or 'disconnect'      
 
@@ -107,6 +91,7 @@ class ClientIntegrationController extends Controller
             $accessToken = $tokenResponse->json('access_token');
            
             $locationId = $tokenResponse->json('locationId');
+            dd($accessToken, $locationId);
        
 
         // 2) LeadConnector: connect OR disconnect
