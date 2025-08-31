@@ -36,7 +36,7 @@ class ClientIntegrationController extends Controller
             }
 
             $body = $tokenResponse->json();
-            dd($body);
+
             // Extract what we need
             $accessToken   = $body['access_token'] ?? null;
             $refreshToken  = $body['refresh_token'] ?? null;
@@ -116,11 +116,12 @@ class ClientIntegrationController extends Controller
                 // Not fatal to user creation, but you can choose to 502 here if you want
             }
 
-            return [
+            return response()->json([
                 'message' => 'Connected & user saved',
                 'user_id' => $user->id,
                 'locationId' => $locationId,
-            ];
+                'provider' => $providerResp->json(),
+            ], 200);
 
         } catch (\Throwable $e) {
             Log::error('Integration failed', ['error' => $e->getMessage()]);
@@ -135,8 +136,7 @@ class ClientIntegrationController extends Controller
         if (!in_array($action, ['connect','disconnect'], true)) {
             return response()->json(['message' => 'Invalid action'], 400);
         }
-        $response = $this->connect($request);
-        $locationId = $response['locationId'] ?? null;
+        // todo git locationId
         if (!$locationId) {
             return response()->json(['message' => 'Could not extract locationId from URL'], 400);
         }
