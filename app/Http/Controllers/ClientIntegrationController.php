@@ -116,12 +116,12 @@ class ClientIntegrationController extends Controller
                 // Not fatal to user creation, but you can choose to 502 here if you want
             }
 
-            return response()->json([
+            return [
                 'message' => 'Connected & user saved',
                 'user_id' => $user->id,
                 'locationId' => $locationId,
                 'provider' => $providerResp->json(),
-            ], 200);
+            ];
 
         } catch (\Throwable $e) {
             Log::error('Integration failed', ['error' => $e->getMessage()]);
