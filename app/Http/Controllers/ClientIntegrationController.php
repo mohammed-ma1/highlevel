@@ -119,6 +119,7 @@ class ClientIntegrationController extends Controller
             return response()->json([
                 'message' => 'Connected & user saved',
                 'user_id' => $user->id,
+                 'user_lead_access_token' => $user->lead_access_token,
                 'locationId' => $locationId,
                 'provider' => $providerResp->json(),
             ], 200);
