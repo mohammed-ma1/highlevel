@@ -36,7 +36,7 @@ class ClientIntegrationController extends Controller
             }
 
             $body = $tokenResponse->json();
-
+            dd($body);
             // Extract what we need
             $accessToken   = $body['access_token'] ?? null;
             $refreshToken  = $body['refresh_token'] ?? null;
@@ -120,7 +120,6 @@ class ClientIntegrationController extends Controller
                 'message' => 'Connected & user saved',
                 'user_id' => $user->id,
                 'locationId' => $locationId,
-                'provider' => $providerResp->json(),
             ];
 
         } catch (\Throwable $e) {
