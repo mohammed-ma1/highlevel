@@ -139,7 +139,6 @@ class ClientIntegrationController extends Controller
         $information = $request->input('information');
         $state = json_decode(base64_decode($information), true);
         $locationId = $state['id'] ?? null;
-        $locationId = $request->input('location_id'); // hidden input from form
         if (!$locationId) {
             return response()->json(['message' => 'Could not extract locationId from URL'], 400);
         }
