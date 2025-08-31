@@ -119,7 +119,6 @@ class ClientIntegrationController extends Controller
             return response()->json([
                 'message' => 'Connected & user saved',
                 'user_id' => $user->id,
-                 'user_lead_access_token' => $user->lead_access_token,
                 'locationId' => $locationId,
                 'provider' => $providerResp->json(),
             ], 200);
@@ -137,18 +136,20 @@ class ClientIntegrationController extends Controller
         if (!in_array($action, ['connect','disconnect'], true)) {
             return response()->json(['message' => 'Invalid action'], 400);
         }
-
-        $accessToken = $request->input('state'); // hidden input from form
-        if (!$accessToken) {
+        $information = $request->input('information');
+        $state = json_decode(base64_decode($information), true);
+        $locationId = $state['id'] ?? null;
+        $locationId = $request->input('location_id'); // hidden input from form
+        if (!$locationId) {
             return response()->json(['message' => 'Could not extract locationId from URL'], 400);
         }
 
         // 2) Find the user who previously connected this location
-        $user = User::where('lead_access_token', $accessToken)->first();
+        $user = User::where('lead_location_id', $locationId)->first();
         if (!$user) {
             return response()->json([
-                'message' => 'No local user found for this accessToken.',
-                'locationId' => $accessToken,
+                'message' => 'No local user found for this locationId.',
+                'locationId' => $locationId,
             ], 404);
         }
 
