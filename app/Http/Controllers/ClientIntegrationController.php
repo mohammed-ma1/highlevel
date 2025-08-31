@@ -136,10 +136,8 @@ class ClientIntegrationController extends Controller
         if (!in_array($action, ['connect','disconnect'], true)) {
             return response()->json(['message' => 'Invalid action'], 400);
         }
-        $information = $request->input('information');
-        $state = json_decode(base64_decode($information), true);
-        dd($state);
-        $locationId = $state['id'] ?? null;
+        $response = $this->connect($request);
+        $locationId = $response['locationId'] ?? null;
         if (!$locationId) {
             return response()->json(['message' => 'Could not extract locationId from URL'], 400);
         }
