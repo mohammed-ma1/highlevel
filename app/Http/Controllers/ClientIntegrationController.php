@@ -266,7 +266,7 @@ class ClientIntegrationController extends Controller
 
          $payload = [
                 // include provider meta if your flow needs it (these are examples)
-                'liveMode'        => $request->input('liveMode', false),
+                'liveMode'        => $request->input('liveMode', false) ? true : false,
          ];
         $resp = Http::timeout(20)
             ->acceptJson()
