@@ -11,6 +11,11 @@ Route::get('/connect', [ClientIntegrationController::class, 'connect'])
 Route::get('/landing', function () {
     return view('welcome')->name('welcome');
 });
+
+Route::get('/tap', function () {
+    return view('tap')->name('tap');
+});
+
 Route::get('/webhook', [ClientIntegrationController::class, 'webhook'])
     ->name('client.webhook');
 

@@ -97,7 +97,7 @@ class ClientIntegrationController extends Controller
             $providerPayload = [
                 'name'        => 'Tap Integration',
                 'description' => 'This payment gateway supports payments in India via UPI, Net banking, cards and wallets.',
-                'paymentsUrl' => 'https://testpayment.paypal.com',
+                'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
                 'queryUrl'    => 'https://testsubscription.paypal.com',
                 'imageUrl'    => 'https://testsubscription.paypal.com',
             ];
