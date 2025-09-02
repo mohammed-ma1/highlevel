@@ -245,6 +245,7 @@ footer {
                             >
                                 Disconnect
                             </button>
+                            <input type="checkbox" name="liveMode" id="liveMode" class="h-4 w-4 text-sky-600 focus:ring-sky-500 border-gray-300 rounded" {{ old('liveMode') ? 'checked' : '' }}>
                         </div>
 
                         {{-- Responses --}}

@@ -216,7 +216,7 @@ class ClientIntegrationController extends Controller
                 // include provider meta if your flow needs it (these are examples)
                 'name'        => 'Company Paypal Integration',
                 'description' => 'This payment gateway supports payments in India via UPI, Net banking, cards and wallets.',
-                'paymentsUrl' => 'https://testpayment.paypal.com',
+                'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
                 'queryUrl'    => 'https://testsubscription.paypal.com',
                 'imageUrl'    => 'https://testsubscription.paypal.com',
 
@@ -264,12 +264,16 @@ class ClientIntegrationController extends Controller
         // disconnect
         $disconnectUrl = $baseUrl . '/disconnect' . $qs;
 
+         $payload = [
+                // include provider meta if your flow needs it (these are examples)
+                'liveMode'        => $request->input('liveMode', false),
+         ];
         $resp = Http::timeout(20)
             ->acceptJson()
             ->withoutRedirecting()
             ->withToken($accessToken)
             ->withHeaders(['Version' => '2021-07-28'])
-            ->post($disconnectUrl, []);
+            ->post($disconnectUrl, $payload);
 
         if ($resp->status() >= 300 && $resp->status() < 400) {
             return response()->json([
