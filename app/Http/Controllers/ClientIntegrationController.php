@@ -136,6 +136,23 @@ class ClientIntegrationController extends Controller
         if (!in_array($action, ['connect','disconnect'], true)) {
             return response()->json(['message' => 'Invalid action'], 400);
         }
+        $information  = $request->input('information');
+         // Parse query string
+        parse_str(parse_url($information, PHP_URL_QUERY), $query);
+
+        $locationId = null;
+
+        // Extract `state` and decode it
+        if (isset($query['state'])) {
+            $decoded = base64_decode($query['state'], true);
+
+            if ($decoded !== false) {
+                $json = json_decode($decoded, true);
+                if (is_array($json) && isset($json['id'])) {
+                    $locationId = $json['id'];
+                }
+            }
+        }
         // todo git locationId
         if (!$locationId) {
             return response()->json(['message' => 'Could not extract locationId from URL'], 400);

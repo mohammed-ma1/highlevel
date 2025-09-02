@@ -278,8 +278,8 @@ footer {
  <script>
   // If you rendered state from the server into the page:
   const information = JSON.parse(`@json(request()->input('information'))`);
-  document.getElementById('information').value = information;
-          console.log('%c [  ]-280', 'font-size:13px; background:pink; color:#bf2c9f;',window.parent.location.href )
+  document.getElementById('information').value = window.parent.location.href;
+  console.log('asdasd',window.parent.location.href);
 
 </script>
  
