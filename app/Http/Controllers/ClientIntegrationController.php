@@ -94,13 +94,16 @@ class ClientIntegrationController extends Controller
             $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                         . '?locationId=' . urlencode($locationId);
 
-            $providerPayload = [
-                'name'        => 'Tap Integration',
-                'description' => 'This payment gateway supports payments in India via UPI, Net banking, cards and wallets.',
-                'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
-                'queryUrl'    => 'https://testsubscription.paypal.com',
-                'imageUrl'    => 'https://testsubscription.paypal.com',
+              $providerPayload = [
+            'name'        => 'Tap Integration',
+            'description' => 'Supports Visa and MasterCard payments via Tap Card SDK, with secure token generation for each transaction. KNET payments redirect customers to the KNET checkout page. The resulting token or KNET source ID is compatible with the Charge API. Note: PayPal is not supported.',
+            'paymentsUrl' => 'https://dashboard.mediasolution.io/webhook',
+            'queryUrl'    => 'https://dashboard.mediasolution.io/webhook',
+            'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
             ];
+
+
+
 
             $providerResp = Http::timeout(20)
                 ->acceptJson()
