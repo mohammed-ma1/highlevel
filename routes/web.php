@@ -1,20 +1,20 @@
+
 <?php
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ClientIntegrationController;
 use App\Http\Controllers\LeadConnectorPaymentController;
 
-
 Route::get('/connect', [ClientIntegrationController::class, 'connect'])
     ->name('client.connect');
 
 Route::get('/landing', function () {
-    return view('welcome')->name('welcome');
-});
+    return view('welcome');
+})->name('welcome');
 
 Route::get('/tap', function () {
-    return view('tap')->name('tap');
-});
+    return view('tap');
+})->name('tap');
 
 Route::get('/webhook', [ClientIntegrationController::class, 'webhook'])
     ->name('client.webhook');
