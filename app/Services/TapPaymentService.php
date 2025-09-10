@@ -256,32 +256,6 @@ class TapPaymentService
     }
 
     /**
-     * Create a customer
-     */
-    public function createCustomer($customerData)
-    {
-        try {
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->apiKey,
-                'Content-Type' => 'application/json'
-            ])->post($this->baseUrl . '/customers', $customerData);
-
-            if ($response->successful()) {
-                return $response->json();
-            } else {
-                Log::error('Tap customer creation failed', [
-                    'status' => $response->status(),
-                    'response' => $response->json()
-                ]);
-                return null;
-            }
-        } catch (\Exception $e) {
-            Log::error('Tap customer creation error', ['error' => $e->getMessage()]);
-            return null;
-        }
-    }
-
-    /**
      * Create a charge using saved payment method
      */
     public function createChargeWithPaymentMethod($paymentMethodId, $amount, $currency = 'JOD', $customerId = null, $description = null)
