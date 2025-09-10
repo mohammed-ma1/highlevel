@@ -1,0 +1,252 @@
+<?php
+
+namespace App\Services;
+
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+
+class TapPaymentService
+{
+    private $apiKey;
+    private $publishableKey;
+    private $baseUrl;
+    private $isLive;
+
+    public function __construct($apiKey, $publishableKey, $isLive = false)
+    {
+        $this->apiKey = $apiKey;
+        $this->publishableKey = $publishableKey;
+        $this->isLive = $isLive;
+        $this->baseUrl = $isLive ? 'https://api.tap.company/v2' : 'https://api.tap.company/v2';
+    }
+
+    /**
+     * Create a charge using Tap token
+     */
+    public function createCharge($token, $amount, $currency = 'JOD', $customer = null)
+    {
+        try {
+            $payload = [
+                'amount' => $amount,
+                'currency' => $currency,
+                'source' => [
+                    'id' => $token
+                ],
+                'redirect' => [
+                    'url' => config('app.url') . '/payment/redirect'
+                ]
+            ];
+
+            if ($customer) {
+                $payload['customer'] = $customer;
+            }
+
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Content-Type' => 'application/json'
+            ])->post($this->baseUrl . '/charges', $payload);
+
+            if ($response->successful()) {
+                return $response->json();
+            } else {
+                Log::error('Tap charge creation failed', [
+                    'status' => $response->status(),
+                    'response' => $response->json()
+                ]);
+                return null;
+            }
+        } catch (\Exception $e) {
+            Log::error('Tap charge creation error', ['error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    /**
+     * Create a refund
+     */
+    public function createRefund($chargeId, $amount = null)
+    {
+        try {
+            $payload = [];
+            if ($amount) {
+                $payload['amount'] = $amount;
+            }
+
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Content-Type' => 'application/json'
+            ])->post($this->baseUrl . '/refunds', array_merge([
+                'charge_id' => $chargeId
+            ], $payload));
+
+            if ($response->successful()) {
+                return $response->json();
+            } else {
+                Log::error('Tap refund creation failed', [
+                    'status' => $response->status(),
+                    'response' => $response->json()
+                ]);
+                return null;
+            }
+        } catch (\Exception $e) {
+            Log::error('Tap refund creation error', ['error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    /**
+     * Retrieve a charge
+     */
+    public function retrieveCharge($chargeId)
+    {
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Content-Type' => 'application/json'
+            ])->get($this->baseUrl . '/charges/' . $chargeId);
+
+            if ($response->successful()) {
+                return $response->json();
+            } else {
+                Log::error('Tap charge retrieval failed', [
+                    'status' => $response->status(),
+                    'response' => $response->json()
+                ]);
+                return null;
+            }
+        } catch (\Exception $e) {
+            Log::error('Tap charge retrieval error', ['error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    /**
+     * Create a customer
+     */
+    public function createCustomer($customerData)
+    {
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Content-Type' => 'application/json'
+            ])->post($this->baseUrl . '/customers', $customerData);
+
+            if ($response->successful()) {
+                return $response->json();
+            } else {
+                Log::error('Tap customer creation failed', [
+                    'status' => $response->status(),
+                    'response' => $response->json()
+                ]);
+                return null;
+            }
+        } catch (\Exception $e) {
+            Log::error('Tap customer creation error', ['error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    /**
+     * Create a subscription
+     */
+    public function createSubscription($subscriptionData)
+    {
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Content-Type' => 'application/json'
+            ])->post($this->baseUrl . '/subscriptions', $subscriptionData);
+
+            if ($response->successful()) {
+                return $response->json();
+            } else {
+                Log::error('Tap subscription creation failed', [
+                    'status' => $response->status(),
+                    'response' => $response->json()
+                ]);
+                return null;
+            }
+        } catch (\Exception $e) {
+            Log::error('Tap subscription creation error', ['error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    /**
+     * Update a subscription
+     */
+    public function updateSubscription($subscriptionId, $updateData)
+    {
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Content-Type' => 'application/json'
+            ])->put($this->baseUrl . '/subscriptions/' . $subscriptionId, $updateData);
+
+            if ($response->successful()) {
+                return $response->json();
+            } else {
+                Log::error('Tap subscription update failed', [
+                    'status' => $response->status(),
+                    'response' => $response->json()
+                ]);
+                return null;
+            }
+        } catch (\Exception $e) {
+            Log::error('Tap subscription update error', ['error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    /**
+     * Cancel a subscription
+     */
+    public function cancelSubscription($subscriptionId)
+    {
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Content-Type' => 'application/json'
+            ])->delete($this->baseUrl . '/subscriptions/' . $subscriptionId);
+
+            if ($response->successful()) {
+                return $response->json();
+            } else {
+                Log::error('Tap subscription cancellation failed', [
+                    'status' => $response->status(),
+                    'response' => $response->json()
+                ]);
+                return null;
+            }
+        } catch (\Exception $e) {
+            Log::error('Tap subscription cancellation error', ['error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    /**
+     * Get customer payment methods
+     */
+    public function getCustomerPaymentMethods($customerId)
+    {
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Content-Type' => 'application/json'
+            ])->get($this->baseUrl . '/customers/' . $customerId . '/cards');
+
+            if ($response->successful()) {
+                return $response->json();
+            } else {
+                Log::error('Tap payment methods retrieval failed', [
+                    'status' => $response->status(),
+                    'response' => $response->json()
+                ]);
+                return null;
+            }
+        } catch (\Exception $e) {
+            Log::error('Tap payment methods retrieval error', ['error' => $e->getMessage()]);
+            return null;
+        }
+    }
+}

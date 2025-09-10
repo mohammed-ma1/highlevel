@@ -98,7 +98,7 @@ class ClientIntegrationController extends Controller
             'name'        => 'Tap Integration',
             'description' => 'Supports Visa and MasterCard payments via Tap Card SDK, with secure token generation for each transaction. KNET payments redirect customers to the KNET checkout page. The resulting token or KNET source ID is compatible with the Charge API. Note: PayPal is not supported.',
             'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
-            'queryUrl'    => 'https://dashboard.mediasolution.io/tap',
+            'queryUrl'    => 'https://dashboard.mediasolution.io/payment/query',
             'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
             ];
 
@@ -207,6 +207,21 @@ class ClientIntegrationController extends Controller
                 'test_apiKey'          => ['required_without:live_apiKey', 'string'],
                 'test_publishableKey'  => ['required_without:live_publishableKey', 'string'],
             ]);
+
+            // Save API keys to user
+            if ($request->has('live_apiKey')) {
+                $user->lead_live_api_key = $request->input('live_apiKey');
+            }
+            if ($request->has('live_publishableKey')) {
+                $user->lead_live_publishable_key = $request->input('live_publishableKey');
+            }
+            if ($request->has('test_apiKey')) {
+                $user->lead_test_api_key = $request->input('test_apiKey');
+            }
+            if ($request->has('test_publishableKey')) {
+                $user->lead_test_publishable_key = $request->input('test_publishableKey');
+            }
+            $user->save();
         }
 
         $baseUrl = 'https://services.leadconnectorhq.com/payments/custom-provider';
@@ -217,11 +232,11 @@ class ClientIntegrationController extends Controller
 
             $payload = [
                 // include provider meta if your flow needs it (these are examples)
-                'name'        => 'Company Paypal Integration',
-                'description' => 'This payment gateway supports payments in India via UPI, Net banking, cards and wallets.',
+                'name'        => 'Tap Integration',
+                'description' => 'Supports Visa and MasterCard payments via Tap Card SDK, with secure token generation for each transaction. KNET payments redirect customers to the KNET checkout page. The resulting token or KNET source ID is compatible with the Charge API. Note: PayPal is not supported.',
                 'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
-                'queryUrl'    => 'https://testsubscription.paypal.com',
-                'imageUrl'    => 'https://testsubscription.paypal.com',
+                'queryUrl'    => 'https://dashboard.mediasolution.io/payment/query',
+                'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
 
                 'live' => [
                     'apiKey'         => $request->input('live_apiKey'),
@@ -328,6 +343,78 @@ class ClientIntegrationController extends Controller
 
         public function webhook(Request $request)
         {
-            Log::info('webhook', ['request' => $request->all()]);
+            Log::info('GoHighLevel webhook received', ['request' => $request->all()]);
+            
+            $event = $request->input('event');
+            $locationId = $request->input('locationId');
+            $apiKey = $request->input('apiKey');
+            
+            // Find user by location ID
+            $user = User::where('lead_location_id', $locationId)->first();
+            if (!$user) {
+                Log::warning('User not found for location', ['locationId' => $locationId]);
+                return response()->json(['message' => 'User not found'], 404);
+            }
+            
+            // Handle different webhook events
+            switch ($event) {
+                case 'subscription.charged':
+                    $this->handleSubscriptionCharged($request, $user);
+                    break;
+                case 'subscription.trialing':
+                    $this->handleSubscriptionTrialing($request, $user);
+                    break;
+                case 'subscription.active':
+                    $this->handleSubscriptionActive($request, $user);
+                    break;
+                case 'subscription.updated':
+                    $this->handleSubscriptionUpdated($request, $user);
+                    break;
+                case 'payment.captured':
+                    $this->handlePaymentCaptured($request, $user);
+                    break;
+                default:
+                    Log::info('Unhandled webhook event', ['event' => $event]);
+            }
+            
+            return response()->json(['message' => 'Webhook processed']);
+        }
+        
+        private function handleSubscriptionCharged(Request $request, User $user)
+        {
+            Log::info('Subscription charged', [
+                'subscriptionId' => $request->input('ghlSubscriptionId'),
+                'chargeId' => $request->input('chargeId'),
+                'amount' => $request->input('chargeSnapshot.amount')
+            ]);
+        }
+        
+        private function handleSubscriptionTrialing(Request $request, User $user)
+        {
+            Log::info('Subscription trialing', [
+                'subscriptionId' => $request->input('ghlSubscriptionId')
+            ]);
+        }
+        
+        private function handleSubscriptionActive(Request $request, User $user)
+        {
+            Log::info('Subscription active', [
+                'subscriptionId' => $request->input('ghlSubscriptionId')
+            ]);
+        }
+        
+        private function handleSubscriptionUpdated(Request $request, User $user)
+        {
+            Log::info('Subscription updated', [
+                'subscriptionId' => $request->input('ghlSubscriptionId')
+            ]);
+        }
+        
+        private function handlePaymentCaptured(Request $request, User $user)
+        {
+            Log::info('Payment captured', [
+                'chargeId' => $request->input('chargeId'),
+                'transactionId' => $request->input('ghlTransactionId')
+            ]);
         }
 }

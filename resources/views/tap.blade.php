@@ -369,9 +369,9 @@
 
     // 1) Render the card
     const { unmount } = renderTapCard('card-sdk-id', {
-      publicKey: 'pk_test_YhUjg9PNT8oDlKJ1aE2fMRz7', // <-- Your Tap PUBLIC key
+      publicKey: '{{ $publishableKey ?? "pk_test_YhUjg9PNT8oDlKJ1aE2fMRz7" }}', // <-- Your Tap PUBLIC key
       merchant: {
-        id: 'merchant_id_here'           // <-- Your Tap Merchant ID
+        id: '{{ $merchantId ?? "merchant_id_here" }}'           // <-- Your Tap Merchant ID
       },
       transaction: {
         amount: 1,                        // Example amount
@@ -428,7 +428,8 @@
       },
       onInvalidInput: data => {
         console.log('Invalid input:', data);
-        showError('Please check your card information and try again.');
+        // Don't show error immediately, let user complete the form
+        // showError('Please check your card information and try again.');
       },
       onError: err => {
         console.error('Tap Card error:', err);
@@ -440,7 +441,7 @@
       onSuccess: (data) => {
         console.log('Token success:', data);
         hideLoading();
-        showSuccess('Payment tokenized successfully!');
+        showSuccess('🎉 Payment tokenized successfully! Token: ' + data.id);
         showResult(data);
 
         // Example: POST token to your Laravel backend for creating a charge
