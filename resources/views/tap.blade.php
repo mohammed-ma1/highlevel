@@ -369,9 +369,9 @@
 
     // 1) Render the card
     const { unmount } = renderTapCard('card-sdk-id', {
-      publicKey: '{{ $publishableKey ?? "pk_test_YhUjg9PNT8oDlKJ1aE2fMRz7" }}', // <-- Your Tap PUBLIC key
+      publicKey: '{{ $publishableKey ?? "pk_test_xItqaSsJzl5g2K08fCwYbMvQ" }}', // <-- Your Tap PUBLIC key
       merchant: {
-        id: '{{ $merchantId ?? "merchant_id_here" }}'           // <-- Your Tap Merchant ID
+        id: '{{ $merchantId ?? "61000786" }}'           // <-- Your Tap Merchant ID
       },
       transaction: {
         amount: 1,                        // Example amount

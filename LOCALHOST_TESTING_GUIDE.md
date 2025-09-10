@@ -10,10 +10,20 @@ Your Laravel server is now running at: **http://localhost:8000**
 
 | Card Number | Expiry | CVV | Description |
 |-------------|--------|-----|-------------|
-| `4242424242424242` | `112/25` | `123` | Visa - Success |
+| `4242424242424242` | `12/25` | `123` | Visa - Success |
 | `5555555555554444` | `12/25` | `123` | Mastercard - Success |
 | `378282246310005` | `12/25` | `123` | American Express - Success |
 | `6011111111111117` | `12/25` | `123` | Discover - Success |
+
+### 🏦 **Mada Test Cards (Saudi Arabia)**
+
+| Card Number | Expiry | CVV | Description |
+|-------------|--------|-----|-------------|
+| `4000000000000002` | `12/25` | `123` | Mada - Success |
+| `4000000000000010` | `12/25` | `123` | Mada - Success |
+| `4000000000000028` | `12/25` | `123` | Mada - Success |
+| `4000000000000044` | `12/25` | `123` | Mada - Declined |
+| `4000000000000051` | `12/25` | `123` | Mada - Insufficient Funds |
 
 ### ❌ **Declined Test Cards**
 

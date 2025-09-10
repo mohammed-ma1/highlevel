@@ -20,8 +20,8 @@ Route::get('/test', function () {
 Route::get('/tap', function () {
     // Get the first user's publishable key for demo purposes
     $user = \App\Models\User::whereNotNull('lead_test_publishable_key')->first();
-    $publishableKey = $user ? $user->lead_test_publishable_key : 'pk_test_YhUjg9PNT8oDlKJ1aE2fMRz7';
-    $merchantId = 'merchant_id_here'; // You can get this from user config as well
+    $publishableKey = $user ? $user->lead_test_publishable_key : 'pk_test_xItqaSsJzl5g2K08fCwYbMvQ';
+    $merchantId = '61000786'; // You can get this from user config as well
     
     return view('tap', compact('publishableKey', 'merchantId'));
 })->name('tap');
