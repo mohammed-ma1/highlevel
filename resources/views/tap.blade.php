@@ -269,7 +269,7 @@
     <div class="payment-body">
       <div class="payment-amount">
         <div class="amount-label">Amount to Pay</div>
-        <div class="amount-value">1.00 JOD</div>
+        <div class="amount-value" id="amount-display">1.00 JOD</div>
       </div>
 
       <div class="error-message" id="error-message"></div>
@@ -324,6 +324,123 @@
     // Pull SDK helpers
     const { renderTapCard, Theme, Currencies, Direction, Edges, Locale, tokenize } = window.CardSDK;
 
+    // GoHighLevel iframe communication
+    let paymentData = null;
+    let isReady = false;
+
+    // Listen for messages from GoHighLevel parent window
+    window.addEventListener('message', function(event) {
+      console.log('Received message from parent:', event.data);
+      
+      if (event.data.type === 'payment_initiate_props') {
+        paymentData = event.data;
+        console.log('Payment data received:', paymentData);
+        console.log('Amount from GoHighLevel:', paymentData.amount, paymentData.currency);
+        updatePaymentForm(paymentData);
+      } else if (event.data.type === 'setup_initiate_props') {
+        paymentData = event.data;
+        console.log('Setup data received:', paymentData);
+        updatePaymentForm(paymentData);
+      }
+    });
+
+    // Send ready event to GoHighLevel parent window
+    function sendReadyEvent() {
+      const readyEvent = {
+        type: 'custom_provider_ready',
+        loaded: true,
+        addCardOnFileSupported: true // We support adding cards on file
+      };
+      
+      console.log('Sending ready event:', readyEvent);
+      window.parent.postMessage(readyEvent, '*');
+      isReady = true;
+    }
+
+    // Update payment form with data from GoHighLevel
+    function updatePaymentForm(data) {
+      console.log('Updating payment form with data:', data);
+      
+      // Update amount display
+      if (data.amount && data.currency) {
+        const amountDisplay = document.getElementById('amount-display');
+        if (amountDisplay) {
+          amountDisplay.textContent = data.amount + ' ' + data.currency;
+          console.log('Amount updated to:', data.amount + ' ' + data.currency);
+        }
+      }
+      
+      // Update customer info
+      if (data.contact) {
+        console.log('Customer info:', data.contact);
+        
+        // Update customer details in the form if needed
+        if (data.contact.name) {
+          console.log('Customer name:', data.contact.name);
+        }
+        if (data.contact.email) {
+          console.log('Customer email:', data.contact.email);
+        }
+      }
+      
+      // Update publishable key if provided
+      if (data.publishableKey) {
+        console.log('New publishable key received:', data.publishableKey);
+        // Note: To fully update the publishable key, we would need to reinitialize the Tap card
+        // This is complex and may require unmounting and remounting the entire card component
+      }
+      
+      // Update transaction amount in Tap card configuration
+      if (data.amount && data.currency) {
+        // Update the Tap card configuration with new amount
+        try {
+          window.CardSDK.updateCardConfiguration({
+            transaction: {
+              amount: data.amount,
+              currency: data.currency
+            }
+          });
+          console.log('Tap card configuration updated with amount:', data.amount, 'currency:', data.currency);
+        } catch (error) {
+          console.log('Could not update Tap card configuration:', error);
+        }
+      }
+    }
+
+    // Send success response to GoHighLevel
+    function sendSuccessResponse(chargeId) {
+      const successEvent = {
+        type: 'custom_element_success_response',
+        chargeId: chargeId
+      };
+      
+      console.log('Sending success response:', successEvent);
+      window.parent.postMessage(successEvent, '*');
+    }
+
+    // Send error response to GoHighLevel
+    function sendErrorResponse(errorMessage) {
+      const errorEvent = {
+        type: 'custom_element_error_response',
+        error: {
+          description: errorMessage
+        }
+      };
+      
+      console.log('Sending error response:', errorEvent);
+      window.parent.postMessage(errorEvent, '*');
+    }
+
+    // Send close response to GoHighLevel
+    function sendCloseResponse() {
+      const closeEvent = {
+        type: 'custom_element_close_response'
+      };
+      
+      console.log('Sending close response:', closeEvent);
+      window.parent.postMessage(closeEvent, '*');
+    }
+
     // UI Helper functions
     function showLoading() {
       document.getElementById('loading-spinner').style.display = 'inline-block';
@@ -368,15 +485,16 @@
     }
 
     // 1) Render the card
-    const { unmount } = renderTapCard('card-sdk-id', {
-      publicKey: '{{ $publishableKey ?? "pk_test_xItqaSsJzl5g2K08fCwYbMvQ" }}', // <-- Your Tap PUBLIC key
-      merchant: {
-        id: '{{ $merchantId ?? "61000786" }}'           // <-- Your Tap Merchant ID
-      },
-      transaction: {
-        amount: 1,                        // Example amount
-        currency: Currencies.JOD          // Use your currency (e.g., JOD, SAR, USD)
-      },
+    function initializeTapCard() {
+      const { unmount } = renderTapCard('card-sdk-id', {
+        publicKey: paymentData?.publishableKey || '{{ $publishableKey ?? "pk_test_xItqaSsJzl5g2K08fCwYbMvQ" }}',
+        merchant: {
+          id: '{{ $merchantId ?? "61000786" }}'
+        },
+        transaction: {
+          amount: paymentData?.amount || 1,
+          currency: paymentData?.currency || Currencies.JOD
+        },
       // Optional but recommended customer info
       customer: {
         // id: 'cus_xxxxx',               // If you have a Tap customer ID
@@ -444,6 +562,9 @@
         showSuccess('🎉 Payment tokenized successfully! Token: ' + data.id);
         showResult(data);
 
+        // Send success response to GoHighLevel
+        sendSuccessResponse(data.id);
+
         // Example: POST token to your Laravel backend for creating a charge
         // fetch("{{ route('client.webhook') }}", {
         //   method: "POST",
@@ -455,6 +576,20 @@
         // }).then(r => r.json()).then(console.log).catch(console.error);
       }
     });
+    }
+
+    // Initialize Tap Card when page loads
+    initializeTapCard();
+
+    // Send ready event after a short delay to ensure iframe is loaded
+    setTimeout(() => {
+      sendReadyEvent();
+    }, 1000);
+
+    // Update amount display if we have payment data
+    if (paymentData && paymentData.amount && paymentData.currency) {
+      updatePaymentForm(paymentData);
+    }
 
     // 2) Wire the button to call tokenize()
     document.getElementById('tap-tokenize-btn').addEventListener('click', () => {

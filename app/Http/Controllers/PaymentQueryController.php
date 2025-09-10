@@ -61,6 +61,8 @@ class PaymentQueryController extends Controller
                     return $this->handleCancelSubscription($request, $user);
                 case 'list_payment_methods':
                     return $this->handleListPaymentMethods($request, $user);
+                case 'charge_payment':
+                    return $this->handleChargePayment($request, $user);
                 default:
                     return response()->json([
                         'success' => false,
@@ -179,22 +181,48 @@ class PaymentQueryController extends Controller
         $amount = $request->input('amount');
         $currency = $request->input('currency', 'JOD');
         $paymentMethodId = $request->input('payment_method_id');
+        $token = $request->input('token');
         
-        if (!$amount || !$paymentMethodId) {
+        if (!$amount || (!$paymentMethodId && !$token)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Amount and payment method ID are required'
+                'message' => 'Amount and payment method ID or token are required'
             ], 400);
         }
 
-        // TODO: Implement actual charge with Tap API
-        // For now, return a mock response
+        // Get user's Tap credentials
+        $apiKey = $user->lead_live_api_key ?? $user->lead_test_api_key;
+        $isLive = !empty($user->lead_live_api_key);
+        
+        if (!$apiKey) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No API key configured for this location'
+            ], 400);
+        }
+
+        $tapService = new TapPaymentService($apiKey, '', $isLive);
+        
+        // Create charge using token or payment method
+        if ($token) {
+            $charge = $tapService->createCharge($token, $amount, $currency);
+        } else {
+            $charge = $tapService->createChargeWithPaymentMethod($paymentMethodId, $amount, $currency);
+        }
+
+        if (!$charge) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Charge creation failed'
+            ], 500);
+        }
+
         return response()->json([
             'success' => true,
-            'chargeId' => 'chg_' . uniqid(),
+            'chargeId' => $charge['id'],
             'amount' => $amount,
             'currency' => $currency,
-            'status' => 'succeeded'
+            'status' => strtolower($charge['status'])
         ]);
     }
 
@@ -271,19 +299,141 @@ class PaymentQueryController extends Controller
      */
     private function handleListPaymentMethods(Request $request, User $user)
     {
-        // TODO: Implement actual payment methods listing with Tap API
-        // For now, return a mock response
+        $contactId = $request->input('contactId');
+        
+        if (!$contactId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Contact ID is required'
+            ], 400);
+        }
+
+        // Get user's Tap credentials
+        $apiKey = $user->lead_live_api_key ?? $user->lead_test_api_key;
+        $isLive = !empty($user->lead_live_api_key);
+        
+        if (!$apiKey) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No API key configured for this location'
+            ], 400);
+        }
+
+        // TODO: Get customer ID from contact ID mapping
+        // For now, we'll need to implement customer ID mapping
+        $customerId = 'cus_' . $contactId; // This should be mapped from your database
+        
+        $tapService = new TapPaymentService($apiKey, '', $isLive);
+        $paymentMethods = $tapService->getCustomerPaymentMethods($customerId);
+
+        if (!$paymentMethods) {
+            return response()->json([
+                'success' => true,
+                'paymentMethods' => []
+            ]);
+        }
+
+        // Transform Tap response to GoHighLevel format
+        $formattedMethods = [];
+        if (isset($paymentMethods['data'])) {
+            foreach ($paymentMethods['data'] as $method) {
+                $formattedMethods[] = [
+                    'id' => $method['id'],
+                    'type' => 'card',
+                    'title' => ucfirst(strtolower($method['brand'] ?? 'Card')),
+                    'subTitle' => 'XXXX-' . ($method['last_four'] ?? '0000'),
+                    'expiry' => ($method['exp_month'] ?? '01') . '/' . ($method['exp_year'] ?? '25'),
+                    'customerId' => $customerId,
+                    'imageUrl' => $this->getCardImageUrl($method['brand'] ?? 'VISA')
+                ];
+            }
+        }
+
         return response()->json([
             'success' => true,
-            'paymentMethods' => [
-                [
-                    'id' => 'pm_' . uniqid(),
-                    'type' => 'card',
-                    'last4' => '4242',
-                    'brand' => 'visa',
-                    'exp_month' => 12,
-                    'exp_year' => 2025
-                ]
+            'paymentMethods' => $formattedMethods
+        ]);
+    }
+
+    /**
+     * Get card image URL based on brand
+     */
+    private function getCardImageUrl($brand)
+    {
+        $brandImages = [
+            'VISA' => 'https://upload.wikimedia.org/wikipedia/commons/4/41/Visa_Logo.png',
+            'MASTERCARD' => 'https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg',
+            'AMERICAN_EXPRESS' => 'https://upload.wikimedia.org/wikipedia/commons/3/30/American_Express_logo.svg',
+            'MADA' => 'https://mada.com.sa/wp-content/themes/mada/assets/images/logo.svg'
+        ];
+
+        return $brandImages[strtoupper($brand)] ?? $brandImages['VISA'];
+    }
+
+    /**
+     * Handle charge payment method
+     */
+    private function handleChargePayment(Request $request, User $user)
+    {
+        $paymentMethodId = $request->input('paymentMethodId');
+        $amount = $request->input('amount');
+        $currency = $request->input('currency', 'JOD');
+        $transactionId = $request->input('transactionId');
+        $chargeDescription = $request->input('chargeDescription', 'Payment');
+        $contactId = $request->input('contactId');
+        
+        if (!$paymentMethodId || !$amount || !$transactionId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Payment method ID, amount, and transaction ID are required'
+            ], 400);
+        }
+
+        // Get user's Tap credentials
+        $apiKey = $user->lead_live_api_key ?? $user->lead_test_api_key;
+        $isLive = !empty($user->lead_live_api_key);
+        
+        if (!$apiKey) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No API key configured for this location'
+            ], 400);
+        }
+
+        $tapService = new TapPaymentService($apiKey, '', $isLive);
+        
+        // Get customer ID from contact ID
+        $customerId = 'cus_' . $contactId; // This should be mapped from your database
+        
+        $charge = $tapService->createChargeWithPaymentMethod(
+            $paymentMethodId, 
+            $amount, 
+            $currency, 
+            $customerId, 
+            $chargeDescription
+        );
+
+        if (!$charge) {
+            return response()->json([
+                'success' => false,
+                'failed' => true,
+                'message' => 'Payment failed'
+            ], 500);
+        }
+
+        $isSuccessful = strtolower($charge['status']) === 'captured' || strtolower($charge['status']) === 'succeeded';
+        
+        return response()->json([
+            'success' => $isSuccessful,
+            'failed' => !$isSuccessful,
+            'chargeId' => $charge['id'],
+            'message' => $isSuccessful ? 'Payment successful' : 'Payment failed',
+            'chargeSnapshot' => [
+                'id' => $charge['id'],
+                'status' => strtolower($charge['status']),
+                'amount' => $charge['amount'],
+                'chargeId' => $charge['id'],
+                'chargedAt' => strtotime($charge['created'])
             ]
         ]);
     }
