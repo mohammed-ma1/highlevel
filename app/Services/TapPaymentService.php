@@ -14,9 +14,9 @@ class TapPaymentService
 
     public function __construct($apiKey, $publishableKey, $isLive = false)
     {
-        $this->apiKey = $apiKey ?? '5tap61';
-        $this->publishableKey = $publishableKey ?? 'pk_test_xItqaSsJzl5g2K08fCwYbMvQ';
-        $this->isLive = $isLive ?? false;
+        $this->apiKey = $apiKey ;
+        $this->publishableKey = $publishableKey ;
+        $this->isLive = $isLive ;
         $this->baseUrl = $isLive ? 'https://api.tap.company/v2' : 'https://api.tap.company/v2';
     }
 

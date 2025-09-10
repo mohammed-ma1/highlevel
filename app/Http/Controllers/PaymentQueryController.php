@@ -144,9 +144,9 @@ class PaymentQueryController extends Controller
         }
 
         // Get user's Tap credentials
-        $apiKey = $user->lead_live_api_key ?? '5tap61';
+        $apiKey = $user->lead_live_api_key ;
         
-        $isLive = !empty($user->lead_live_api_key) ?? false;
+        $isLive = !empty($user->lead_live_api_key);
         
         if (!$apiKey) {
             return response()->json([
