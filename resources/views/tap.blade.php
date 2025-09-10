@@ -330,17 +330,22 @@
 
     // Listen for messages from GoHighLevel parent window
     window.addEventListener('message', function(event) {
-      console.log('Received message from parent:', event.data);
-      
-      if (event.data.type === 'payment_initiate_props') {
-        paymentData = event.data;
-        console.log('Payment data received:', paymentData);
-        console.log('Amount from GoHighLevel:', paymentData.amount, paymentData.currency);
-        updatePaymentForm(paymentData);
-      } else if (event.data.type === 'setup_initiate_props') {
-        paymentData = event.data;
-        console.log('Setup data received:', paymentData);
-        updatePaymentForm(paymentData);
+      try {
+        console.log('Received message from parent:', event.data);
+        
+        if (event.data && event.data.type === 'payment_initiate_props') {
+          paymentData = event.data;
+          console.log('Payment data received:', paymentData);
+          console.log('Amount from GoHighLevel:', paymentData.amount, paymentData.currency);
+          updatePaymentForm(paymentData);
+        } else if (event.data && event.data.type === 'setup_initiate_props') {
+          paymentData = event.data;
+          console.log('Setup data received:', paymentData);
+          updatePaymentForm(paymentData);
+        }
+      } catch (error) {
+        console.log('Error processing message from parent:', error);
+        // Ignore parsing errors from other extensions or scripts
       }
     });
 
@@ -539,15 +544,25 @@
       },
       onBinIdentification: data => {
         console.log('BIN identified:', data);
+        // Clear any previous errors when BIN is identified
+        hideMessages();
       },
       onValidInput: data => {
         console.log('Valid input:', data);
         hideMessages();
       },
       onInvalidInput: data => {
-        console.log('Invalid input:', data);
-        // Don't show error immediately, let user complete the form
-        // showError('Please check your card information and try again.');
+        console.log('Invalid input details:', JSON.stringify(data, null, 2));
+        // Show specific validation errors
+        if (data.cardNumber && data.cardNumber.invalid) {
+          showError('Please enter a valid card number (16 digits)');
+        } else if (data.expiry && data.expiry.invalid) {
+          showError('Please enter a valid expiry date (MM/YY)');
+        } else if (data.cvv && data.cvv.invalid) {
+          showError('Please enter a valid CVV (3-4 digits)');
+        } else {
+          showError('Please check your card information and try again.');
+        }
       },
       onError: err => {
         console.error('Tap Card error:', err);
