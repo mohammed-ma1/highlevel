@@ -1,4 +1,19 @@
-{{-- resources/views/tap.blade.php --}}
+{{-- 
+  resources/views/tap.blade.php
+  
+  GoHighLevel Payment Integration with Tap Payments
+  
+  Debugging Features:
+  - Check iframe context: window.testGHLIntegration.checkContext()
+  - Test payment simulation: window.testGHLIntegration.simulatePayment()
+  - Test complete flow: window.testGHLIntegration.testFlow()
+  
+  The console will now show:
+  - Only non-extension messages (filters out Angular DevTools noise)
+  - Iframe context information
+  - Clear GHL message validation
+  - Ready event confirmation
+--}}
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
@@ -354,31 +369,88 @@
         return false;
       }
       
-      return data.__NG_DEVTOOLS_EVENT__ || 
-             data.topic === 'handshake' || 
-             data.topic === 'detectAngular' ||
-             (data.source && data.source.includes('angular-devtools')) ||
-             (data.source && data.source.includes('chrome-extension')) ||
-             data.isIvy !== undefined ||
-             data.isAngular !== undefined;
+      // Check for Angular DevTools specific properties
+      if (data.__NG_DEVTOOLS_EVENT__ || 
+          data.topic === 'handshake' || 
+          data.topic === 'detectAngular' ||
+          (data.source && data.source.includes('angular-devtools')) ||
+          (data.source && data.source.includes('chrome-extension')) ||
+          data.isIvy !== undefined ||
+          data.isAngular !== undefined) {
+        return true;
+      }
+      
+      // Check for other common extension patterns
+      if (data.source && (
+          data.source.includes('extension') ||
+          data.source.includes('devtools') ||
+          data.source.includes('content-script')
+        )) {
+        return true;
+      }
+      
+      // Check for browser extension message patterns
+      if (data.type && (
+          data.type.includes('extension') ||
+          data.type.includes('devtools') ||
+          data.type.includes('chrome')
+        )) {
+        return true;
+      }
+      
+      return false;
+    }
+
+    // Check if message looks like it could be from GHL
+    function isPotentialGHLMessage(data) {
+      if (!data || typeof data !== 'object') {
+        return false;
+      }
+      
+      // GHL messages should have specific structure
+      return data.type === 'payment_initiate_props' || 
+             data.type === 'setup_initiate_props' ||
+             (data.publishableKey && data.amount && data.currency) ||
+             (data.type && data.type.includes('payment')) ||
+             (data.type && data.type.includes('setup'));
     }
 
     // Listen for messages from GoHighLevel parent window
     window.addEventListener('message', function(event) {
-      console.log('🚫🚫🚫🚫🚫🚫🚫 Received ReceivedReceivedReceivedReceivedReceivedReceivedReceived:', event);
-
       try {
-        console.log('📨 Received message from parent:', event.data);
-        
         // Skip extension messages (Angular DevTools, Chrome extensions, etc.)
         if (isExtensionMessage(event.data)) {
-          console.log('🚫 Skipping extension message:', event.data);
+          // Silently skip extension messages - no need to log them
+          return;
+        }
+        
+        // Log all non-extension messages for debugging
+        console.log('🔍 Received non-extension message:', {
+          origin: event.origin,
+          type: event.data?.type,
+          hasAmount: !!event.data?.amount,
+          hasCurrency: !!event.data?.currency,
+          hasPublishableKey: !!event.data?.publishableKey,
+          isPotentialGHL: isPotentialGHLMessage(event.data),
+          fullData: event.data,
+          timestamp: new Date().toISOString()
+        });
+        
+        // Check if this looks like a potential GHL message
+        if (!isPotentialGHLMessage(event.data)) {
+          console.log('❌ Message does not appear to be from GHL:', {
+            received: event.data,
+            reason: 'Missing GHL-specific properties (type, publishableKey, amount, currency)'
+          });
           return;
         }
         
         // Validate GHL message structure
         if (!isValidGHLMessage(event.data)) {
-          console.log('❌ Invalid or non-GHL message:', event.data);
+          console.log('❌ Invalid GHL message structure:', {
+            received: event.data,
+            expected: 'Should have type: payment_initiate_props or setup_initiate_props'
+          });
           return;
         }
         
@@ -405,6 +477,29 @@
       }
     });
 
+    // Add debugging function to check if we're in an iframe
+    function checkIframeContext() {
+      console.log('🔍 Iframe Context Check:');
+      console.log('- In iframe:', window !== window.top);
+      console.log('- Current origin:', window.location.origin);
+      console.log('- Current URL:', window.location.href);
+      
+      try {
+        console.log('- Parent origin:', window.parent.location?.origin || 'Cannot access parent origin');
+        console.log('- Parent URL:', window.parent.location?.href || 'Cannot access parent URL');
+      } catch (e) {
+        console.log('- Parent access blocked (cross-origin):', e.message);
+      }
+      
+      // Check if we can communicate with parent
+      try {
+        window.parent.postMessage({ type: 'test_communication' }, '*');
+        console.log('✅ Can send messages to parent');
+      } catch (e) {
+        console.log('❌ Cannot send messages to parent:', e.message);
+      }
+    }
+
     // Send ready event to GoHighLevel parent window
     function sendReadyEvent() {
       const readyEvent = {
@@ -413,9 +508,12 @@
         addCardOnFileSupported: true // We support adding cards on file
       };
       
-      console.log('Sending ready event:', readyEvent);
+      console.log('📤 Sending ready event to GHL:', readyEvent);
       window.parent.postMessage(readyEvent, '*');
       isReady = true;
+      
+      // Also log that we're ready
+      console.log('✅ Payment iframe is ready and listening for GHL messages');
     }
 
     // Update payment form with data from GoHighLevel
@@ -702,8 +800,9 @@
     // Initialize Tap Card when page loads
     initializeTapCard();
 
-    // Send ready event after a short delay to ensure iframe is loaded
+    // Check iframe context and send ready event after a short delay
     setTimeout(() => {
+      checkIframeContext();
       sendReadyEvent();
     }, 1000);
 
@@ -734,6 +833,40 @@
       console.log('🧪 Simulating GHL payment data for testing:', testData);
       updatePaymentForm(testData);
     }
+
+    // Add function to test the complete payment flow
+    function testPaymentFlow() {
+      console.log('🧪 Testing complete payment flow...');
+      
+      // Simulate receiving GHL data
+      simulateGHLPaymentData();
+      
+      // Wait a bit then simulate successful payment
+      setTimeout(() => {
+        console.log('🧪 Simulating successful payment tokenization...');
+        const mockTokenData = {
+          id: 'tok_test_123456789',
+          object: 'token',
+          created: Date.now(),
+          used: false,
+          type: 'card'
+        };
+        
+        console.log('✅ Mock token received:', mockTokenData);
+        showSuccess('🎉 Test payment tokenized successfully! Token: ' + mockTokenData.id);
+        showResult(mockTokenData);
+        
+        // Send success response to GHL
+        sendSuccessResponse(mockTokenData.id);
+      }, 3000);
+    }
+
+    // Make test functions available globally for debugging
+    window.testGHLIntegration = {
+      simulatePayment: simulateGHLPaymentData,
+      testFlow: testPaymentFlow,
+      checkContext: checkIframeContext
+    };
 
     // Uncomment the line below to test with simulated data
     // setTimeout(simulateGHLPaymentData, 2000);
