@@ -328,23 +328,77 @@
     let paymentData = null;
     let isReady = false;
 
+    // Validate GHL message structure
+    function isValidGHLMessage(data) {
+      if (!data || typeof data !== 'object') {
+        return false;
+      }
+      
+      // Check for required GHL message properties
+      const validTypes = ['payment_initiate_props', 'setup_initiate_props'];
+      if (!data.type || !validTypes.includes(data.type)) {
+        return false;
+      }
+      
+      // For payment_initiate_props, check for required fields
+      if (data.type === 'payment_initiate_props') {
+        return data.publishableKey && data.amount && data.currency;
+      }
+      
+      return true;
+    }
+
+    // Check if message is from Angular DevTools or other extensions
+    function isExtensionMessage(data) {
+      if (!data || typeof data !== 'object') {
+        return false;
+      }
+      
+      return data.__NG_DEVTOOLS_EVENT__ || 
+             data.topic === 'handshake' || 
+             data.topic === 'detectAngular' ||
+             (data.source && data.source.includes('angular-devtools')) ||
+             (data.source && data.source.includes('chrome-extension')) ||
+             data.isIvy !== undefined ||
+             data.isAngular !== undefined;
+    }
+
     // Listen for messages from GoHighLevel parent window
     window.addEventListener('message', function(event) {
       try {
-        console.log('Received message from parent:', event.data);
+        console.log('📨 Received message from parent:', event.data);
         
-        if (event.data && event.data.type === 'payment_initiate_props') {
+        // Skip extension messages (Angular DevTools, Chrome extensions, etc.)
+        if (isExtensionMessage(event.data)) {
+          console.log('🚫 Skipping extension message:', event.data);
+          return;
+        }
+        
+        // Validate GHL message structure
+        if (!isValidGHLMessage(event.data)) {
+          console.log('❌ Invalid or non-GHL message:', event.data);
+          return;
+        }
+        
+        // Process valid GHL payment events
+        if (event.data.type === 'payment_initiate_props') {
           paymentData = event.data;
-          console.log('Payment data received:', paymentData);
-          console.log('Amount from GoHighLevel:', paymentData.amount, paymentData.currency);
+          console.log('✅ GHL Payment data received:', paymentData);
+          console.log('💰 Amount from GoHighLevel:', paymentData.amount, paymentData.currency);
+          console.log('🔑 Publishable Key:', paymentData.publishableKey);
+          console.log('👤 Customer Info:', paymentData.contact);
+          console.log('📋 Order ID:', paymentData.orderId);
+          console.log('🏢 Location ID:', paymentData.locationId);
+          console.log('🎯 Payment Mode:', paymentData.mode);
+          console.log('📦 Product Details:', paymentData.productDetails);
           updatePaymentForm(paymentData);
-        } else if (event.data && event.data.type === 'setup_initiate_props') {
+        } else if (event.data.type === 'setup_initiate_props') {
           paymentData = event.data;
-          console.log('Setup data received:', paymentData);
+          console.log('✅ GHL Setup data received:', paymentData);
           updatePaymentForm(paymentData);
         }
       } catch (error) {
-        console.log('Error processing message from parent:', error);
+        console.error('❌ Error processing message from parent:', error);
         // Ignore parsing errors from other extensions or scripts
       }
     });
@@ -364,33 +418,65 @@
 
     // Update payment form with data from GoHighLevel
     function updatePaymentForm(data) {
-      console.log('Updating payment form with data:', data);
+      console.log('🔄 Updating payment form with GHL data:', data);
+      
+      // Validate required GHL data structure
+      if (!data || typeof data !== 'object') {
+        console.error('❌ Invalid payment data received');
+        return;
+      }
       
       // Update amount display
       if (data.amount && data.currency) {
         const amountDisplay = document.getElementById('amount-display');
         if (amountDisplay) {
           amountDisplay.textContent = data.amount + ' ' + data.currency;
-          console.log('Amount updated to:', data.amount + ' ' + data.currency);
+          console.log('💰 Amount updated to:', data.amount + ' ' + data.currency);
         }
       }
       
       // Update customer info
       if (data.contact) {
-        console.log('Customer info:', data.contact);
+        console.log('👤 Customer info received:', data.contact);
         
-        // Update customer details in the form if needed
+        // Log customer details
         if (data.contact.name) {
-          console.log('Customer name:', data.contact.name);
+          console.log('👤 Customer name:', data.contact.name);
         }
         if (data.contact.email) {
-          console.log('Customer email:', data.contact.email);
+          console.log('📧 Customer email:', data.contact.email);
         }
+        if (data.contact.contact) {
+          console.log('📞 Customer phone:', data.contact.contact);
+        }
+        if (data.contact.id) {
+          console.log('🆔 Customer ID:', data.contact.id);
+        }
+      }
+      
+      // Log additional GHL data
+      if (data.orderId) {
+        console.log('📋 Order ID:', data.orderId);
+      }
+      if (data.transactionId) {
+        console.log('💳 Transaction ID:', data.transactionId);
+      }
+      if (data.subscriptionId) {
+        console.log('🔄 Subscription ID:', data.subscriptionId);
+      }
+      if (data.locationId) {
+        console.log('🏢 Location ID:', data.locationId);
+      }
+      if (data.mode) {
+        console.log('🎯 Payment mode:', data.mode);
+      }
+      if (data.productDetails) {
+        console.log('📦 Product details:', data.productDetails);
       }
       
       // Update publishable key if provided
       if (data.publishableKey) {
-        console.log('New publishable key received:', data.publishableKey);
+        console.log('🔑 New publishable key received:', data.publishableKey);
         // Note: To fully update the publishable key, we would need to reinitialize the Tap card
         // This is complex and may require unmounting and remounting the entire card component
       }
@@ -405,21 +491,33 @@
               currency: data.currency
             }
           });
-          console.log('Tap card configuration updated with amount:', data.amount, 'currency:', data.currency);
+          console.log('✅ Tap card configuration updated with amount:', data.amount, 'currency:', data.currency);
         } catch (error) {
-          console.log('Could not update Tap card configuration:', error);
+          console.log('⚠️ Could not update Tap card configuration:', error);
         }
       }
+      
+      // Show success message that GHL data was received
+      showSuccess('✅ Payment data received from GoHighLevel successfully!');
+      setTimeout(() => {
+        hideMessages();
+      }, 3000);
     }
 
     // Send success response to GoHighLevel
     function sendSuccessResponse(chargeId) {
       const successEvent = {
         type: 'custom_element_success_response',
-        chargeId: chargeId
+        chargeId: chargeId,
+        // Include additional GHL context if available
+        ...(paymentData && {
+          orderId: paymentData.orderId,
+          transactionId: paymentData.transactionId,
+          locationId: paymentData.locationId
+        })
       };
       
-      console.log('Sending success response:', successEvent);
+      console.log('✅ Sending success response to GHL:', successEvent);
       window.parent.postMessage(successEvent, '*');
     }
 
@@ -429,10 +527,16 @@
         type: 'custom_element_error_response',
         error: {
           description: errorMessage
-        }
+        },
+        // Include additional GHL context if available
+        ...(paymentData && {
+          orderId: paymentData.orderId,
+          transactionId: paymentData.transactionId,
+          locationId: paymentData.locationId
+        })
       };
       
-      console.log('Sending error response:', errorEvent);
+      console.log('❌ Sending error response to GHL:', errorEvent);
       window.parent.postMessage(errorEvent, '*');
     }
 
@@ -600,6 +704,37 @@
     setTimeout(() => {
       sendReadyEvent();
     }, 1000);
+
+    // Debug function to simulate GHL payment data (for testing)
+    function simulateGHLPaymentData() {
+      const testData = {
+        type: 'payment_initiate_props',
+        publishableKey: 'pk_test_YhUjg9PNT8oDlKJ1aE2fMRz7',
+        amount: 25.50,
+        currency: 'JOD',
+        mode: 'payment',
+        productDetails: {
+          productId: 'prod_test_123',
+          priceId: 'price_test_456'
+        },
+        contact: {
+          id: 'cus_test_789',
+          name: 'John Doe',
+          email: 'john.doe@example.com',
+          contact: '+962790000000'
+        },
+        orderId: 'order_test_101112',
+        transactionId: 'txn_test_131415',
+        subscriptionId: null,
+        locationId: 'loc_test_161718'
+      };
+      
+      console.log('🧪 Simulating GHL payment data for testing:', testData);
+      updatePaymentForm(testData);
+    }
+
+    // Uncomment the line below to test with simulated data
+    // setTimeout(simulateGHLPaymentData, 2000);
 
     // Update amount display if we have payment data
     if (paymentData && paymentData.amount && paymentData.currency) {
