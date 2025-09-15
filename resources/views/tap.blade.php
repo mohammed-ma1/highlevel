@@ -365,7 +365,7 @@
 
     // Listen for messages from GoHighLevel parent window
     window.addEventListener('message', function(event) {
-      console.log('🚫🚫🚫🚫🚫🚫🚫 Received ReceivedReceivedReceivedReceivedReceivedReceivedReceived:', event.data);
+      console.log('🚫🚫🚫🚫🚫🚫🚫 Received ReceivedReceivedReceivedReceivedReceivedReceivedReceived:', event);
 
       try {
         console.log('📨 Received message from parent:', event.data);
