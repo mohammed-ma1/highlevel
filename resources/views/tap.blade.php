@@ -491,10 +491,10 @@
              (data.type && data.type.includes('custom_provider'));
     }
 
-    // Listen for messages from GoHighLevel parent window
-    window.addEventListener('message', function(event) {
-      console.log('🔍 Received message from GoHighLevel parent window:', event);
-      try {
+      // Listen for messages from GoHighLevel parent window
+      window.addEventListener('message', function(event) {
+        // Log all messages for debugging (you can remove this later)
+        try {
         // Skip extension messages (Angular DevTools, Chrome extensions, Tap SDK, etc.)
         if (isExtensionMessage(event.data)) {
           // Silently skip extension messages - no need to log them
@@ -503,15 +503,15 @@
         
         // Only log messages that could potentially be from GHL
         if (isPotentialGHLMessage(event.data)) {
-          console.log('🔍 Received potential GHL message:', {
-            origin: event.origin,
-            type: event.data?.type,
-            hasAmount: !!event.data?.amount,
-            hasCurrency: !!event.data?.currency,
-            hasPublishableKey: !!event.data?.publishableKey,
-            fullData: event.data,
-            timestamp: new Date().toISOString()
-          });
+          // console.log('🔍 Received potential GHL message:', {
+          //   origin: event.origin,
+          //   type: event.data?.type,
+          //   hasAmount: !!event.data?.amount,
+          //   hasCurrency: !!event.data?.currency,
+          //   hasPublishableKey: !!event.data?.publishableKey,
+          //   fullData: event.data,
+          //   timestamp: new Date().toISOString()
+          // });
         } else {
           // Log non-GHL messages at debug level only
           console.debug('🔍 Received non-GHL message (ignored):', {
@@ -1015,6 +1015,7 @@
     // Add a console message to help with debugging
     console.log('🚀 Tap Payment Integration Loaded Successfully');
     console.log('📋 Available test functions:');
+    console.log('  - window.testGHLIntegration.testGHLFlow() - Test exact GHL documentation flow');
     console.log('  - window.testGHLIntegration.simulatePayment() - Test with mock GHL payment data');
     console.log('  - window.testGHLIntegration.simulateSetup() - Test with mock GHL setup data (add card)');
     console.log('  - window.testGHLIntegration.testFlow() - Test complete payment flow');
@@ -1098,11 +1099,50 @@
       updatePaymentFormForSetup(testData);
     }
 
+    // Test function to simulate the exact GHL flow from the documentation
+    function testGHLDocumentationFlow() {
+      console.log('🧪 Testing GHL Documentation Flow...');
+      console.log('📋 Step 1: Iframe sends ready event (already done)');
+      console.log('📋 Step 2: Simulating GHL sending payment data...');
+      
+      // Simulate the exact data structure from GHL documentation
+      const ghlPaymentData = {
+        type: 'payment_initiate_props',
+        publishableKey: 'pk_test_YhUjg9PNT8oDlKJ1aE2fMRz7',
+        amount: 25.50,
+        currency: 'JOD',
+        mode: 'payment',
+        productDetails: {
+          productId: 'prod_123456',
+          priceId: 'price_789012'
+        },
+        contact: {
+          id: 'cus_345678',
+          name: 'John Doe',
+          email: 'john.doe@example.com',
+          contact: '+962790000000'
+        },
+        orderId: 'order_901234',
+        transactionId: 'txn_567890',
+        subscriptionId: 'sub_123456',
+        locationId: 'loc_789012'
+      };
+      
+      console.log('📤 Simulating GHL sending this data:', ghlPaymentData);
+      
+      // Simulate receiving the message
+      setTimeout(() => {
+        console.log('📥 Processing GHL payment data...');
+        updatePaymentForm(ghlPaymentData);
+      }, 1000);
+    }
+
     // Make test functions available globally for debugging
     window.testGHLIntegration = {
       simulatePayment: simulateGHLPaymentData,
       simulateSetup: simulateGHLSetupData,
       testFlow: testPaymentFlow,
+      testGHLFlow: testGHLDocumentationFlow,
       checkContext: checkIframeContext
     };
 
