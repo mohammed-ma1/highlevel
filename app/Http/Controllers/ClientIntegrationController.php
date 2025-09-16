@@ -12,6 +12,30 @@ class ClientIntegrationController extends Controller
 {
     public function connect(Request $request)
     {
+        // Log all requests to this endpoint for debugging
+        Log::info('Connect endpoint called', [
+            'url' => $request->fullUrl(),
+            'method' => $request->method(),
+            'all_params' => $request->all(),
+            'query_params' => $request->query(),
+            'has_code' => $request->has('code'),
+            'code_value' => $request->input('code')
+        ]);
+        
+        // Check if this is a proper OAuth request
+        if (!$request->has('code')) {
+            Log::warning('Connect endpoint called without authorization code', [
+                'url' => $request->fullUrl(),
+                'params' => $request->all()
+            ]);
+            
+            return response()->json([
+                'message' => 'This endpoint requires OAuth authorization code. Use /provider/connect-or-disconnect for form submissions.',
+                'error' => 'Missing authorization code',
+                'received_params' => $request->all()
+            ], 400);
+        }
+        
         $tokenUrl = config('services.external_auth.token_url', 'https://services.leadconnectorhq.com/oauth/token');
 
         try {
@@ -134,6 +158,14 @@ class ClientIntegrationController extends Controller
 
     public function connectOrDisconnect(Request $request)
     {
+        // Log the incoming request for debugging
+        Log::info('ConnectOrDisconnect method called', [
+            'action' => $request->input('action'),
+            'url' => $request->fullUrl(),
+            'method' => $request->method(),
+            'all_params' => $request->all()
+        ]);
+        
         // 0) Which action?
         $action = strtolower((string) $request->input('action'));
         if (!in_array($action, ['connect','disconnect'], true)) {
@@ -158,15 +190,33 @@ class ClientIntegrationController extends Controller
         }
         // todo git locationId
         if (!$locationId) {
-            return response()->json(['message' => 'Could not extract locationId from URL'], 400);
+            Log::error('Could not extract locationId from information parameter', [
+                'information' => $information,
+                'action' => $action,
+                'request_url' => $request->fullUrl()
+            ]);
+            
+            return response()->json([
+                'message' => 'Could not extract locationId from URL. Please ensure you are accessing this page from the correct integration flow.',
+                'error' => 'Invalid locationId',
+                'information_param' => $information
+            ], 400);
         }
 
         // 2) Find the user who previously connected this location
         $user = User::where('lead_location_id', $locationId)->first();
         if (!$user) {
-            return response()->json([
-                'message' => 'No local user found for this locationId.',
+            Log::warning('No user found for locationId in connectOrDisconnect', [
                 'locationId' => $locationId,
+                'action' => $action,
+                'request_url' => $request->fullUrl()
+            ]);
+            
+            return response()->json([
+                'message' => 'No user found for this location. Please complete the OAuth integration first by visiting /connect with proper authorization code.',
+                'locationId' => $locationId,
+                'error' => 'User not found - OAuth integration required',
+                'solution' => 'Complete OAuth flow first via /connect endpoint'
             ], 404);
         }
 
