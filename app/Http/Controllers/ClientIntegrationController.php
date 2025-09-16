@@ -282,9 +282,12 @@ class ClientIntegrationController extends Controller
         // disconnect
         $disconnectUrl = $baseUrl . '/disconnect' . $qs;
 
-         $payload = [
+        // Get the disconnect mode from the new radio button selection
+        $disconnectMode = $request->input('disconnect_mode', 'test'); // default to test mode
+        
+        $payload = [
                 // include provider meta if your flow needs it (these are examples)
-                'liveMode'        => $request->input('liveMode', false) ? true : false,
+                'liveMode'        => $disconnectMode === 'live' ? true : false,
          ];
         $resp = Http::timeout(20)
             ->acceptJson()
