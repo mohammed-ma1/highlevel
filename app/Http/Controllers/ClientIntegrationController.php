@@ -40,18 +40,34 @@ class ClientIntegrationController extends Controller
 
         try {
             // 1) Exchange auth code -> token
+            $tokenPayload = [
+                'grant_type'    => 'authorization_code',
+                'client_id'     => config('services.external_auth.client_id'),
+                'client_secret' => config('services.external_auth.client_secret'),
+                'code'          => $request->input('code'),
+                'redirect_uri'  => config('services.external_auth.redirect_uri', 'https://dashboard.mediasolution.io/connect'), // Include redirect_uri
+            ];
+            
+            Log::info('OAuth token request', [
+                'url' => $tokenUrl,
+                'payload' => $tokenPayload,
+                'client_id' => config('services.external_auth.client_id'),
+                'has_client_secret' => !empty(config('services.external_auth.client_secret'))
+            ]);
+            
             $tokenResponse = Http::timeout(15)
                 ->acceptJson()
                 ->asForm()
-                ->post($tokenUrl, [
-                    'grant_type'    => 'authorization_code',
-                    'client_id'     => config('services.external_auth.client_id'),
-                    'client_secret' => config('services.external_auth.client_secret'),
-                    'code'          => $request->input('code'),
-                    // 'redirect_uri' => config('services.external_auth.redirect_uri'), // recommended to include if required
-                ]);
+                ->post($tokenUrl, $tokenPayload);
 
             if ($tokenResponse->failed()) {
+                Log::error('OAuth token exchange failed', [
+                    'status' => $tokenResponse->status(),
+                    'response_body' => $tokenResponse->body(),
+                    'response_json' => $tokenResponse->json(),
+                    'headers' => $tokenResponse->headers()
+                ]);
+                
                 return response()->json([
                     'message' => 'OAuth exchange failed',
                     'status'  => $tokenResponse->status(),
