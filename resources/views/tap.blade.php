@@ -336,6 +336,34 @@
   <script src="https://tap-sdks.b-cdn.net/card/1.0.2/index.js"></script>
 
   <script>
+    // Global error handler to suppress extension-related errors
+    window.addEventListener('error', function(event) {
+      // Suppress errors from browser extensions
+      if (event.filename && (
+          event.filename.includes('chrome-extension://') ||
+          event.filename.includes('moz-extension://') ||
+          event.filename.includes('safari-extension://') ||
+          event.filename.includes('content_script') ||
+          event.filename.includes('Cr9l0Ika.js') ||
+          event.filename.includes('detect-angular-for-extension-icon.ts')
+        )) {
+        event.preventDefault();
+        return false;
+      }
+    });
+
+    // Suppress unhandled promise rejections from extensions
+    window.addEventListener('unhandledrejection', function(event) {
+      if (event.reason && event.reason.message && (
+          event.reason.message.includes('Unable to parse event message') ||
+          event.reason.message.includes('extension') ||
+          event.reason.message.includes('content_script')
+        )) {
+        event.preventDefault();
+        return false;
+      }
+    });
+
     // Pull SDK helpers
     const { renderTapCard, Theme, Currencies, Direction, Edges, Locale, tokenize } = window.CardSDK;
 
@@ -343,7 +371,7 @@
     let paymentData = null;
     let isReady = false;
 
-    // Validate GHL message structure
+    // Validate GHL message structure according to documentation
     function isValidGHLMessage(data) {
       if (!data || typeof data !== 'object') {
         return false;
@@ -355,9 +383,25 @@
         return false;
       }
       
-      // For payment_initiate_props, check for required fields
+      // For payment_initiate_props, check for required fields per GHL docs
       if (data.type === 'payment_initiate_props') {
-        return data.publishableKey && data.amount && data.currency;
+        return data.publishableKey && 
+               data.amount && 
+               data.currency && 
+               data.mode && 
+               data.orderId && 
+               data.transactionId && 
+               data.locationId;
+      }
+      
+      // For setup_initiate_props, check for required fields per GHL docs
+      if (data.type === 'setup_initiate_props') {
+        return data.publishableKey && 
+               data.currency && 
+               data.mode === 'setup' && 
+               data.contact && 
+               data.contact.id && 
+               data.locationId;
       }
       
       return true;
@@ -398,6 +442,16 @@
         return true;
       }
       
+      // Check for Tap SDK messages that are not from GHL
+      if (data.event === 'onCardReady' && data.data && data.data.ready === true) {
+        return true; // This is from Tap SDK, not GHL
+      }
+      
+      // Check for generic ready events that aren't GHL-specific
+      if (data.ready === true && !data.type) {
+        return true;
+      }
+      
       return false;
     }
 
@@ -412,35 +466,36 @@
              data.type === 'setup_initiate_props' ||
              (data.publishableKey && data.amount && data.currency) ||
              (data.type && data.type.includes('payment')) ||
-             (data.type && data.type.includes('setup'));
+             (data.type && data.type.includes('setup')) ||
+             (data.type && data.type.includes('custom_provider'));
     }
 
     // Listen for messages from GoHighLevel parent window
     window.addEventListener('message', function(event) {
       try {
-        // Skip extension messages (Angular DevTools, Chrome extensions, etc.)
+        // Skip extension messages (Angular DevTools, Chrome extensions, Tap SDK, etc.)
         if (isExtensionMessage(event.data)) {
           // Silently skip extension messages - no need to log them
           return;
         }
         
-        // Log all non-extension messages for debugging
-        console.log('🔍 Received non-extension message:', {
-          origin: event.origin,
-          type: event.data?.type,
-          hasAmount: !!event.data?.amount,
-          hasCurrency: !!event.data?.currency,
-          hasPublishableKey: !!event.data?.publishableKey,
-          isPotentialGHL: isPotentialGHLMessage(event.data),
-          fullData: event.data,
-          timestamp: new Date().toISOString()
-        });
-        
-        // Check if this looks like a potential GHL message
-        if (!isPotentialGHLMessage(event.data)) {
-          console.log('❌ Message does not appear to be from GHL:', {
-            received: event.data,
-            reason: 'Missing GHL-specific properties (type, publishableKey, amount, currency)'
+        // Only log messages that could potentially be from GHL
+        if (isPotentialGHLMessage(event.data)) {
+          console.log('🔍 Received potential GHL message:', {
+            origin: event.origin,
+            type: event.data?.type,
+            hasAmount: !!event.data?.amount,
+            hasCurrency: !!event.data?.currency,
+            hasPublishableKey: !!event.data?.publishableKey,
+            fullData: event.data,
+            timestamp: new Date().toISOString()
+          });
+        } else {
+          // Log non-GHL messages at debug level only
+          console.debug('🔍 Received non-GHL message (ignored):', {
+            origin: event.origin,
+            type: event.data?.type,
+            reason: 'Not a GHL message format'
           });
           return;
         }
@@ -468,8 +523,12 @@
           updatePaymentForm(paymentData);
         } else if (event.data.type === 'setup_initiate_props') {
           paymentData = event.data;
-          console.log('✅ GHL Setup data received:', paymentData);
-          updatePaymentForm(paymentData);
+          console.log('✅ GHL Setup data received (Add Card on File):', paymentData);
+          console.log('🔑 Publishable Key:', paymentData.publishableKey);
+          console.log('👤 Customer ID:', paymentData.contact.id);
+          console.log('🏢 Location ID:', paymentData.locationId);
+          console.log('🎯 Setup Mode:', paymentData.mode);
+          updatePaymentFormForSetup(paymentData);
         }
       } catch (error) {
         console.error('❌ Error processing message from parent:', error);
@@ -489,6 +548,7 @@
         console.log('- Parent URL:', window.parent.location?.href || 'Cannot access parent URL');
       } catch (e) {
         console.log('- Parent access blocked (cross-origin):', e.message);
+        // This is expected in cross-origin iframes - it's not an error
       }
       
       // Check if we can communicate with parent
@@ -500,20 +560,34 @@
       }
     }
 
-    // Send ready event to GoHighLevel parent window
+    // Send ready event to GoHighLevel parent window (per GHL documentation)
     function sendReadyEvent() {
       const readyEvent = {
         type: 'custom_provider_ready',
         loaded: true,
-        addCardOnFileSupported: true // We support adding cards on file
+        addCardOnFileSupported: true // We support adding cards on file per GHL docs
       };
       
       console.log('📤 Sending ready event to GHL:', readyEvent);
-      window.parent.postMessage(readyEvent, '*');
-      isReady = true;
       
-      // Also log that we're ready
-      console.log('✅ Payment iframe is ready and listening for GHL messages');
+      try {
+        // Try to send to parent window
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(readyEvent, '*');
+        }
+        
+        // Also try to send to top window if different from parent
+        if (window.top && window.top !== window && window.top !== window.parent) {
+          window.top.postMessage(readyEvent, '*');
+        }
+        
+        isReady = true;
+        console.log('✅ Payment iframe is ready and listening for GHL messages');
+      } catch (error) {
+        console.warn('⚠️ Could not send ready event to parent:', error.message);
+        // Still mark as ready even if we can't communicate with parent
+        isReady = true;
+      }
     }
 
     // Update payment form with data from GoHighLevel
@@ -604,50 +678,144 @@
       }, 3000);
     }
 
-    // Send success response to GoHighLevel
+    // Update payment form for setup (Add Card on File) flow
+    function updatePaymentFormForSetup(data) {
+      console.log('🔄 Updating payment form for setup with GHL data:', data);
+      
+      // Validate required setup data structure
+      if (!data || typeof data !== 'object') {
+        console.error('❌ Invalid setup data received');
+        return;
+      }
+      
+      // Update amount display for setup (no amount needed for card setup)
+      const amountDisplay = document.getElementById('amount-display');
+      if (amountDisplay) {
+        amountDisplay.textContent = 'Card Setup';
+        console.log('💳 Setup mode: Adding card on file');
+      }
+      
+      // Update customer info
+      if (data.contact) {
+        console.log('👤 Customer info for setup:', data.contact);
+        console.log('🆔 Customer ID:', data.contact.id);
+      }
+      
+      // Log additional GHL setup data
+      if (data.locationId) {
+        console.log('🏢 Location ID:', data.locationId);
+      }
+      if (data.mode) {
+        console.log('🎯 Setup mode:', data.mode);
+      }
+      
+      // Update publishable key if provided
+      if (data.publishableKey) {
+        console.log('🔑 New publishable key received for setup:', data.publishableKey);
+      }
+      
+      // Show success message that GHL setup data was received
+      showSuccess('✅ Card setup data received from GoHighLevel successfully!');
+      setTimeout(() => {
+        hideMessages();
+      }, 3000);
+    }
+
+    // Send success response to GoHighLevel (per GHL documentation)
     function sendSuccessResponse(chargeId) {
       const successEvent = {
         type: 'custom_element_success_response',
-        chargeId: chargeId,
-        // Include additional GHL context if available
-        ...(paymentData && {
-          orderId: paymentData.orderId,
-          transactionId: paymentData.transactionId,
-          locationId: paymentData.locationId
-        })
+        chargeId: chargeId // Payment gateway chargeId for given transaction
       };
       
       console.log('✅ Sending success response to GHL:', successEvent);
-      window.parent.postMessage(successEvent, '*');
+      
+      try {
+        // Try to send to parent window
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(successEvent, '*');
+        }
+        
+        // Also try to send to top window if different from parent
+        if (window.top && window.top !== window && window.top !== window.parent) {
+          window.top.postMessage(successEvent, '*');
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not send success response to parent:', error.message);
+      }
     }
 
-    // Send error response to GoHighLevel
+    // Send setup success response to GoHighLevel (for card on file - per GHL documentation)
+    function sendSetupSuccessResponse() {
+      const successEvent = {
+        type: 'custom_element_success_response'
+        // No chargeId needed for setup success
+      };
+      
+      console.log('✅ Sending setup success response to GHL:', successEvent);
+      
+      try {
+        // Try to send to parent window
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(successEvent, '*');
+        }
+        
+        // Also try to send to top window if different from parent
+        if (window.top && window.top !== window && window.top !== window.parent) {
+          window.top.postMessage(successEvent, '*');
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not send setup success response to parent:', error.message);
+      }
+    }
+
+    // Send error response to GoHighLevel (per GHL documentation)
     function sendErrorResponse(errorMessage) {
       const errorEvent = {
         type: 'custom_element_error_response',
         error: {
-          description: errorMessage
-        },
-        // Include additional GHL context if available
-        ...(paymentData && {
-          orderId: paymentData.orderId,
-          transactionId: paymentData.transactionId,
-          locationId: paymentData.locationId
-        })
+          description: errorMessage // Error message to be shown to the user
+        }
       };
       
       console.log('❌ Sending error response to GHL:', errorEvent);
-      window.parent.postMessage(errorEvent, '*');
+      
+      try {
+        // Try to send to parent window
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(errorEvent, '*');
+        }
+        
+        // Also try to send to top window if different from parent
+        if (window.top && window.top !== window && window.top !== window.parent) {
+          window.top.postMessage(errorEvent, '*');
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not send error response to parent:', error.message);
+      }
     }
 
-    // Send close response to GoHighLevel
+    // Send close response to GoHighLevel (per GHL documentation)
     function sendCloseResponse() {
       const closeEvent = {
         type: 'custom_element_close_response'
       };
       
       console.log('Sending close response:', closeEvent);
-      window.parent.postMessage(closeEvent, '*');
+      
+      try {
+        // Try to send to parent window
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(closeEvent, '*');
+        }
+        
+        // Also try to send to top window if different from parent
+        if (window.top && window.top !== window && window.top !== window.parent) {
+          window.top.postMessage(closeEvent, '*');
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not send close response to parent:', error.message);
+      }
     }
 
     // UI Helper functions
@@ -764,6 +932,8 @@
           showError('Please enter a valid expiry date (MM/YY)');
         } else if (data.cvv && data.cvv.invalid) {
           showError('Please enter a valid CVV (3-4 digits)');
+        } else if (data.cardHolder && data.cardHolder.invalid) {
+          showError('Please enter a valid cardholder name');
         } else {
           showError('Please check your card information and try again.');
         }
@@ -778,20 +948,34 @@
       onSuccess: (data) => {
         console.log('Token success:', data);
         hideLoading();
-        showSuccess('🎉 Payment tokenized successfully! Token: ' + data.id);
-        showResult(data);
+        
+        // Check if this is a setup flow (add card on file) or payment flow
+        if (paymentData && paymentData.type === 'setup_initiate_props') {
+          showSuccess('🎉 Card added successfully! Token: ' + data.id);
+          showResult(data);
+          
+          // Send setup success response to GoHighLevel (no chargeId needed)
+          sendSetupSuccessResponse();
+        } else {
+          showSuccess('🎉 Payment tokenized successfully! Token: ' + data.id);
+          showResult(data);
+          
+          // Send payment success response to GoHighLevel with chargeId
+          sendSuccessResponse(data.id);
+        }
 
-        // Send success response to GoHighLevel
-        sendSuccessResponse(data.id);
-
-        // Example: POST token to your Laravel backend for creating a charge
+        // Example: POST token to your Laravel backend for creating a charge or saving card
         // fetch("{{ route('client.webhook') }}", {
         //   method: "POST",
         //   headers: {
         //     "Content-Type": "application/json",
         //     "X-CSRF-TOKEN": "{{ csrf_token() }}"
         //   },
-        //   body: JSON.stringify({ token: data?.id })
+        //   body: JSON.stringify({ 
+        //     token: data?.id,
+        //     type: paymentData?.type || 'payment_initiate_props',
+        //     paymentData: paymentData
+        //   })
         // }).then(r => r.json()).then(console.log).catch(console.error);
       }
     });
@@ -806,7 +990,15 @@
       sendReadyEvent();
     }, 1000);
 
-    // Debug function to simulate GHL payment data (for testing)
+    // Add a console message to help with debugging
+    console.log('🚀 Tap Payment Integration Loaded Successfully');
+    console.log('📋 Available test functions:');
+    console.log('  - window.testGHLIntegration.simulatePayment() - Test with mock GHL payment data');
+    console.log('  - window.testGHLIntegration.simulateSetup() - Test with mock GHL setup data (add card)');
+    console.log('  - window.testGHLIntegration.testFlow() - Test complete payment flow');
+    console.log('  - window.testGHLIntegration.checkContext() - Check iframe context');
+
+    // Debug function to simulate GHL payment data (for testing - matches GHL docs exactly)
     function simulateGHLPaymentData() {
       const testData = {
         type: 'payment_initiate_props',
@@ -826,7 +1018,7 @@
         },
         orderId: 'order_test_101112',
         transactionId: 'txn_test_131415',
-        subscriptionId: null,
+        subscriptionId: 'sub_test_161718',
         locationId: 'loc_test_161718'
       };
       
@@ -861,9 +1053,27 @@
       }, 3000);
     }
 
+    // Debug function to simulate GHL setup data (for testing - matches GHL docs exactly)
+    function simulateGHLSetupData() {
+      const testData = {
+        type: 'setup_initiate_props',
+        publishableKey: 'pk_test_YhUjg9PNT8oDlKJ1aE2fMRz7',
+        currency: 'JOD',
+        mode: 'setup',
+        contact: {
+          id: 'cus_test_789'
+        },
+        locationId: 'loc_test_161718'
+      };
+      
+      console.log('🧪 Simulating GHL setup data for testing:', testData);
+      updatePaymentFormForSetup(testData);
+    }
+
     // Make test functions available globally for debugging
     window.testGHLIntegration = {
       simulatePayment: simulateGHLPaymentData,
+      simulateSetup: simulateGHLSetupData,
       testFlow: testPaymentFlow,
       checkContext: checkIframeContext
     };
