@@ -422,7 +422,7 @@
                                 Connect Provider
                             </button>
                             
-                            <button type="submit" name="action" value="disconnect" class="btn btn-danger" onclick="return confirmDisconnect()">
+                            <button type="submit" name="action" value="disconnect" class="btn btn-danger">
                                 <span>🔌</span>
                                 Disconnect Provider
                             </button>
@@ -463,47 +463,98 @@
                 const information = JSON.parse(`@json(request()->input('information'))`);
                 document.getElementById('information').value = window.parent.location.href;
                 
-                // Add form validation
+                // Add form validation and AJAX handling
                 const form = document.getElementById('paymentForm');
                 const connectBtn = form.querySelector('button[value="connect"]');
                 const disconnectBtn = form.querySelector('button[value="disconnect"]');
                 
-                // Connect button validation
-                connectBtn.addEventListener('click', function(e) {
-                    const liveApiKey = form.querySelector('input[name="live_apiKey"]').value;
-                    const livePubKey = form.querySelector('input[name="live_publishableKey"]').value;
-                    const testApiKey = form.querySelector('input[name="test_apiKey"]').value;
-                    const testPubKey = form.querySelector('input[name="test_publishableKey"]').value;
+                // Handle form submission with AJAX
+                form.addEventListener('submit', function(e) {
+                    e.preventDefault();
                     
-                    if (!liveApiKey && !testApiKey) {
-                        e.preventDefault();
-                        alert('Please enter at least one set of API keys (Live or Test) to connect.');
-                        return false;
+                    const formData = new FormData(form);
+                    const action = formData.get('action');
+                    
+                    // Validation
+                    if (action === 'connect') {
+                        const liveApiKey = form.querySelector('input[name="live_apiKey"]').value;
+                        const livePubKey = form.querySelector('input[name="live_publishableKey"]').value;
+                        const testApiKey = form.querySelector('input[name="test_apiKey"]').value;
+                        const testPubKey = form.querySelector('input[name="test_publishableKey"]').value;
+                        
+                        if (!liveApiKey && !testApiKey) {
+                            showError('Please enter at least one set of API keys (Live or Test) to connect.');
+                            return false;
+                        }
+                        
+                        if (liveApiKey && !livePubKey) {
+                            showError('Please enter the Live Publishable Key when providing Live API Key.');
+                            return false;
+                        }
+                        
+                        if (testApiKey && !testPubKey) {
+                            showError('Please enter the Test Publishable Key when providing Test API Key.');
+                            return false;
+                        }
+                    } else if (action === 'disconnect') {
+                        const liveMode = form.querySelector('input[name="disconnect_mode"][value="live"]').checked;
+                        const testMode = form.querySelector('input[name="disconnect_mode"][value="test"]').checked;
+                        
+                        if (!liveMode && !testMode) {
+                            showError('Please select which mode (Live or Test) you want to disconnect.');
+                            return false;
+                        }
+                        
+                        if (!confirmDisconnect()) {
+                            return false;
+                        }
                     }
                     
-                    if (liveApiKey && !livePubKey) {
-                        e.preventDefault();
-                        alert('Please enter the Live Publishable Key when providing Live API Key.');
-                        return false;
-                    }
+                    // Show loading state
+                    const submitBtn = form.querySelector(`button[value="${action}"]`);
+                    const originalText = submitBtn.innerHTML;
+                    submitBtn.innerHTML = '<span>⏳</span> Processing...';
+                    submitBtn.disabled = true;
                     
-                    if (testApiKey && !testPubKey) {
-                        e.preventDefault();
-                        alert('Please enter the Test Publishable Key when providing Test API Key.');
-                        return false;
-                    }
-                });
-                
-                // Disconnect button validation
-                disconnectBtn.addEventListener('click', function(e) {
-                    const liveMode = form.querySelector('input[name="disconnect_mode"][value="live"]').checked;
-                    const testMode = form.querySelector('input[name="disconnect_mode"][value="test"]').checked;
-                    
-                    if (!liveMode && !testMode) {
-                        e.preventDefault();
-                        alert('Please select which mode (Live or Test) you want to disconnect.');
-                        return false;
-                    }
+                    // Submit form
+                    fetch(form.action, {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                        }
+                    })
+                    .then(response => {
+                        if (response.redirected) {
+                            // Handle redirect (success case)
+                            window.location.href = response.url;
+                            return;
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data) {
+                            if (data.message && data.message.includes('created/updated')) {
+                                // Success case - redirect to MediaSolution
+                                showSuccess('Provider connected successfully! Redirecting to MediaSolution...');
+                                setTimeout(() => {
+                                    window.location.href = 'https://app.mediasolution.io/integration?selectedTab=installedApps';
+                                }, 2000);
+                            } else if (data.message && data.message.includes('disconnected')) {
+                                showSuccess(`Provider disconnected successfully in ${data.disconnect_mode} mode!`);
+                            } else {
+                                showError(data.message || 'An error occurred');
+                            }
+                        }
+                    })
+                    .catch(error => {
+                        showError('Network error: ' + error.message);
+                    })
+                    .finally(() => {
+                        // Reset button state
+                        submitBtn.innerHTML = originalText;
+                        submitBtn.disabled = false;
+                    });
                 });
             });
             
@@ -517,6 +568,28 @@
                 if (testMode) mode = 'Test';
                 
                 return confirm(`Are you sure you want to disconnect the ${mode} mode payment provider? This action cannot be undone.`);
+            }
+            
+            // Helper functions for showing messages
+            function showSuccess(message) {
+                clearMessages();
+                const successDiv = document.createElement('div');
+                successDiv.className = 'response-box response-success';
+                successDiv.innerHTML = `<strong>✅ Success:</strong> ${message}`;
+                document.querySelector('.action-buttons').after(successDiv);
+            }
+            
+            function showError(message) {
+                clearMessages();
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'response-box response-error';
+                errorDiv.innerHTML = `<strong>❌ Error:</strong> ${message}`;
+                document.querySelector('.action-buttons').after(errorDiv);
+            }
+            
+            function clearMessages() {
+                const existingMessages = document.querySelectorAll('.response-box');
+                existingMessages.forEach(msg => msg.remove());
             }
         </script>
  

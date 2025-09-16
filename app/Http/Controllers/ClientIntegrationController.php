@@ -158,17 +158,16 @@ class ClientIntegrationController extends Controller
         }
         // todo git locationId
         if (!$locationId) {
-            return redirect()->back()->with([
-                'api_error' => 'Could not extract locationId from URL. Please ensure you are accessing this page from the correct integration flow.'
-            ]);
+            return response()->json(['message' => 'Could not extract locationId from URL'], 400);
         }
 
         // 2) Find the user who previously connected this location
         $user = User::where('lead_location_id', $locationId)->first();
         if (!$user) {
-            return redirect()->back()->with([
-                'api_error' => "No local user found for locationId: {$locationId}. Please ensure you have completed the initial integration setup."
-            ]);
+            return response()->json([
+                'message' => 'No local user found for this locationId.',
+                'locationId' => $locationId,
+            ], 404);
         }
 
         $accessToken = $user->lead_access_token;
@@ -177,16 +176,17 @@ class ClientIntegrationController extends Controller
 
         if (!$accessToken || ($expiresAt && now()->gte($expiresAt))) {
             if (!$refreshToken) {
-                return redirect()->back()->with([
-                    'api_error' => 'Stored token expired and no refresh_token available. Please reconnect your account.'
-                ]);
+                return response()->json([
+                    'message' => 'Stored token expired and no refresh_token available. Re-connect required.',
+                ], 401);
             }
 
             $new = $this->refreshLeadConnectorToken($refreshToken);
             if (!($new['access_token'] ?? null)) {
-                return redirect()->back()->with([
-                    'api_error' => 'Token refresh failed. Please reconnect your account.'
-                ]);
+                return response()->json([
+                    'message' => 'Token refresh failed',
+                    'error'   => $new,
+                ], 502);
             }
 
             // Persist refreshed tokens
@@ -255,20 +255,25 @@ class ClientIntegrationController extends Controller
                 ->withHeaders(['Version' => '2021-07-28'])
                 ->post($connectUrl, $payload);
 
-        if ($resp->status() >= 300 && $resp->status() < 400) {
-            return redirect()->back()->with([
-                'api_error' => 'LeadConnector /connect returned redirect (blocked). Please try again.'
-            ])->withInput();
-        }
-        if ($resp->failed()) {
-            Log::warning('LeadConnector connect error', ['status' => $resp->status(), 'body' => $resp->json()]);
-            return redirect()->back()->with([
-                'api_error' => 'LeadConnector connect failed: ' . ($resp->json()['message'] ?? $resp->body() ?? 'Unknown error')
-            ])->withInput();
-        }
+            if ($resp->status() >= 300 && $resp->status() < 400) {
+                return response()->json([
+                    'message'  => 'LeadConnector /connect returned redirect (blocked)',
+                    'status'   => $resp->status(),
+                    'location' => $resp->header('Location'),
+                    'body'     => $resp->body(),
+                ], 502);
+            }
+            if ($resp->failed()) {
+                Log::warning('LeadConnector connect error', ['status' => $resp->status(), 'body' => $resp->json()]);
+                return response()->json([
+                    'message' => 'LeadConnector connect failed',
+                    'status'  => $resp->status(),
+                    'error'   => $resp->json() ?: $resp->body(),
+                ], 502);
+            }
 
             // Redirect to MediaSolution integration page after successful connection
-            $redirectUrl = "https://app.mediasolution.io/v2/location/{$locationId}/integration?selectedTab=installedApps";
+            $redirectUrl = "https://app.mediasolution.io/integration?selectedTab=installedApps";
             
             return redirect($redirectUrl)->with([
                 'api_response' => [
@@ -286,7 +291,7 @@ class ClientIntegrationController extends Controller
         // Get the disconnect mode from the new radio button selection
         $disconnectMode = $request->input('disconnect_mode', 'test'); // default to test mode
         
-        $payload = [
+         $payload = [
                 // include provider meta if your flow needs it (these are examples)
                 'liveMode'        => $disconnectMode === 'live' ? true : false,
          ];
@@ -298,25 +303,27 @@ class ClientIntegrationController extends Controller
             ->post($disconnectUrl, $payload);
 
         if ($resp->status() >= 300 && $resp->status() < 400) {
-            return redirect()->back()->with([
-                'api_error' => 'LeadConnector /disconnect returned redirect (blocked). Please try again.'
-            ])->withInput();
+            return response()->json([
+                'message'  => 'LeadConnector /disconnect returned redirect (blocked)',
+                'status'   => $resp->status(),
+                'location' => $resp->header('Location'),
+                'body'     => $resp->body(),
+            ], 502);
         }
         if ($resp->failed()) {
             Log::warning('LeadConnector disconnect error', ['status' => $resp->status(), 'body' => $resp->json()]);
-            return redirect()->back()->with([
-                'api_error' => 'LeadConnector disconnect failed: ' . ($resp->json()['message'] ?? $resp->body() ?? 'Unknown error')
-            ])->withInput();
+            return response()->json([
+                'message' => 'LeadConnector disconnect failed',
+                'status'  => $resp->status(),
+                'error'   => $resp->json() ?: $resp->body(),
+            ], 502);
         }
 
-        // For disconnect, redirect back to the form with success message
-        return redirect()->back()->with([
-            'api_response' => [
-                'message'      => 'Provider config disconnected successfully',
-                'locationId'   => $locationId,
-                'disconnect_mode' => $disconnectMode,
-                'data'         => $resp->json(),
-            ]
+        return response()->json([
+            'message'      => 'Provider config disconnected',
+            'locationId'   => $locationId,
+            'disconnect_mode' => $disconnectMode,
+            'data'         => $resp->json(),
         ]);
     }
 
