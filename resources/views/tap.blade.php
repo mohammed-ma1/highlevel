@@ -547,8 +547,8 @@
         console.log('- Parent origin:', window.parent.location?.origin || 'Cannot access parent origin');
         console.log('- Parent URL:', window.parent.location?.href || 'Cannot access parent URL');
       } catch (e) {
-        console.log('- Parent access blocked (cross-origin):', e.message);
-        // This is expected in cross-origin iframes - it's not an error
+        console.log('ℹ️ Parent access blocked (cross-origin) - This is NORMAL and EXPECTED:', e.message);
+        console.log('ℹ️ Cross-origin restrictions are a browser security feature, not an error');
       }
       
       // Check if we can communicate with parent
@@ -997,6 +997,10 @@
     console.log('  - window.testGHLIntegration.simulateSetup() - Test with mock GHL setup data (add card)');
     console.log('  - window.testGHLIntegration.testFlow() - Test complete payment flow');
     console.log('  - window.testGHLIntegration.checkContext() - Check iframe context');
+    console.log('');
+    console.log('ℹ️ NOTE: Cross-origin iframe restrictions are NORMAL and EXPECTED');
+    console.log('ℹ️ The "Parent access blocked" message is a browser security feature, not an error');
+    console.log('ℹ️ Communication with GHL works via postMessage, not direct property access');
 
     // Debug function to simulate GHL payment data (for testing - matches GHL docs exactly)
     function simulateGHLPaymentData() {
