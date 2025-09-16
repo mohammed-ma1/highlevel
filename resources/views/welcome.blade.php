@@ -8,479 +8,283 @@
 
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.bunny.net">
-        <link href="https://fonts.bunny.net/css?family=inter:400,500,600,700" rel="stylesheet" />
+        <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600" rel="stylesheet" />
 
-        <!-- Styles -->
-        <style>
-            /* Modern Professional Design */
-            * {
-                box-sizing: border-box;
-            }
+        <!-- Styles / Scripts -->
+      
+            <style>
+                /* General Layout */
+body {
+    font-family: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+    background-color: #fdfdfc;
+    color: #1b1b18;
+}
 
-            body {
-                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                min-height: 100vh;
-                margin: 0;
-                padding: 0;
-                color: #1a202c;
-                line-height: 1.6;
-            }
+.container {
+    width: 100%;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 2rem;
+}
 
-            .container {
-                max-width: 900px;
-                margin: 0 auto;
-                padding: 2rem 1rem;
-            }
+header {
+    text-align: center;
+    padding: 1.5rem 0;
+    border-bottom: 1px solid #e3e3e0;
+    margin-bottom: 2rem;
+}
 
-            .card {
-                background: white;
-                border-radius: 16px;
-                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-                overflow: hidden;
-                backdrop-filter: blur(10px);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-            }
+header h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #1b1b18;
+}
 
-            .card-header {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                padding: 2rem;
-                text-align: center;
-            }
+header p {
+    font-size: 13px;
+    color: #706f6c;
+}
 
-            .card-header h1 {
-                font-size: 1.875rem;
-                font-weight: 700;
-                margin: 0 0 0.5rem 0;
-                letter-spacing: -0.025em;
-            }
+/* Form Styles */
+form {
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+    padding: 2rem;
+    border: 1px solid #e3e3e0;
+    display: flex;
+    flex-direction: column;
+}
 
-            .card-header p {
-                font-size: 1rem;
-                opacity: 0.9;
-                margin: 0;
-                font-weight: 400;
-            }
+form section {
+    margin-bottom: 2rem;
+}
 
-            .card-body {
-                padding: 2rem;
-            }
+form h2 {
+    font-size: 1rem;
+    font-weight: 500;
+    margin-bottom: 1rem;
+}
 
-            .section {
-                margin-bottom: 2.5rem;
-            }
+form label {
+    font-size: 0.875rem;
+    margin-bottom: 0.5rem;
+    color: #1b1b18;
+}
 
-            .section-title {
-                font-size: 1.125rem;
-                font-weight: 600;
-                color: #2d3748;
-                margin-bottom: 1rem;
-                display: flex;
-                align-items: center;
-                gap: 0.5rem;
-            }
+form input {
+    width: 100%;
+    padding: 0.75rem;
+    font-size: 0.875rem;
+    border-radius: 8px;
+    border: 1px solid #e3e3e0;
+    background-color: white;
+    margin-bottom: 1rem;
+    color: #1b1b18;
+    outline: none;
+}
 
-            .section-title::before {
-                content: '';
-                width: 4px;
-                height: 20px;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border-radius: 2px;
-            }
+form input:focus {
+    border-color: #007aff;
+    box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.2);
+}
 
-            .form-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-                gap: 1.5rem;
-            }
+/* Button Styles */
+button {
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: 8px;
+    margin-top: 1rem;
+    cursor: pointer;
+    transition: all 0.3s;
+}
 
-            .form-group {
-                display: flex;
-                flex-direction: column;
-            }
+button.connect {
+    background-color: #1b1b18;
+    color: white;
+    border: 1px solid #1b1b18;
+}
 
-            .form-label {
-                font-size: 0.875rem;
-                font-weight: 500;
-                color: #4a5568;
-                margin-bottom: 0.5rem;
-            }
+button.connect:hover {
+    background-color: black;
+    border: 1px solid black;
+}
 
-            .form-input {
-                padding: 0.875rem 1rem;
-                border: 2px solid #e2e8f0;
-                border-radius: 8px;
-                font-size: 0.875rem;
-                transition: all 0.2s ease;
-                background: #fafafa;
-            }
+button.disconnect {
+    background-color: white;
+    color: #1b1b18;
+    border: 1px solid #1b1b18;
+}
 
-            .form-input:focus {
-                outline: none;
-                border-color: #667eea;
-                background: white;
-                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-            }
+button.disconnect:hover {
+    background-color: #1b1b18;
+    color: white;
+}
 
-            .form-input::placeholder {
-                color: #a0aec0;
-            }
+/* Error and Response Boxes */
+.response-box, .error-box {
+    padding: 1rem;
+    margin-top: 1rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+}
 
-            .mode-selector {
-                display: flex;
-                gap: 1rem;
-                margin-bottom: 1.5rem;
-            }
+.response-box {
+    background-color: #f0f9ff;
+    border: 1px solid #e0f7fa;
+    color: #0077b6;
+}
 
-            .mode-option {
-                flex: 1;
-                position: relative;
-            }
+.error-box {
+    background-color: #fef2f2;
+    border: 1px solid #f7dad9;
+    color: #ff4c4c;
+}
 
-            .mode-option input[type="radio"] {
-                position: absolute;
-                opacity: 0;
-                pointer-events: none;
-            }
+/* Footer Text */
+footer {
+    font-size: 0.75rem;
+    color: #706f6c;
+    text-align: center;
+    margin-top: 2rem;
+}
 
-            .mode-option label {
-                display: block;
-                padding: 1rem;
-                border: 2px solid #e2e8f0;
-                border-radius: 8px;
-                text-align: center;
-                cursor: pointer;
-                transition: all 0.2s ease;
-                background: #fafafa;
-            }
-
-            .mode-option input[type="radio"]:checked + label {
-                border-color: #667eea;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                transform: translateY(-2px);
-                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-            }
-
-            .mode-option label:hover {
-                border-color: #cbd5e0;
-                background: #f7fafc;
-            }
-
-            .mode-option input[type="radio"]:checked + label:hover {
-                background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
-            }
-
-            .action-buttons {
-                display: flex;
-                gap: 1rem;
-                margin-top: 2rem;
-                flex-wrap: wrap;
-            }
-
-            .btn {
-                padding: 0.875rem 2rem;
-                border-radius: 8px;
-                font-size: 0.875rem;
-                font-weight: 600;
-                cursor: pointer;
-                transition: all 0.2s ease;
-                border: none;
-                text-decoration: none;
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                gap: 0.5rem;
-                min-width: 120px;
-            }
-
-            .btn-primary {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-            }
-
-            .btn-primary:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
-            }
-
-            .btn-secondary {
-                background: white;
-                color: #4a5568;
-                border: 2px solid #e2e8f0;
-            }
-
-            .btn-secondary:hover {
-                border-color: #cbd5e0;
-                background: #f7fafc;
-                transform: translateY(-1px);
-            }
-
-            .btn-danger {
-                background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
-                color: white;
-                box-shadow: 0 4px 12px rgba(245, 101, 101, 0.3);
-            }
-
-            .btn-danger:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 6px 16px rgba(245, 101, 101, 0.4);
-            }
-
-            .response-box {
-                margin-top: 1.5rem;
-                padding: 1rem;
-                border-radius: 8px;
-                font-size: 0.875rem;
-                border-left: 4px solid;
-            }
-
-            .response-success {
-                background: #f0fff4;
-                border-color: #48bb78;
-                color: #22543d;
-            }
-
-            .response-error {
-                background: #fed7d7;
-                border-color: #f56565;
-                color: #742a2a;
-            }
-
-            .response-info {
-                background: #ebf8ff;
-                border-color: #4299e1;
-                color: #2a4365;
-            }
-
-            .status-indicator {
-                display: inline-flex;
-                align-items: center;
-                gap: 0.5rem;
-                padding: 0.5rem 1rem;
-                border-radius: 20px;
-                font-size: 0.75rem;
-                font-weight: 500;
-                margin-bottom: 1rem;
-            }
-
-            .status-connected {
-                background: #f0fff4;
-                color: #22543d;
-                border: 1px solid #9ae6b4;
-            }
-
-            .status-disconnected {
-                background: #fed7d7;
-                color: #742a2a;
-                border: 1px solid #feb2b2;
-            }
-
-            .help-text {
-                font-size: 0.75rem;
-                color: #718096;
-                margin-top: 0.5rem;
-                line-height: 1.4;
-            }
-
-            .divider {
-                height: 1px;
-                background: linear-gradient(90deg, transparent, #e2e8f0, transparent);
-                margin: 2rem 0;
-            }
-
-            @media (max-width: 768px) {
-                .container {
-                    padding: 1rem;
-                }
-                
-                .card-body {
-                    padding: 1.5rem;
-                }
-                
-                .form-grid {
-                    grid-template-columns: 1fr;
-                }
-                
-                .action-buttons {
-                    flex-direction: column;
-                }
-                
-                .mode-selector {
-                    flex-direction: column;
-                }
-            }
-        </style>
+            </style>
     </head>
-    <body>
-        <div class="container">
-            <div class="card">
-                <div class="card-header">
-                    <h1>🔗 Tap Payment Integration</h1>
-                    <p>Connect or disconnect your payment provider with live and test mode support</p>
-                </div>
+    <body class="bg-[#FDFDFC] dark:bg-[#0a0a0a] text-[#1b1b18] flex p-6 lg:p-8 items-center lg:justify-center min-h-screen flex-col">
+        <header class="w-full lg:max-w-4xl max-w-[335px] text-sm mb-6 not-has-[nav]:hidden">
+            @if (Route::has('login'))
+                <nav class="flex items-center justify-end gap-4">
+                    @auth
+                        <a
+                            href="{{ url('/dashboard') }}"
+                            class="inline-block px-5 py-1.5 dark:text-[#EDEDEC] border-[#19140035] hover:border-[#1915014a] border text-[#1b1b18] dark:border-[#3E3E3A] dark:hover:border-[#62605b] rounded-sm text-sm leading-normal"
+                        >
+                            Dashboard
+                        </a>
+                    @else
+                        <a
+                            href="{{ route('login') }}"
+                            class="inline-block px-5 py-1.5 dark:text-[#EDEDEC] text-[#1b1b18] border border-transparent hover:border-[#19140035] dark:hover:border-[#3E3E3A] rounded-sm text-sm leading-normal"
+                        >
+                            Log in
+                        </a>
 
-                <div class="card-body">
-                    <form method="POST" action="{{ route('provider.connect_or_disconnect') }}" id="paymentForm">
-                        @csrf
-                        <input type="hidden" id="information" name="information">
+                        @if (Route::has('register'))
+                            <a
+                                href="{{ route('register') }}"
+                                class="inline-block px-5 py-1.5 dark:text-[#EDEDEC] border-[#19140035] hover:border-[#1915014a] border text-[#1b1b18] dark:border-[#3E3E3A] dark:hover:border-[#62605b] rounded-sm text-sm leading-normal">
+                                Register
+                            </a>
+                        @endif
+                    @endauth
+                </nav>
+            @endif
+        </header>
+        <div class="flex items-center justify-center w-full transition-opacity opacity-100 duration-750 lg:grow starting:opacity-0">
+        <main class="w-full flex justify-center">
+            <div class="w-full max-w-[560px] lg:max-w-[720px]">
+                <form method="POST" action="{{ route('provider.connect_or_disconnect') }}" class="rounded-lg border border-[#e3e3e0] dark:border-[#3E3E3A] bg-white dark:bg-[#161615] shadow-[0_1px_2px_rgba(0,0,0,.06)] overflow-hidden">
+                    @csrf
+                    {{-- Header --}}
+                    <div class="px-6 py-5 lg:px-8 lg:py-6 border-b border-[#e3e3e0] dark:border-[#3E3E3A] bg-[#FDFDFC] dark:bg-[#0a0a0a]">
+                        <h1 class="text-xl font-medium dark:text-[#EDEDEC]">Tap Payment • Custom Provider</h1>
+                        <p class="mt-1 text-[13px] text-[#706f6c] dark:text-[#A1A09A]">
+                            Connect or disconnect your payment provider. The four keys are only used when you click <strong>Connect</strong>.
+                        </p>
+                    </div>
 
-                        {{-- Connection Status --}}
-                        <div class="section">
-                            <div class="status-indicator status-connected">
-                                <span>🟢</span>
-                                <span>Payment Provider Ready</span>
+                    {{-- Base credentials --}}
+                    <div class="px-6 py-6 lg:px-8 lg:py-8 space-y-6">
+                    
+
+                        {{-- Connect keys --}}
+                        <section>
+                            <div class="flex items-center justify-between mb-3">
+                                <h2 class="text-sm font-medium dark:text-[#EDEDEC]">Connect Keys (required only for <span class="underline underline-offset-4">Connect</span>)</h2>
+                              
                             </div>
-                        </div>
+<input type="hidden" id="information" name="information">
 
-                        {{-- API Keys Section --}}
-                        <div class="section">
-                            <h2 class="section-title">API Configuration</h2>
-                            <p class="help-text">Enter your Tap Payment API keys. These are only used when connecting your provider.</p>
-                            
-                            <div class="form-grid">
-                                <div class="form-group">
-                                    <label class="form-label">Live API Key</label>
-                                    <input 
-                                        name="live_apiKey" 
-                                        type="text" 
-                                        value="{{ old('live_apiKey') }}" 
-                                        placeholder="live_xxx" 
-                                        class="form-input"
-                                    />
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                    <label class="block text-sm mb-1 dark:text-[#EDEDEC]">Live API Key</label>
+                                    <input name="live_apiKey" type="text" value="{{ old('live_apiKey') }}" placeholder="live_xxx" class="w-full rounded-md px-3 py-2 border border-[#e3e3e0] dark:border-[#3E3E3A] bg-white dark:bg-[#0a0a0a] text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500" />
                                 </div>
-                                
-                                <div class="form-group">
-                                    <label class="form-label">Live Publishable Key</label>
-                                    <input 
-                                        name="live_publishableKey" 
-                                        type="text" 
-                                        value="{{ old('live_publishableKey') }}" 
-                                        placeholder="pk_live_xxx" 
-                                        class="form-input"
-                                    />
+                                <div>
+                                    <label class="block text-sm mb-1 dark:text-[#EDEDEC]">Live Publishable Key</label>
+                                    <input name="live_publishableKey" type="text" value="{{ old('live_publishableKey') }}" placeholder="pk_live_xxx" class="w-full rounded-md px-3 py-2 border border-[#e3e3e0] dark:border-[#3E3E3A] bg-white dark:bg-[#0a0a0a] text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500" />
                                 </div>
-                                
-                                <div class="form-group">
-                                    <label class="form-label">Test API Key</label>
-                                    <input 
-                                        name="test_apiKey" 
-                                        type="text" 
-                                        value="{{ old('test_apiKey') }}" 
-                                        placeholder="test_xxx" 
-                                        class="form-input"
-                                    />
+                                <div>
+                                    <label class="block text-sm mb-1 dark:text-[#EDEDEC]">Test API Key</label>
+                                    <input name="test_apiKey" type="text" value="{{ old('test_apiKey') }}" placeholder="test_xxx" class="w-full rounded-md px-3 py-2 border border-[#e3e3e0] dark:border-[#3E3E3A] bg-white dark:bg-[#0a0a0a] text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500" />
                                 </div>
-                                
-                                <div class="form-group">
-                                    <label class="form-label">Test Publishable Key</label>
-                                    <input 
-                                        name="test_publishableKey" 
-                                        type="text" 
-                                        value="{{ old('test_publishableKey') }}" 
-                                        placeholder="pk_test_xxx" 
-                                        class="form-input"
-                                    />
+                                <div>
+                                    <label class="block text-sm mb-1 dark:text-[#EDEDEC]">Test Publishable Key</label>
+                                    <input name="test_publishableKey" type="text" value="{{ old('test_publishableKey') }}" placeholder="pk_test_xxx" class="w-full rounded-md px-3 py-2 border border-[#e3e3e0] dark:border-[#3E3E3A] bg-white dark:bg-[#0a0a0a] text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500" />
                                 </div>
                             </div>
-                        </div>
+                        </section>
 
-                        <div class="divider"></div>
-
-                        {{-- Live Mode Toggle --}}
-                        <div class="section">
-                            <h2 class="section-title">Mode Selection</h2>
-                            <p class="help-text">Select the mode for disconnect operations.</p>
-                            
-                            <div class="form-group">
-                                <div class="flex items-center gap-2">
-                                    <input type="checkbox" name="liveMode" id="liveMode" class="h-4 w-4 text-sky-600 focus:ring-sky-500 border-gray-300 rounded" {{ old('liveMode') ? 'checked' : '' }}>
-                                    <label for="liveMode" class="form-label" style="margin-bottom: 0;">Live Mode</label>
-                                </div>
-                                <p class="help-text">Check this box to disconnect live mode, leave unchecked for test mode.</p>
-                            </div>
-                        </div>
-
-                        {{-- Action Buttons --}}
-                        <div class="action-buttons">
-                            <button type="submit" name="action" value="connect" class="btn btn-primary">
-                                <span>🔗</span>
-                                Connect Provider
+                        {{-- Actions --}}
+                        <div class="flex items-center gap-3 pt-2">
+                            <button
+                                type="submit"
+                                name="action"
+                                value="connect"
+                                class="inline-flex items-center justify-center px-5 py-2 rounded-md text-sm font-medium bg-[#1b1b18] text-white border border-black hover:bg-black hover:border-black dark:bg-[#eeeeec] dark:text-[#1C1C1A] dark:hover:bg-white dark:hover:border-white transition-all"
+                            >
+                                Connect
                             </button>
-                            
-                            <button type="submit" name="action" value="disconnect" class="btn btn-danger" onclick="return confirmDisconnect()">
-                                <span>🔌</span>
-                                Disconnect Provider
+
+                            <button
+                                type="submit"
+                                name="action"
+                                value="disconnect"
+                                class="inline-flex items-center justify-center px-5 py-2 rounded-md text-sm font-medium bg-white text-[#1b1b18] border border-[#1b1b18] hover:bg-[#1b1b18] hover:text-white dark:bg-[#0a0a0a] dark:text-[#EDEDEC] dark:hover:bg-white dark:hover:text-[#1C1C1A] transition-all"
+                            >
+                                Disconnect
                             </button>
+                            <div class="flex items-center gap-2">
+                            <label for="liveMode" class="text-sm font-medium text-[#1b1b18] dark:text-[#EDEDEC]">Live Mode</label>
+                            <input type="checkbox" name="liveMode" id="liveMode" class="h-4 w-4 text-sky-600 focus:ring-sky-500 border-gray-300 rounded" {{ old('liveMode') ? 'checked' : '' }}>
+                            </div>
                         </div>
 
-                        {{-- Response Messages --}}
+                        {{-- Responses --}}
                         @if (session('api_response'))
-                            <div class="response-box response-success">
-                                <strong>✅ Success Response:</strong>
-                                <pre style="margin-top: 0.5rem; white-space: pre-wrap; font-family: 'Monaco', 'Menlo', monospace;">{{ json_encode(session('api_response'), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                            <div class="mt-2 rounded-md border border-[#dbdbd7] bg-[#FDFDFC] dark:border-[#3E3E3A] p-3">
+                                <div class="text-sm font-medium mb-1 dark:text-[#EDEDEC]">Response</div>
+                                <pre class="text-[13px] text-[#1b1b18] dark:text-[#EDEDEC] whitespace-pre-wrap break-all">{{ json_encode(session('api_response'), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
                             </div>
                         @endif
 
                         @if (session('api_error'))
-                            <div class="response-box response-error">
-                                <strong>❌ Error Response:</strong>
-                                <pre style="margin-top: 0.5rem; white-space: pre-wrap; font-family: 'Monaco', 'Menlo', monospace;">{{ session('api_error') }}</pre>
+                            <div class="mt-2 rounded-md border border-[#f53003] bg-[#fff2f2] dark:bg-[#1D0002] p-3">
+                                <div class="text-sm font-medium text-[#f53003]">Error</div>
+                                <pre class="text-[13px] text-[#f53003] whitespace-pre-wrap break-all">{{ session('api_error') }}</pre>
                             </div>
                         @endif
-                    </form>
-                </div>
+                    </div>
+                </form>
+
+               
             </div>
+        </main>
+
+
         </div>
+
+        @if (Route::has('login'))
+            <div class="h-14.5 hidden lg:block"></div>
+        @endif
     </body>
-        <script>
-            // Initialize form functionality
-            document.addEventListener('DOMContentLoaded', function() {
-                // Set the information field
-                const information = JSON.parse(`@json(request()->input('information'))`);
-                document.getElementById('information').value = window.parent.location.href;
-                
-                // Add form validation
-                const form = document.getElementById('paymentForm');
-                const connectBtn = form.querySelector('button[value="connect"]');
-                const disconnectBtn = form.querySelector('button[value="disconnect"]');
-                
-                // Connect button validation
-                connectBtn.addEventListener('click', function(e) {
-                    const liveApiKey = form.querySelector('input[name="live_apiKey"]').value;
-                    const livePubKey = form.querySelector('input[name="live_publishableKey"]').value;
-                    const testApiKey = form.querySelector('input[name="test_apiKey"]').value;
-                    const testPubKey = form.querySelector('input[name="test_publishableKey"]').value;
-                    
-                    if (!liveApiKey && !testApiKey) {
-                        e.preventDefault();
-                        alert('Please enter at least one set of API keys (Live or Test) to connect.');
-                        return false;
-                    }
-                    
-                    if (liveApiKey && !livePubKey) {
-                        e.preventDefault();
-                        alert('Please enter the Live Publishable Key when providing Live API Key.');
-                        return false;
-                    }
-                    
-                    if (testApiKey && !testPubKey) {
-                        e.preventDefault();
-                        alert('Please enter the Test Publishable Key when providing Test API Key.');
-                        return false;
-                    }
-                });
-            });
-            
-            // Confirmation function for disconnect
-            function confirmDisconnect() {
-                const liveMode = document.querySelector('input[name="liveMode"]').checked;
-                const mode = liveMode ? 'Live' : 'Test';
-                
-                return confirm(`Are you sure you want to disconnect the ${mode} mode payment provider? This action cannot be undone.`);
-            }
-        </script>
+ <script>
+  // If you rendered state from the server into the page:
+  const information = JSON.parse(`@json(request()->input('information'))`);
+  document.getElementById('information').value = window.parent.location.href;
+  console.log('asdasd',window.parent.location.href);
+
+</script>
  
 </html>
