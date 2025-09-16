@@ -85,6 +85,13 @@ class ClientIntegrationController extends Controller
             }
 
             $body = $tokenResponse->json();
+            
+            Log::info('OAuth response parsed successfully', [
+                'has_access_token' => !empty($body['access_token']),
+                'has_refresh_token' => !empty($body['refresh_token']),
+                'locationId' => $body['locationId'] ?? 'missing',
+                'userType' => $body['userType'] ?? 'missing'
+            ]);
 
             // Extract what we need
             $accessToken   = $body['access_token'] ?? null;
@@ -138,10 +145,20 @@ class ClientIntegrationController extends Controller
             $user->lead_is_bulk_installation  = $isBulk;
 
             $user->save();
+            
+            Log::info('User saved successfully', [
+                'user_id' => $user->id,
+                'locationId' => $locationId
+            ]);
 
             // 4) (Optional) Associate app ↔ location (provider)
             $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                         . '?locationId=' . urlencode($locationId);
+                        
+            Log::info('Making provider API call', [
+                'provider_url' => $providerUrl,
+                'access_token_length' => strlen($accessToken)
+            ]);
 
               $providerPayload = [
             'name'        => 'Tap Integration',
