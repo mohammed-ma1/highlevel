@@ -427,11 +427,20 @@
                                 Disconnect Provider
                             </button>
                         </div>
+                        
+                        <div class="help-text" style="margin-top: 1rem; text-align: center; font-style: italic;">
+                            💡 <strong>Note:</strong> After successful connection, you will be redirected to the MediaSolution integration page.
+                        </div>
 
                         {{-- Response Messages --}}
                         @if (session('api_response'))
                             <div class="response-box response-success">
-                                <strong>✅ Success Response:</strong>
+                                <strong>✅ {{ session('api_response.message') ?? 'Success Response:' }}</strong>
+                                @if(isset(session('api_response')['redirect_url']))
+                                    <p style="margin: 0.5rem 0; font-weight: 500;">
+                                        🚀 You have been redirected to the MediaSolution integration page!
+                                    </p>
+                                @endif
                                 <pre style="margin-top: 0.5rem; white-space: pre-wrap; font-family: 'Monaco', 'Menlo', monospace;">{{ json_encode(session('api_response'), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
                             </div>
                         @endif
