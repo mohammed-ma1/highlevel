@@ -389,29 +389,17 @@
 
                         <div class="divider"></div>
 
-                        {{-- Mode Selection for Disconnect --}}
+                        {{-- Live Mode Toggle --}}
                         <div class="section">
-                            <h2 class="section-title">Disconnect Mode Selection</h2>
-                            <p class="help-text">Choose which mode you want to disconnect when using the disconnect action.</p>
+                            <h2 class="section-title">Mode Selection</h2>
+                            <p class="help-text">Select the mode for disconnect operations.</p>
                             
-                            <div class="mode-selector">
-                                <div class="mode-option">
-                                    <input type="radio" name="disconnect_mode" value="live" id="disconnect_live" {{ old('disconnect_mode') === 'live' ? 'checked' : '' }}>
-                                    <label for="disconnect_live">
-                                        <strong>Live Mode</strong>
-                                        <br>
-                                        <small>Disconnect live payment processing</small>
-                                    </label>
+                            <div class="form-group">
+                                <div class="flex items-center gap-2">
+                                    <input type="checkbox" name="liveMode" id="liveMode" class="h-4 w-4 text-sky-600 focus:ring-sky-500 border-gray-300 rounded" {{ old('liveMode') ? 'checked' : '' }}>
+                                    <label for="liveMode" class="form-label" style="margin-bottom: 0;">Live Mode</label>
                                 </div>
-                                
-                                <div class="mode-option">
-                                    <input type="radio" name="disconnect_mode" value="test" id="disconnect_test" {{ old('disconnect_mode') === 'test' ? 'checked' : '' }}>
-                                    <label for="disconnect_test">
-                                        <strong>Test Mode</strong>
-                                        <br>
-                                        <small>Disconnect test payment processing</small>
-                                    </label>
-                                </div>
+                                <p class="help-text">Check this box to disconnect live mode, leave unchecked for test mode.</p>
                             </div>
                         </div>
 
@@ -422,25 +410,16 @@
                                 Connect Provider
                             </button>
                             
-                            <button type="submit" name="action" value="disconnect" class="btn btn-danger">
+                            <button type="submit" name="action" value="disconnect" class="btn btn-danger" onclick="return confirmDisconnect()">
                                 <span>🔌</span>
                                 Disconnect Provider
                             </button>
-                        </div>
-                        
-                        <div class="help-text" style="margin-top: 1rem; text-align: center; font-style: italic;">
-                            💡 <strong>Note:</strong> After successful connection, you will be redirected to the MediaSolution integration page.
                         </div>
 
                         {{-- Response Messages --}}
                         @if (session('api_response'))
                             <div class="response-box response-success">
-                                <strong>✅ {{ session('api_response.message') ?? 'Success Response:' }}</strong>
-                                @if(isset(session('api_response')['redirect_url']))
-                                    <p style="margin: 0.5rem 0; font-weight: 500;">
-                                        🚀 You have been redirected to the MediaSolution integration page!
-                                    </p>
-                                @endif
+                                <strong>✅ Success Response:</strong>
                                 <pre style="margin-top: 0.5rem; white-space: pre-wrap; font-family: 'Monaco', 'Menlo', monospace;">{{ json_encode(session('api_response'), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
                             </div>
                         @endif
@@ -463,133 +442,44 @@
                 const information = JSON.parse(`@json(request()->input('information'))`);
                 document.getElementById('information').value = window.parent.location.href;
                 
-                // Add form validation and AJAX handling
+                // Add form validation
                 const form = document.getElementById('paymentForm');
                 const connectBtn = form.querySelector('button[value="connect"]');
                 const disconnectBtn = form.querySelector('button[value="disconnect"]');
                 
-                // Handle form submission with AJAX
-                form.addEventListener('submit', function(e) {
-                    e.preventDefault();
+                // Connect button validation
+                connectBtn.addEventListener('click', function(e) {
+                    const liveApiKey = form.querySelector('input[name="live_apiKey"]').value;
+                    const livePubKey = form.querySelector('input[name="live_publishableKey"]').value;
+                    const testApiKey = form.querySelector('input[name="test_apiKey"]').value;
+                    const testPubKey = form.querySelector('input[name="test_publishableKey"]').value;
                     
-                    const formData = new FormData(form);
-                    const action = formData.get('action');
-                    
-                    // Validation
-                    if (action === 'connect') {
-                        const liveApiKey = form.querySelector('input[name="live_apiKey"]').value;
-                        const livePubKey = form.querySelector('input[name="live_publishableKey"]').value;
-                        const testApiKey = form.querySelector('input[name="test_apiKey"]').value;
-                        const testPubKey = form.querySelector('input[name="test_publishableKey"]').value;
-                        
-                        if (!liveApiKey && !testApiKey) {
-                            showError('Please enter at least one set of API keys (Live or Test) to connect.');
-                            return false;
-                        }
-                        
-                        if (liveApiKey && !livePubKey) {
-                            showError('Please enter the Live Publishable Key when providing Live API Key.');
-                            return false;
-                        }
-                        
-                        if (testApiKey && !testPubKey) {
-                            showError('Please enter the Test Publishable Key when providing Test API Key.');
-                            return false;
-                        }
-                    } else if (action === 'disconnect') {
-                        const liveMode = form.querySelector('input[name="disconnect_mode"][value="live"]').checked;
-                        const testMode = form.querySelector('input[name="disconnect_mode"][value="test"]').checked;
-                        
-                        if (!liveMode && !testMode) {
-                            showError('Please select which mode (Live or Test) you want to disconnect.');
-                            return false;
-                        }
-                        
-                        if (!confirmDisconnect()) {
-                            return false;
-                        }
+                    if (!liveApiKey && !testApiKey) {
+                        e.preventDefault();
+                        alert('Please enter at least one set of API keys (Live or Test) to connect.');
+                        return false;
                     }
                     
-                    // Show loading state
-                    const submitBtn = form.querySelector(`button[value="${action}"]`);
-                    const originalText = submitBtn.innerHTML;
-                    submitBtn.innerHTML = '<span>⏳</span> Processing...';
-                    submitBtn.disabled = true;
+                    if (liveApiKey && !livePubKey) {
+                        e.preventDefault();
+                        alert('Please enter the Live Publishable Key when providing Live API Key.');
+                        return false;
+                    }
                     
-                    // Submit form
-                    fetch(form.action, {
-                        method: 'POST',
-                        body: formData,
-                        headers: {
-                            'X-Requested-With': 'XMLHttpRequest',
-                        }
-                    })
-                    .then(response => {
-                        if (response.redirected) {
-                            // Handle redirect (success case)
-                            window.location.href = response.url;
-                            return;
-                        }
-                        return response.json();
-                    })
-                    .then(data => {
-                        if (data) {
-                            if (data.message && data.message.includes('created/updated')) {
-                                // Success case - redirect to MediaSolution
-                                showSuccess('Provider connected successfully! Redirecting to MediaSolution...');
-                                setTimeout(() => {
-                                    window.location.href = 'https://app.mediasolution.io/integration?selectedTab=installedApps';
-                                }, 2000);
-                            } else if (data.message && data.message.includes('disconnected')) {
-                                showSuccess(`Provider disconnected successfully in ${data.disconnect_mode} mode!`);
-                            } else {
-                                showError(data.message || 'An error occurred');
-                            }
-                        }
-                    })
-                    .catch(error => {
-                        showError('Network error: ' + error.message);
-                    })
-                    .finally(() => {
-                        // Reset button state
-                        submitBtn.innerHTML = originalText;
-                        submitBtn.disabled = false;
-                    });
+                    if (testApiKey && !testPubKey) {
+                        e.preventDefault();
+                        alert('Please enter the Test Publishable Key when providing Test API Key.');
+                        return false;
+                    }
                 });
             });
             
             // Confirmation function for disconnect
             function confirmDisconnect() {
-                const liveMode = document.querySelector('input[name="disconnect_mode"][value="live"]').checked;
-                const testMode = document.querySelector('input[name="disconnect_mode"][value="test"]').checked;
-                
-                let mode = '';
-                if (liveMode) mode = 'Live';
-                if (testMode) mode = 'Test';
+                const liveMode = document.querySelector('input[name="liveMode"]').checked;
+                const mode = liveMode ? 'Live' : 'Test';
                 
                 return confirm(`Are you sure you want to disconnect the ${mode} mode payment provider? This action cannot be undone.`);
-            }
-            
-            // Helper functions for showing messages
-            function showSuccess(message) {
-                clearMessages();
-                const successDiv = document.createElement('div');
-                successDiv.className = 'response-box response-success';
-                successDiv.innerHTML = `<strong>✅ Success:</strong> ${message}`;
-                document.querySelector('.action-buttons').after(successDiv);
-            }
-            
-            function showError(message) {
-                clearMessages();
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'response-box response-error';
-                errorDiv.innerHTML = `<strong>❌ Error:</strong> ${message}`;
-                document.querySelector('.action-buttons').after(errorDiv);
-            }
-            
-            function clearMessages() {
-                const existingMessages = document.querySelectorAll('.response-box');
-                existingMessages.forEach(msg => msg.remove());
             }
         </script>
  

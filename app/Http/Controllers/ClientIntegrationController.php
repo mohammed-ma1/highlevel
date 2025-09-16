@@ -272,28 +272,19 @@ class ClientIntegrationController extends Controller
                 ], 502);
             }
 
-            // Redirect to MediaSolution integration page after successful connection
-            $redirectUrl = "https://app.mediasolution.io/integration?selectedTab=installedApps";
-            
-            return redirect($redirectUrl)->with([
-                'api_response' => [
-                    'message'      => 'Provider config created/updated successfully',
-                    'locationId'   => $locationId,
-                    'data'         => $resp->json(),
-                    'redirect_url' => $redirectUrl
-                ]
+            return response()->json([
+                'message'      => 'Provider config created/updated',
+                'locationId'   => $locationId,
+                'data'         => $resp->json(),
             ]);
         }
 
         // disconnect
         $disconnectUrl = $baseUrl . '/disconnect' . $qs;
 
-        // Get the disconnect mode from the new radio button selection
-        $disconnectMode = $request->input('disconnect_mode', 'test'); // default to test mode
-        
          $payload = [
                 // include provider meta if your flow needs it (these are examples)
-                'liveMode'        => $disconnectMode === 'live' ? true : false,
+                'liveMode'        => $request->input('liveMode', false) ? true : false,
          ];
         $resp = Http::timeout(20)
             ->acceptJson()
@@ -322,7 +313,6 @@ class ClientIntegrationController extends Controller
         return response()->json([
             'message'      => 'Provider config disconnected',
             'locationId'   => $locationId,
-            'disconnect_mode' => $disconnectMode,
             'data'         => $resp->json(),
         ]);
     }
