@@ -345,6 +345,7 @@
           event.filename.includes('safari-extension://') ||
           event.filename.includes('content_script') ||
           event.filename.includes('Cr9l0Ika.js') ||
+          event.filename.includes('ZsUpL8J-.js') ||
           event.filename.includes('detect-angular-for-extension-icon.ts')
         )) {
         event.preventDefault();
@@ -363,6 +364,19 @@
         return false;
       }
     });
+
+    // Override console.error to filter extension messages
+    const originalConsoleError = console.error;
+    console.error = function(...args) {
+      const message = args.join(' ');
+      if (message.includes('Unable to parse event message') ||
+          message.includes('ZsUpL8J-.js') ||
+          message.includes('content_script') ||
+          message.includes('angular-devtools')) {
+        return; // Suppress extension-related console errors
+      }
+      originalConsoleError.apply(console, args);
+    };
 
     // Pull SDK helpers
     const { renderTapCard, Theme, Currencies, Direction, Edges, Locale, tokenize } = window.CardSDK;
@@ -428,7 +442,8 @@
       if (data.source && (
           data.source.includes('extension') ||
           data.source.includes('devtools') ||
-          data.source.includes('content-script')
+          data.source.includes('content-script') ||
+          data.source.includes('angular-devtools-content-script')
         )) {
         return true;
       }
@@ -452,6 +467,12 @@
         return true;
       }
       
+      // Check for extension-specific properties
+      if (data.__ignore_ng_zone__ !== undefined ||
+          data.args !== undefined && data.topic === 'handshake') {
+        return true;
+      }
+      
       return false;
     }
 
@@ -472,6 +493,7 @@
 
     // Listen for messages from GoHighLevel parent window
     window.addEventListener('message', function(event) {
+      console.log('🔍 Received message from GoHighLevel parent window:', event);
       try {
         // Skip extension messages (Angular DevTools, Chrome extensions, Tap SDK, etc.)
         if (isExtensionMessage(event.data)) {
@@ -1001,6 +1023,8 @@
     console.log('ℹ️ NOTE: Cross-origin iframe restrictions are NORMAL and EXPECTED');
     console.log('ℹ️ The "Parent access blocked" message is a browser security feature, not an error');
     console.log('ℹ️ Communication with GHL works via postMessage, not direct property access');
+    console.log('ℹ️ Extension errors (Angular DevTools, etc.) are now suppressed for cleaner console');
+    console.log('ℹ️ Only GHL-related messages will be shown in the console');
 
     // Debug function to simulate GHL payment data (for testing - matches GHL docs exactly)
     function simulateGHLPaymentData() {
