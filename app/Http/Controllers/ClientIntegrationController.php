@@ -59,6 +59,15 @@ class ClientIntegrationController extends Controller
                 ->acceptJson()
                 ->asForm()
                 ->post($tokenUrl, $tokenPayload);
+                
+            // Log the raw response for debugging
+            Log::info('OAuth response received', [
+                'status' => $tokenResponse->status(),
+                'successful' => $tokenResponse->successful(),
+                'failed' => $tokenResponse->failed(),
+                'body' => $tokenResponse->body(),
+                'json' => $tokenResponse->json()
+            ]);
 
             if ($tokenResponse->failed()) {
                 Log::error('OAuth token exchange failed', [
