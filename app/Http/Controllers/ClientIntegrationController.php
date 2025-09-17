@@ -172,7 +172,7 @@ class ClientIntegrationController extends Controller
 
             $user->save();
 
-            dd($user);
+           // dd($user);
 
             Log::info('User saved successfully', [
                 'user_id' => $user->id,
