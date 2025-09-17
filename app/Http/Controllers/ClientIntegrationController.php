@@ -142,7 +142,7 @@ class ClientIntegrationController extends Controller
             // 2) Find or create a local user tied to this location
             // Prefer to find by lead_location_id (unique per location)
             $user = User::where('lead_location_id', $locationId)->first();
-
+dd($user);
 
             if (!$user) {
                 // No user? Create a minimal one.
