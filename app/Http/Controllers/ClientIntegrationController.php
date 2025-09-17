@@ -48,7 +48,6 @@ class ClientIntegrationController extends Controller
                 // 'redirect_uri'  => config('services.external_auth.redirect_uri', 'https://dashboard.mediasolution.io/connect'), // Include redirect_uri
             ];
 
-            dd($tokenUrl, $tokenPayload);
 
             
             Log::info('OAuth token request', [
@@ -71,6 +70,9 @@ class ClientIntegrationController extends Controller
                 'body' => $tokenResponse->body(),
                 'json' => $tokenResponse->json()
             ]);
+
+            dd($tokenResponse);
+
 
             if ($tokenResponse->failed()) {
                 Log::error('OAuth token exchange failed', [
