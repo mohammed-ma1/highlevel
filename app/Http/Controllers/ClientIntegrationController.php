@@ -71,7 +71,6 @@ class ClientIntegrationController extends Controller
                 'json' => $tokenResponse->json()
             ]);
 
-            dd($tokenResponse);
 
 
             if ($tokenResponse->failed()) {
@@ -90,6 +89,9 @@ class ClientIntegrationController extends Controller
             }
 
             $body = $tokenResponse->json();
+
+            dd($body);
+
             
             Log::info('OAuth response parsed successfully', [
                 'has_access_token' => !empty($body['access_token']),
