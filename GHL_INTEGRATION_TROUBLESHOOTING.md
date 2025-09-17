@@ -216,3 +216,4 @@ When working correctly, you should see:
 ```
 
 The integration is working perfectly - you just need to fix the GHL configuration to send the payment data!
+

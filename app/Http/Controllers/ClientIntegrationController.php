@@ -90,7 +90,6 @@ class ClientIntegrationController extends Controller
 
             $body = $tokenResponse->json();
 
-            dd($body);
 
             
             Log::info('OAuth response parsed successfully', [
@@ -171,6 +170,8 @@ class ClientIntegrationController extends Controller
             $user->lead_is_bulk_installation  = $isBulk;
 
             $user->save();
+
+            dd($user,$accessToken,$locationId);
             
             Log::info('User saved successfully', [
                 'user_id' => $user->id,
