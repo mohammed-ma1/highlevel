@@ -145,7 +145,6 @@ class ClientIntegrationController extends Controller
 
             if (!$user) {
 
-                dd($user);
                 // No user? Create a minimal one.
                 // You need a unique email due to your schema; generate a placeholder.
                 $placeholderEmail = "location_{$locationId}@leadconnector.local";
@@ -157,19 +156,19 @@ class ClientIntegrationController extends Controller
             }
 
             // 3) Fill OAuth fields (ensure you added these columns + casts as discussed)
-            $user->lead_access_token          = $accessToken;
-            $user->lead_refresh_token         = $refreshToken;
-            $user->lead_token_type            = $tokenType;
-            $user->lead_expires_in            = $expiresIn ?: null;
-            $user->lead_token_expires_at      = $expiresIn ? now()->addSeconds($expiresIn) : null;
+            // $user->lead_access_token          = $accessToken;
+            // $user->lead_refresh_token         = $refreshToken;
+            // $user->lead_token_type            = $tokenType;
+            // $user->lead_expires_in            = $expiresIn ?: null;
+            // $user->lead_token_expires_at      = $expiresIn ? now()->addSeconds($expiresIn) : null;
 
-            $user->lead_scope                 = $scope;
-            $user->lead_refresh_token_id      = $refreshTokenId;
-            $user->lead_user_type             = $userType;
-            $user->lead_company_id            = $companyId;
-            $user->lead_location_id           = $locationId;
-            $user->lead_user_id               = $providerUserId;
-            $user->lead_is_bulk_installation  = $isBulk;
+            // $user->lead_scope                 = $scope;
+            // $user->lead_refresh_token_id      = $refreshTokenId;
+            // $user->lead_user_type             = $userType;
+            // $user->lead_company_id            = $companyId;
+            // $user->lead_location_id           = $locationId;
+            // $user->lead_user_id               = $providerUserId;
+            // $user->lead_is_bulk_installation  = $isBulk;
 
             $user->save();
 
