@@ -47,6 +47,9 @@ class ClientIntegrationController extends Controller
                 'code'          => $request->input('code'),
                 // 'redirect_uri'  => config('services.external_auth.redirect_uri', 'https://dashboard.mediasolution.io/connect'), // Include redirect_uri
             ];
+
+            dd($tokenUrl, $tokenPayload);
+
             
             Log::info('OAuth token request', [
                 'url' => $tokenUrl,
@@ -187,7 +190,6 @@ class ClientIntegrationController extends Controller
             ];
 
 
-            dd($locationId,$accessToken,$user->id);
 
 
             $providerResp = Http::timeout(20)
