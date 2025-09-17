@@ -143,7 +143,6 @@ class ClientIntegrationController extends Controller
             // Prefer to find by lead_location_id (unique per location)
             $user = User::where('lead_location_id', $locationId)->first();
 
-            dd($user,$accessToken,$locationId);
 
             if (!$user) {
                 // No user? Create a minimal one.
@@ -195,7 +194,7 @@ class ClientIntegrationController extends Controller
             'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
             ];
 
-
+            dd($providerPayload ,$providerUrl ,$accessToken);
 
 
             $providerResp = Http::timeout(20)
