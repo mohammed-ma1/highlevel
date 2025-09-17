@@ -144,6 +144,8 @@ class ClientIntegrationController extends Controller
             $user = User::where('lead_location_id', $locationId)->first();
 
             if (!$user) {
+
+                dd($user);
                 // No user? Create a minimal one.
                 // You need a unique email due to your schema; generate a placeholder.
                 $placeholderEmail = "location_{$locationId}@leadconnector.local";
@@ -171,7 +173,8 @@ class ClientIntegrationController extends Controller
 
             $user->save();
 
-            
+            dd($user);
+
             Log::info('User saved successfully', [
                 'user_id' => $user->id,
                 'locationId' => $locationId
@@ -180,7 +183,9 @@ class ClientIntegrationController extends Controller
             // 4) (Optional) Associate app ↔ location (provider)
             $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                         . '?locationId=' . urlencode($locationId);
-                        
+                
+            dd($providerUrl ,$accessToken);
+
             Log::info('Making provider API call', [
                 'access_token_length' => strlen($accessToken)
             ]);
