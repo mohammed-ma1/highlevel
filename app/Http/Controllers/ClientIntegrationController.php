@@ -143,6 +143,8 @@ class ClientIntegrationController extends Controller
             // Prefer to find by lead_location_id (unique per location)
             $user = User::where('lead_location_id', $locationId)->first();
 
+            dd($user,$accessToken,$locationId);
+
             if (!$user) {
                 // No user? Create a minimal one.
                 // You need a unique email due to your schema; generate a placeholder.
@@ -171,7 +173,6 @@ class ClientIntegrationController extends Controller
 
             $user->save();
 
-            dd($user,$accessToken,$locationId);
             
             Log::info('User saved successfully', [
                 'user_id' => $user->id,
