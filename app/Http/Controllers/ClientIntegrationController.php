@@ -212,7 +212,6 @@ class ClientIntegrationController extends Controller
                 ]);
                 // Not fatal to user creation, but you can choose to 502 here if you want
             }
-            dd($providerResp ,response()->json());
 
 
             return response()->json([
