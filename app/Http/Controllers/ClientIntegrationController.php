@@ -185,9 +185,9 @@ class ClientIntegrationController extends Controller
                 
           //  dd($providerUrl ,$accessToken);
 
-            Log::info('Making provider API call', [
-                'access_token_length' => strlen($accessToken)
-            ]);
+            // Log::info('Making provider API call', [
+            //     'access_token_length' => strlen($accessToken)
+            // ]);
 
               $providerPayload = [
             'name'        => 'Tap Integration',
@@ -197,14 +197,13 @@ class ClientIntegrationController extends Controller
             'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
             ];
 
-            dd($providerPayload ,$accessToken ,$locationId);
+            
 
-            $providerResp = Http::timeout(20)
+            $providerResp = Http::timeout(40)
                 ->acceptJson()
                 ->withToken($accessToken)
                 ->withHeaders(['Version' => '2021-07-28'])
-                ->post($providerUrl, $providerPayload); // usually empty per docs
-                dd($providerResp ,response()->json());
+                ->post($providerUrl, $providerPayload); 
 
             if ($providerResp->failed()) {
                 Log::warning('Provider association failed', [
@@ -213,6 +212,8 @@ class ClientIntegrationController extends Controller
                 ]);
                 // Not fatal to user creation, but you can choose to 502 here if you want
             }
+            dd($providerResp ,response()->json());
+
 
             return response()->json([
                 'message' => 'Connected & user saved',
