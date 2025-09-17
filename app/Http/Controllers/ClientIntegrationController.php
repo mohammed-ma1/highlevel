@@ -198,7 +198,7 @@ class ClientIntegrationController extends Controller
             'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
             ];
 
-
+            dd($providerPayload ,$accessToken ,$locationId);
 
             $providerResp = Http::timeout(20)
                 ->acceptJson()
