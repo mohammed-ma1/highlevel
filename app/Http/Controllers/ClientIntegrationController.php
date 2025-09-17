@@ -183,7 +183,7 @@ class ClientIntegrationController extends Controller
             $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                         . '?locationId=' . urlencode($locationId);
                 
-            dd($providerUrl ,$accessToken);
+          //  dd($providerUrl ,$accessToken);
 
             Log::info('Making provider API call', [
                 'access_token_length' => strlen($accessToken)
