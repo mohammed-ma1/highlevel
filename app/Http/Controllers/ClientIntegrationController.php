@@ -45,7 +45,7 @@ class ClientIntegrationController extends Controller
                 'client_id'     => config('services.external_auth.client_id'),
                 'client_secret' => config('services.external_auth.client_secret'),
                 'code'          => $request->input('code'),
-                'redirect_uri'  => config('services.external_auth.redirect_uri', 'https://dashboard.mediasolution.io/connect'), // Include redirect_uri
+                // 'redirect_uri'  => config('services.external_auth.redirect_uri', 'https://dashboard.mediasolution.io/connect'), // Include redirect_uri
             ];
             
             Log::info('OAuth token request', [
@@ -99,6 +99,14 @@ class ClientIntegrationController extends Controller
             $tokenType     = $body['token_type'] ?? 'Bearer';
             $expiresIn     = (int) ($body['expires_in'] ?? 0);
             $scope         = $body['scope'] ?? null;
+            
+            Log::info('Extracted OAuth data', [
+                'has_access_token' => !empty($accessToken),
+                'has_refresh_token' => !empty($refreshToken),
+                'token_type' => $tokenType,
+                'expires_in' => $expiresIn,
+                'has_scope' => !empty($scope)
+            ]);
 
             $refreshTokenId = $body['refreshTokenId'] ?? null;
             $userType       = $body['userType'] ?? null;    // "Location"
@@ -107,7 +115,18 @@ class ClientIntegrationController extends Controller
             $isBulk         = (bool) ($body['isBulkInstallation'] ?? false);
             $providerUserId = $body['userId'] ?? null;
 
+            Log::info('Validating OAuth data', [
+                'has_access_token' => !empty($accessToken),
+                'has_location_id' => !empty($locationId),
+                'access_token_length' => $accessToken ? strlen($accessToken) : 0,
+                'location_id_value' => $locationId
+            ]);
+            
             if (!$accessToken || !$locationId) {
+                Log::error('OAuth validation failed', [
+                    'missing_access_token' => empty($accessToken),
+                    'missing_location_id' => empty($locationId)
+                ]);
                 return response()->json([
                     'message' => 'Invalid OAuth response (missing access_token or locationId)',
                     'json'    => $body,
@@ -156,7 +175,6 @@ class ClientIntegrationController extends Controller
                         . '?locationId=' . urlencode($locationId);
                         
             Log::info('Making provider API call', [
-                'provider_url' => $providerUrl,
                 'access_token_length' => strlen($accessToken)
             ]);
 
@@ -169,6 +187,7 @@ class ClientIntegrationController extends Controller
             ];
 
 
+            dd($locationId,$accessToken,$user->id);
 
 
             $providerResp = Http::timeout(20)
