@@ -170,7 +170,20 @@ class ClientIntegrationController extends Controller
             $user->lead_user_id               = $providerUserId;
             $user->lead_is_bulk_installation  = $isBulk;
 
-            $user->save();
+            try {
+                $user->save();
+            } catch (\Exception $e) {
+                Log::error('Failed to save user', [
+                    'error' => $e->getMessage(),
+                    'user_data' => $user->toArray(),
+                    'locationId' => $locationId
+                ]);
+                
+                return response()->json([
+                    'message' => 'Failed to save user data',
+                    'error' => $e->getMessage()
+                ], 500);
+            }
 
            // dd($user);
 
