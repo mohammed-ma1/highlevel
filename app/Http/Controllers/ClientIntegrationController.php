@@ -183,8 +183,21 @@ class ClientIntegrationController extends Controller
             }
 
             // 3) Fill OAuth fields (ensure you added these columns + casts as discussed)
-            $user->lead_access_token          = $accessToken;
-            $user->lead_refresh_token         = $refreshToken;
+            // Set fields one by one to identify which one causes the issue
+            try {
+                $user->lead_access_token = $accessToken;
+                Log::info('Set lead_access_token successfully', ['token_length' => strlen($accessToken)]);
+            } catch (\Exception $e) {
+                Log::error('Failed to set lead_access_token', ['error' => $e->getMessage()]);
+            }
+
+            try {
+                $user->lead_refresh_token = $refreshToken;
+                Log::info('Set lead_refresh_token successfully', ['token_length' => strlen($refreshToken)]);
+            } catch (\Exception $e) {
+                Log::error('Failed to set lead_refresh_token', ['error' => $e->getMessage()]);
+            }
+
             $user->lead_token_type            = $tokenType;
             $user->lead_expires_in            = $expiresIn ?: null;
             $user->lead_token_expires_at      = $expiresIn ? now()->addSeconds($expiresIn) : null;

@@ -41,12 +41,13 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
-            'lead_access_token' => 'encrypted',
-            'lead_refresh_token' => 'encrypted',
-            'lead_live_api_key' => 'encrypted',
-            'lead_live_publishable_key' => 'encrypted',
-            'lead_test_api_key' => 'encrypted',
-            'lead_test_publishable_key' => 'encrypted',
+            // Temporarily disable encryption to test if this is causing the issue
+            // 'lead_access_token' => 'encrypted',
+            // 'lead_refresh_token' => 'encrypted',
+            // 'lead_live_api_key' => 'encrypted',
+            // 'lead_live_publishable_key' => 'encrypted',
+            // 'lead_test_api_key' => 'encrypted',
+            // 'lead_test_publishable_key' => 'encrypted',
         ];
     }
 }
