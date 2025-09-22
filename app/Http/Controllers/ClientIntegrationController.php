@@ -142,12 +142,39 @@ class ClientIntegrationController extends Controller
             // 2) Find or create a local user tied to this location
             // Prefer to find by lead_location_id (unique per location)
             $user = User::where('lead_location_id', $locationId)->first();
+            
+            // Fallback: if no user found by location_id, try to find by email pattern
+            if (!$user) {
+                $baseEmail = "location_{$locationId}@leadconnector.local";
+                $user = User::where('email', 'like', "location_{$locationId}%@leadconnector.local")->first();
+                
+                if ($user) {
+                    Log::info('Found existing user by email pattern', [
+                        'locationId' => $locationId,
+                        'user_id' => $user->id,
+                        'email' => $user->email
+                    ]);
+                }
+            }
 
             if (!$user) {
-
                 // No user? Create a minimal one.
-                // You need a unique email due to your schema; generate a placeholder.
-                $placeholderEmail = "location_{$locationId}@leadconnector.local";
+                // Generate a unique email to avoid duplicate key errors
+                $baseEmail = "location_{$locationId}@leadconnector.local";
+                $placeholderEmail = $baseEmail;
+                $counter = 1;
+                
+                // Check if email already exists and generate a unique one
+                while (User::where('email', $placeholderEmail)->exists()) {
+                    $placeholderEmail = "location_{$locationId}_{$counter}@leadconnector.local";
+                    $counter++;
+                }
+
+                Log::info('Creating new user', [
+                    'locationId' => $locationId,
+                    'generated_email' => $placeholderEmail,
+                    'email_attempts' => $counter
+                ]);
 
                 $user = new User();
                 $user->name = "Location {$locationId}";
@@ -170,18 +197,52 @@ class ClientIntegrationController extends Controller
             $user->lead_user_id               = $providerUserId;
             $user->lead_is_bulk_installation  = $isBulk;
 
+            // Log the data before saving for debugging
+            Log::info('About to save user with data', [
+                'user_id' => $user->id,
+                'is_new_user' => !$user->exists,
+                'user_attributes' => $user->getAttributes(),
+                'locationId' => $locationId,
+                'access_token_length' => $accessToken ? strlen($accessToken) : 0,
+                'refresh_token_length' => $refreshToken ? strlen($refreshToken) : 0
+            ]);
+
             try {
                 $user->save();
-            } catch (\Exception $e) {
-                Log::error('Failed to save user', [
+            } catch (\Illuminate\Database\QueryException $e) {
+                // Handle database constraint violations specifically
+                Log::error('Database constraint violation when saving user', [
                     'error' => $e->getMessage(),
+                    'error_code' => $e->getCode(),
+                    'sql_state' => $e->errorInfo[0] ?? 'unknown',
+                    'driver_code' => $e->errorInfo[1] ?? 'unknown',
+                    'error_message' => $e->errorInfo[2] ?? 'unknown',
                     'user_data' => $user->toArray(),
+                    'user_attributes' => $user->getAttributes(),
                     'locationId' => $locationId
                 ]);
                 
                 return response()->json([
+                    'message' => 'Database constraint violation - user may already exist',
+                    'error' => $e->getMessage(),
+                    'error_type' => 'database_constraint'
+                ], 409); // 409 Conflict
+            } catch (\Exception $e) {
+                Log::error('Failed to save user', [
+                    'error' => $e->getMessage(),
+                    'error_class' => get_class($e),
+                    'error_trace' => $e->getTraceAsString(),
+                    'user_data' => $user->toArray(),
+                    'user_attributes' => $user->getAttributes(),
+                    'user_dirty' => $user->getDirty(),
+                    'locationId' => $locationId,
+                    'validation_errors' => method_exists($user, 'getErrors') ? $user->getErrors() : 'No validation errors method'
+                ]);
+                
+                return response()->json([
                     'message' => 'Failed to save user data',
-                    'error' => $e->getMessage()
+                    'error' => $e->getMessage(),
+                    'error_class' => get_class($e)
                 ], 500);
             }
 
