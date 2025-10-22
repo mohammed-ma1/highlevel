@@ -67,6 +67,75 @@ class TapPaymentService
     }
 
     /**
+     * Create a charge using src_all (all payment methods)
+     * This replaces the Card SDK approach with a hosted payment page
+     */
+    public function createChargeWithAllPaymentMethods($amount, $currency = 'JOD', $customer = null, $description = null, $orderId = null, $transactionId = null)
+    {
+        try {
+            $payload = [
+                'amount' => $amount,
+                'currency' => $currency,
+                'threeDSecure' => true,
+                'save_card' => false,
+                'customer_initiated' => true,
+                'description' => $description ?: 'Payment via GoHighLevel Integration',
+                'statement_descriptor' => 'GHL Payment',
+                'source' => [
+                    'id' => 'src_all' // This displays all available payment methods
+                ],
+                'redirect' => [
+                    'url' => config('app.url') . '/payment/redirect'
+                ],
+                'post' => [
+                    'url' => config('app.url') . '/payment/webhook'
+                ]
+            ];
+
+            // Add customer information if provided
+            if ($customer) {
+                $payload['customer'] = $customer;
+            }
+
+            // Add reference information
+            if ($orderId || $transactionId) {
+                $payload['reference'] = [];
+                if ($orderId) {
+                    $payload['reference']['order'] = $orderId;
+                }
+                if ($transactionId) {
+                    $payload['reference']['transaction'] = $transactionId;
+                }
+            }
+
+            // Add receipt preferences
+            $payload['receipt'] = [
+                'email' => true,
+                'sms' => false
+            ];
+
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Content-Type' => 'application/json'
+            ])->post($this->baseUrl . '/charges', $payload);
+
+            if ($response->successful()) {
+                return $response->json();
+            } else {
+                Log::error('Tap charge with src_all failed', [
+                    'status' => $response->status(),
+                    'response' => $response->json(),
+                    'payload' => $payload
+                ]);
+                return null;
+            }
+        } catch (\Exception $e) {
+            Log::error('Tap charge with src_all error', ['error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    /**
      * Create a refund
      */
     public function createRefund($chargeId, $amount = null)

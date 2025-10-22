@@ -1,0 +1,847 @@
+{{-- 
+  resources/views/charge.blade.php
+  
+  New Charge API Integration with src_all
+  This replaces the Card SDK approach with a hosted payment page
+--}}
+<!DOCTYPE html>
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ config('app.name', 'Laravel') }} — Secure Payment</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .payment-container {
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
+      max-width: 480px;
+      width: 100%;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .payment-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 40px 30px;
+      text-align: center;
+      position: relative;
+    }
+
+    .payment-header::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="25" cy="25" r="1" fill="white" opacity="0.1"/><circle cx="75" cy="75" r="1" fill="white" opacity="0.1"/><circle cx="50" cy="10" r="0.5" fill="white" opacity="0.1"/><circle cx="10" cy="60" r="0.5" fill="white" opacity="0.1"/><circle cx="90" cy="40" r="0.5" fill="white" opacity="0.1"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
+      opacity: 0.3;
+    }
+
+    .payment-header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .payment-header p {
+      font-size: 16px;
+      opacity: 0.9;
+      font-weight: 400;
+      position: relative;
+      z-index: 1;
+    }
+
+    .payment-body {
+      padding: 40px 30px;
+    }
+
+    .payment-amount {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .amount-label {
+      font-size: 14px;
+      color: #6b7280;
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+
+    .amount-value {
+      font-size: 32px;
+      font-weight: 700;
+      color: #1f2937;
+    }
+
+    .payment-section {
+      margin-bottom: 30px;
+    }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #1f2937;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .section-title i {
+      color: #667eea;
+    }
+
+    .payment-button {
+      width: 100%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 16px 24px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+
+    .payment-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
+    }
+
+    .payment-button:active {
+      transform: translateY(0);
+    }
+
+    .payment-button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .loading-spinner {
+      display: none;
+      width: 20px;
+      height: 20px;
+      border: 2px solid transparent;
+      border-top: 2px solid white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 10px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .result-section {
+      margin-top: 20px;
+    }
+
+    .result-content {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 20px;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #2d3748;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 200px;
+      overflow-y: auto;
+      display: none;
+    }
+
+    .security-badges {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .security-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #6b7280;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .security-badge i {
+      color: #10b981;
+    }
+
+    .error-message {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #dc2626;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      display: none;
+      font-size: 14px;
+    }
+
+    .success-message {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      color: #16a34a;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      display: none;
+      font-size: 14px;
+    }
+
+    .payment-methods-info {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .payment-methods-info h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #1f2937;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .payment-methods-info p {
+      font-size: 14px;
+      color: #6b7280;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 480px) {
+      .payment-container {
+        margin: 10px;
+        border-radius: 16px;
+      }
+      
+      .payment-header {
+        padding: 30px 20px;
+      }
+      
+      .payment-body {
+        padding: 30px 20px;
+      }
+      
+      .payment-header h1 {
+        font-size: 24px;
+      }
+      
+      .amount-value {
+        font-size: 28px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="payment-container">
+    <div class="payment-header">
+      <h1><i class="fas fa-credit-card"></i> Secure Payment</h1>
+      <p>Complete your transaction safely and securely</p>
+    </div>
+    
+    <div class="payment-body">
+      <div class="payment-amount">
+        <div class="amount-label">Amount to Pay</div>
+        <div class="amount-value" id="amount-display">1.00 JOD</div>
+      </div>
+
+      <div class="error-message" id="error-message"></div>
+      <div class="success-message" id="success-message"></div>
+
+      <div class="payment-section">
+        <div class="section-title">
+          <i class="fas fa-credit-card"></i>
+          Payment Methods
+        </div>
+        
+        <div class="payment-methods-info">
+          <h3><i class="fas fa-shield-alt"></i> All Payment Methods Available</h3>
+          <p>You'll be redirected to Tap's secure payment page where you can choose from all available payment methods including cards, digital wallets, and local payment options.</p>
+        </div>
+      </div>
+
+      <!-- Create Charge Button -->
+      <button id="create-charge-btn" type="button" class="payment-button">
+        <div class="loading-spinner" id="loading-spinner"></div>
+        <span id="button-text">Proceed to Payment</span>
+      </button>
+
+      <!-- Result display -->
+      <div class="result-section" id="result-section" style="display: none;">
+        <div class="section-title">
+          <i class="fas fa-receipt"></i>
+          Transaction Details
+        </div>
+        <div id="charge-result" class="result-content"></div>
+      </div>
+
+      <div class="security-badges">
+        <div class="security-badge">
+          <i class="fas fa-shield-alt"></i>
+          <span>SSL Secured</span>
+        </div>
+        <div class="security-badge">
+          <i class="fas fa-lock"></i>
+          <span>256-bit Encryption</span>
+        </div>
+        <div class="security-badge">
+          <i class="fas fa-check-circle"></i>
+          <span>PCI Compliant</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Global error handler to suppress extension-related errors
+    window.addEventListener('error', function(event) {
+      if (event.filename && (
+          event.filename.includes('chrome-extension://') ||
+          event.filename.includes('moz-extension://') ||
+          event.filename.includes('safari-extension://') ||
+          event.filename.includes('content_script') ||
+          event.filename.includes('Cr9l0Ika.js') ||
+          event.filename.includes('ZsUpL8J-.js') ||
+          event.filename.includes('detect-angular-for-extension-icon.ts')
+        )) {
+        event.preventDefault();
+        return false;
+      }
+    });
+
+    // Suppress unhandled promise rejections from extensions
+    window.addEventListener('unhandledrejection', function(event) {
+      if (event.reason && event.reason.message && (
+          event.reason.message.includes('Unable to parse event message') ||
+          event.reason.message.includes('extension') ||
+          event.reason.message.includes('content_script')
+        )) {
+        event.preventDefault();
+        return false;
+      }
+    });
+
+    // Override console.error to filter extension messages
+    const originalConsoleError = console.error;
+    console.error = function(...args) {
+      const message = args.join(' ');
+      if (message.includes('Unable to parse event message') ||
+          message.includes('ZsUpL8J-.js') ||
+          message.includes('content_script') ||
+          message.includes('angular-devtools')) {
+        return; // Suppress extension-related console errors
+      }
+      originalConsoleError.apply(console, args);
+    };
+
+    // GoHighLevel iframe communication
+    let paymentData = null;
+    let isReady = false;
+
+    // Validate GHL message structure according to documentation
+    function isValidGHLMessage(data) {
+      if (!data || typeof data !== 'object') {
+        return false;
+      }
+      
+      const validTypes = ['payment_initiate_props', 'setup_initiate_props'];
+      if (!data.type || !validTypes.includes(data.type)) {
+        return false;
+      }
+      
+      if (data.type === 'payment_initiate_props') {
+        return data.publishableKey && 
+               data.amount && 
+               data.currency && 
+               data.mode && 
+               data.orderId && 
+               data.transactionId && 
+               data.locationId;
+      }
+      
+      if (data.type === 'setup_initiate_props') {
+        return data.publishableKey && 
+               data.currency && 
+               data.mode === 'setup' && 
+               data.contact && 
+               data.contact.id && 
+               data.locationId;
+      }
+      
+      return true;
+    }
+
+    // Check if message is from Angular DevTools or other extensions
+    function isExtensionMessage(data) {
+      if (!data || typeof data !== 'object') {
+        return false;
+      }
+      
+      if (data.__NG_DEVTOOLS_EVENT__ || 
+          data.topic === 'handshake' || 
+          data.topic === 'detectAngular' ||
+          (data.source && data.source.includes('angular-devtools')) ||
+          (data.source && data.source.includes('chrome-extension')) ||
+          data.isIvy !== undefined ||
+          data.isAngular !== undefined) {
+        return true;
+      }
+      
+      if (data.source && (
+          data.source.includes('extension') ||
+          data.source.includes('devtools') ||
+          data.source.includes('content-script') ||
+          data.source.includes('angular-devtools-content-script')
+        )) {
+        return true;
+      }
+      
+      if (data.type && (
+          data.type.includes('extension') ||
+          data.type.includes('devtools') ||
+          data.type.includes('chrome')
+        )) {
+        return true;
+      }
+      
+      if (data.event === 'onCardReady' && data.data && data.data.ready === true) {
+        return true;
+      }
+      
+      if (data.ready === true && !data.type) {
+        return true;
+      }
+      
+      if (data.__ignore_ng_zone__ !== undefined ||
+          data.args !== undefined && data.topic === 'handshake') {
+        return true;
+      }
+      
+      return false;
+    }
+
+    // Check if message looks like it could be from GHL
+    function isPotentialGHLMessage(data) {
+      if (!data || typeof data !== 'object') {
+        return false;
+      }
+      
+      return data.type === 'payment_initiate_props' || 
+             data.type === 'setup_initiate_props' ||
+             (data.publishableKey && data.amount && data.currency) ||
+             (data.type && data.type.includes('payment')) ||
+             (data.type && data.type.includes('setup')) ||
+             (data.type && data.type.includes('custom_provider'));
+    }
+
+    // Listen for messages from GoHighLevel parent window
+    window.addEventListener('message', function(event) {
+      try {
+        if (isExtensionMessage(event.data)) {
+          return;
+        }
+        
+        if (isPotentialGHLMessage(event.data)) {
+          // console.log('🔍 Received potential GHL message:', event.data);
+        } else {
+          console.debug('🔍 Received non-GHL message (ignored):', {
+            origin: event.origin,
+            type: event.data?.type,
+            reason: 'Not a GHL message format'
+          });
+          return;
+        }
+        
+        if (!isValidGHLMessage(event.data)) {
+          console.log('❌ Invalid GHL message structure:', event.data);
+          return;
+        }
+        
+        if (event.data.type === 'payment_initiate_props') {
+          paymentData = event.data;
+          console.log('✅ GHL Payment data received:', paymentData);
+          updatePaymentForm(paymentData);
+        } else if (event.data.type === 'setup_initiate_props') {
+          paymentData = event.data;
+          console.log('✅ GHL Setup data received:', paymentData);
+          updatePaymentFormForSetup(paymentData);
+        }
+      } catch (error) {
+        console.error('❌ Error processing message from parent:', error);
+      }
+    });
+
+    // Send ready event to GoHighLevel parent window
+    function sendReadyEvent() {
+      const readyEvent = {
+        type: 'custom_provider_ready',
+        loaded: true,
+        addCardOnFileSupported: true
+      };
+      
+      console.log('📤 Sending ready event to GHL:', readyEvent);
+      
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(readyEvent, '*');
+        }
+        
+        if (window.top && window.top !== window && window.top !== window.parent) {
+          window.top.postMessage(readyEvent, '*');
+        }
+        
+        isReady = true;
+        console.log('✅ Payment iframe is ready and listening for GHL messages');
+      } catch (error) {
+        console.warn('⚠️ Could not send ready event to parent:', error.message);
+        isReady = true;
+      }
+    }
+
+    // Update payment form with data from GoHighLevel
+    function updatePaymentForm(data) {
+      console.log('🔄 Updating payment form with GHL data:', data);
+      
+      if (!data || typeof data !== 'object') {
+        console.error('❌ Invalid payment data received');
+        return;
+      }
+      
+      if (data.amount && data.currency) {
+        const amountDisplay = document.getElementById('amount-display');
+        if (amountDisplay) {
+          amountDisplay.textContent = data.amount + ' ' + data.currency;
+          console.log('💰 Amount updated to:', data.amount + ' ' + data.currency);
+        }
+      }
+      
+      if (data.contact) {
+        console.log('👤 Customer info received:', data.contact);
+      }
+      
+      showSuccess('✅ Payment data received from GoHighLevel successfully!');
+      setTimeout(() => {
+        hideMessages();
+      }, 3000);
+    }
+
+    // Update payment form for setup (Add Card on File) flow
+    function updatePaymentFormForSetup(data) {
+      console.log('🔄 Updating payment form for setup with GHL data:', data);
+      
+      if (!data || typeof data !== 'object') {
+        console.error('❌ Invalid setup data received');
+        return;
+      }
+      
+      const amountDisplay = document.getElementById('amount-display');
+      if (amountDisplay) {
+        amountDisplay.textContent = 'Card Setup';
+        console.log('💳 Setup mode: Adding card on file');
+      }
+      
+      if (data.contact) {
+        console.log('👤 Customer info for setup:', data.contact);
+      }
+      
+      showSuccess('✅ Card setup data received from GoHighLevel successfully!');
+      setTimeout(() => {
+        hideMessages();
+      }, 3000);
+    }
+
+    // Send success response to GoHighLevel
+    function sendSuccessResponse(chargeId) {
+      const successEvent = {
+        type: 'custom_element_success_response',
+        chargeId: chargeId
+      };
+      
+      console.log('✅ Sending success response to GHL:', successEvent);
+      
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(successEvent, '*');
+        }
+        
+        if (window.top && window.top !== window && window.top !== window.parent) {
+          window.top.postMessage(successEvent, '*');
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not send success response to parent:', error.message);
+      }
+    }
+
+    // Send setup success response to GoHighLevel
+    function sendSetupSuccessResponse() {
+      const successEvent = {
+        type: 'custom_element_success_response'
+      };
+      
+      console.log('✅ Sending setup success response to GHL:', successEvent);
+      
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(successEvent, '*');
+        }
+        
+        if (window.top && window.top !== window && window.top !== window.parent) {
+          window.top.postMessage(successEvent, '*');
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not send setup success response to parent:', error.message);
+      }
+    }
+
+    // Send error response to GoHighLevel
+    function sendErrorResponse(errorMessage) {
+      const errorEvent = {
+        type: 'custom_element_error_response',
+        error: {
+          description: errorMessage
+        }
+      };
+      
+      console.log('❌ Sending error response to GHL:', errorEvent);
+      
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(errorEvent, '*');
+        }
+        
+        if (window.top && window.top !== window && window.top !== window.parent) {
+          window.top.postMessage(errorEvent, '*');
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not send error response to parent:', error.message);
+      }
+    }
+
+    // UI Helper functions
+    function showLoading() {
+      document.getElementById('loading-spinner').style.display = 'inline-block';
+      document.getElementById('button-text').textContent = 'Creating Charge...';
+      document.getElementById('create-charge-btn').disabled = true;
+    }
+
+    function hideLoading() {
+      document.getElementById('loading-spinner').style.display = 'none';
+      document.getElementById('button-text').textContent = 'Proceed to Payment';
+      document.getElementById('create-charge-btn').disabled = false;
+    }
+
+    function showError(message) {
+      const errorDiv = document.getElementById('error-message');
+      errorDiv.textContent = message;
+      errorDiv.style.display = 'block';
+      document.getElementById('success-message').style.display = 'none';
+    }
+
+    function showSuccess(message) {
+      const successDiv = document.getElementById('success-message');
+      successDiv.textContent = message;
+      successDiv.style.display = 'block';
+      document.getElementById('error-message').style.display = 'none';
+    }
+
+    function hideMessages() {
+      document.getElementById('error-message').style.display = 'none';
+      document.getElementById('success-message').style.display = 'none';
+    }
+
+    function showResult(data) {
+      const resultSection = document.getElementById('result-section');
+      const resultContent = document.getElementById('charge-result');
+      
+      resultContent.textContent = 'Charge Response:\n' + JSON.stringify(data, null, 2);
+      resultSection.style.display = 'block';
+      
+      resultSection.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // Create charge using the new Charge API
+    async function createCharge() {
+      if (!paymentData) {
+        showError('No payment data received from GoHighLevel');
+        return;
+      }
+
+      showLoading();
+      hideMessages();
+
+      try {
+        const chargeData = {
+          amount: paymentData.amount,
+          currency: paymentData.currency,
+          customer: paymentData.contact ? {
+            first_name: paymentData.contact.name?.split(' ')[0] || 'Customer',
+            last_name: paymentData.contact.name?.split(' ').slice(1).join(' ') || 'User',
+            email: paymentData.contact.email || 'customer@example.com',
+            phone: {
+              country_code: '962',
+              number: paymentData.contact.contact?.replace(/\D/g, '') || '790000000'
+            }
+          } : null,
+          description: `Payment for ${paymentData.productDetails?.productId || 'product'}`,
+          orderId: paymentData.orderId,
+          transactionId: paymentData.transactionId,
+          locationId: paymentData.locationId
+        };
+
+        console.log('🚀 Creating charge with data:', chargeData);
+
+        const response = await fetch('/charge/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+          },
+          body: JSON.stringify(chargeData)
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+          console.log('✅ Charge created successfully:', result);
+          showSuccess('🎉 Charge created successfully! Redirecting to payment page...');
+          showResult(result);
+          
+          // Redirect to Tap's hosted payment page
+          if (result.redirect_url) {
+            setTimeout(() => {
+              window.location.href = result.redirect_url;
+            }, 2000);
+          } else {
+            showError('No redirect URL received from charge creation');
+            hideLoading();
+          }
+        } else {
+          console.error('❌ Charge creation failed:', result);
+          showError(result.message || 'Failed to create charge');
+          hideLoading();
+        }
+      } catch (error) {
+        console.error('❌ Error creating charge:', error);
+        showError('An error occurred while creating the charge. Please try again.');
+        hideLoading();
+      }
+    }
+
+    // Initialize when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+      console.log('🚀 Charge API Integration Loaded Successfully');
+      
+      // Send ready event after a short delay
+      setTimeout(() => {
+        sendReadyEvent();
+        
+        setTimeout(() => {
+          if (!paymentData) {
+            console.log('⚠️ WARNING: No payment data received from GHL after 5 seconds');
+            console.log('🧪 To test, run: window.testChargeIntegration.testFlow()');
+          }
+        }, 5000);
+      }, 1000);
+
+      // Wire the button to create charge
+      document.getElementById('create-charge-btn').addEventListener('click', createCharge);
+
+      // Add keyboard support
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !document.getElementById('create-charge-btn').disabled) {
+          document.getElementById('create-charge-btn').click();
+        }
+      });
+    });
+
+    // Test functions for debugging
+    function simulateGHLPaymentData() {
+      const testData = {
+        type: 'payment_initiate_props',
+        publishableKey: 'pk_test_YhUjg9PNT8oDlKJ1aE2fMRz7',
+        amount: 25.50,
+        currency: 'JOD',
+        mode: 'payment',
+        productDetails: {
+          productId: 'prod_test_123',
+          priceId: 'price_test_456'
+        },
+        contact: {
+          id: 'cus_test_789',
+          name: 'John Doe',
+          email: 'john.doe@example.com',
+          contact: '+962790000000'
+        },
+        orderId: 'order_test_101112',
+        transactionId: 'txn_test_131415',
+        subscriptionId: 'sub_test_161718',
+        locationId: 'loc_test_161718'
+      };
+      
+      console.log('🧪 Simulating GHL payment data for testing:', testData);
+      updatePaymentForm(testData);
+    }
+
+    function testChargeFlow() {
+      console.log('🧪 Testing charge flow...');
+      simulateGHLPaymentData();
+      
+      setTimeout(() => {
+        console.log('🧪 Simulating charge creation...');
+        createCharge();
+      }, 2000);
+    }
+
+    // Make test functions available globally
+    window.testChargeIntegration = {
+      simulatePayment: simulateGHLPaymentData,
+      testFlow: testChargeFlow
+    };
+
+    console.log('📋 Available test functions:');
+    console.log('  - window.testChargeIntegration.testFlow() - Test complete charge flow');
+    console.log('  - window.testChargeIntegration.simulatePayment() - Test with mock GHL data');
+  </script>
+</body>
+</html>

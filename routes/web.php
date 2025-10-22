@@ -27,6 +27,10 @@ Route::get('/tap', function () {
     return view('tap', compact('publishableKey', 'merchantId'));
 })->name('tap');
 
+Route::get('/charge', function () {
+    return view('charge');
+})->name('charge');
+
 Route::post('/webhook', [ClientIntegrationController::class, 'webhook'])
     ->name('client.webhook');
 
@@ -51,3 +55,11 @@ Route::get('/test-payment-query', function () {
     
     return $controller->handleQuery($request);
 })->name('test.payment.query');
+
+// New Charge API routes
+Route::post('/charge/create', [ClientIntegrationController::class, 'createCharge'])
+    ->name('charge.create');
+
+Route::get('/payment/redirect', function () {
+    return view('payment.redirect');
+})->name('payment.redirect');

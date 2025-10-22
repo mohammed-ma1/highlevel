@@ -635,4 +635,64 @@ class ClientIntegrationController extends Controller
                 'transactionId' => $request->input('ghlTransactionId')
             ]);
         }
+
+        /**
+         * Create a charge using src_all (all payment methods)
+         * This replaces the Card SDK approach with a hosted payment page
+         */
+        public function createCharge(Request $request)
+        {
+            try {
+                // Get payment data from GHL
+                $amount = $request->input('amount');
+                $currency = $request->input('currency', 'JOD');
+                $customer = $request->input('customer');
+                $description = $request->input('description');
+                $orderId = $request->input('orderId');
+                $transactionId = $request->input('transactionId');
+                $locationId = $request->input('locationId');
+
+                // Find user by location ID
+                $user = User::where('lead_location_id', $locationId)->first();
+                if (!$user) {
+                    return response()->json(['message' => 'User not found'], 404);
+                }
+
+                // Get API keys from user
+                $apiKey = $user->lead_test_api_key ?? $user->lead_live_api_key;
+                $publishableKey = $user->lead_test_publishable_key ?? $user->lead_live_publishable_key;
+
+                if (!$apiKey || !$publishableKey) {
+                    return response()->json(['message' => 'API keys not configured'], 400);
+                }
+
+                // Initialize Tap service
+                $tapService = new \App\Services\TapPaymentService($apiKey, $publishableKey);
+
+                // Create charge with src_all
+                $chargeResponse = $tapService->createChargeWithAllPaymentMethods(
+                    $amount,
+                    $currency,
+                    $customer,
+                    $description,
+                    $orderId,
+                    $transactionId
+                );
+
+                if (!$chargeResponse) {
+                    return response()->json(['message' => 'Failed to create charge'], 500);
+                }
+
+                // Return the charge response with redirect URL
+                return response()->json([
+                    'success' => true,
+                    'charge' => $chargeResponse,
+                    'redirect_url' => $chargeResponse['transaction']['url'] ?? null
+                ]);
+
+            } catch (\Exception $e) {
+                Log::error('Charge creation failed', ['error' => $e->getMessage()]);
+                return response()->json(['message' => 'Charge creation failed'], 500);
+            }
+        }
 }
