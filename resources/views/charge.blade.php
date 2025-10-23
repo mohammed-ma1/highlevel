@@ -335,6 +335,39 @@
   </div>
 
   <script>
+    // Suppress all extension-related console errors
+    (function() {
+      const originalConsoleError = console.error;
+      const originalConsoleWarn = console.warn;
+      
+      console.error = function(...args) {
+        const message = args.join(' ');
+        if (message.includes('Unable to parse event message') ||
+            message.includes('CGK9cZpr.js') ||
+            message.includes('content_script') ||
+            message.includes('extension') ||
+            message.includes('devtools') ||
+            message.includes('angular') ||
+            message.includes('__NG_DEVTOOLS_EVENT__')) {
+          return; // Completely suppress these errors
+        }
+        originalConsoleError.apply(console, args);
+      };
+      
+      console.warn = function(...args) {
+        const message = args.join(' ');
+        if (message.includes('Unable to parse event message') ||
+            message.includes('CGK9cZpr.js') ||
+            message.includes('content_script') ||
+            message.includes('extension') ||
+            message.includes('devtools') ||
+            message.includes('angular')) {
+          return; // Completely suppress these warnings
+        }
+        originalConsoleWarn.apply(console, args);
+      };
+    })();
+
     // Global error handler to suppress extension-related errors
     window.addEventListener('error', function(event) {
       if (event.filename && (
@@ -342,11 +375,10 @@
           event.filename.includes('moz-extension://') ||
           event.filename.includes('safari-extension://') ||
           event.filename.includes('content_script') ||
-          event.filename.includes('Cr9l0Ika.js') ||
-          event.filename.includes('ZsUpL8J-.js') ||
           event.filename.includes('CGK9cZpr.js') ||
-          event.filename.includes('detect-angular-for-extension-icon.ts') ||
-          event.filename.includes('angular-devtools')
+          event.filename.includes('extension') ||
+          event.filename.includes('devtools') ||
+          event.filename.includes('angular')
         )) {
         event.preventDefault();
         return false;
@@ -359,25 +391,26 @@
           event.reason.message.includes('Unable to parse event message') ||
           event.reason.message.includes('extension') ||
           event.reason.message.includes('content_script') ||
-          event.reason.message.includes('angular-devtools') ||
-          event.reason.message.includes('CGK9cZpr.js')
+          event.reason.message.includes('CGK9cZpr.js') ||
+          event.reason.message.includes('devtools') ||
+          event.reason.message.includes('angular')
         )) {
         event.preventDefault();
         return false;
       }
     });
 
-    // Override console.error to filter extension messages
+    // Additional console error filtering (redundant but extra safety)
     const originalConsoleError = console.error;
     console.error = function(...args) {
       const message = args.join(' ');
       if (message.includes('Unable to parse event message') ||
-          message.includes('ZsUpL8J-.js') ||
           message.includes('CGK9cZpr.js') ||
           message.includes('content_script') ||
-          message.includes('angular-devtools') ||
-          message.includes('__NG_DEVTOOLS_EVENT__') ||
-          message.includes('handshake')) {
+          message.includes('extension') ||
+          message.includes('devtools') ||
+          message.includes('angular') ||
+          message.includes('__NG_DEVTOOLS_EVENT__')) {
         return; // Suppress extension-related console errors
       }
       originalConsoleError.apply(console, args);
@@ -420,48 +453,39 @@
       return true;
     }
 
-    // Check if message is from Angular DevTools or other extensions
+    // Check if message is from extensions
     function isExtensionMessage(data) {
       if (!data || typeof data !== 'object') {
         return false;
       }
       
-      // Angular DevTools specific checks
+      // Extension-specific checks
       if (data.__NG_DEVTOOLS_EVENT__ || 
           data.topic === 'handshake' || 
           data.topic === 'detectAngular' ||
           data.__ignore_ng_zone__ !== undefined ||
-          (data.source && data.source.includes('angular-devtools')) ||
-          (data.source && data.source.includes('angular-devtools-content-script')) ||
-          (data.source && data.source.includes('chrome-extension')) ||
           data.isIvy !== undefined ||
           data.isAngular !== undefined) {
         return true;
       }
       
-      // Extension source checks
+      // Source checks
       if (data.source && (
           data.source.includes('extension') ||
           data.source.includes('devtools') ||
           data.source.includes('content-script') ||
-          data.source.includes('angular-devtools-content-script') ||
+          data.source.includes('angular') ||
           data.source.includes('CGK9cZpr.js')
         )) {
         return true;
       }
       
-      // Extension type checks
+      // Type checks
       if (data.type && (
           data.type.includes('extension') ||
           data.type.includes('devtools') ||
-          data.type.includes('chrome') ||
           data.type.includes('angular')
         )) {
-        return true;
-      }
-      
-      // Card ready events
-      if (data.event === 'onCardReady' && data.data && data.data.ready === true) {
         return true;
       }
       
@@ -472,11 +496,6 @@
       
       // Handshake with args
       if (data.args !== undefined && data.topic === 'handshake') {
-        return true;
-      }
-      
-      // Check for specific Angular DevTools patterns
-      if (data.source && data.source.includes('angular-devtools-content-script-https://app.gohighlevel.com')) {
         return true;
       }
       
@@ -502,12 +521,21 @@
       try {
         // First check if it's an extension message and ignore it
         if (isExtensionMessage(event.data)) {
-          console.debug('🔍 Ignoring extension message:', {
-            origin: event.origin,
-            type: event.data?.type,
-            source: event.data?.source
-          });
+          // Completely ignore extension messages without any logging
           return;
+        }
+        
+        // Additional check for extension patterns
+        if (event.data && typeof event.data === 'object') {
+          const dataStr = JSON.stringify(event.data);
+          if (dataStr.includes('CGK9cZpr.js') ||
+              dataStr.includes('content_script') ||
+              dataStr.includes('extension') ||
+              dataStr.includes('devtools') ||
+              dataStr.includes('angular') ||
+              dataStr.includes('__NG_DEVTOOLS_EVENT__')) {
+            return; // Completely ignore these messages
+          }
         }
         
         // Log all non-extension messages for debugging
