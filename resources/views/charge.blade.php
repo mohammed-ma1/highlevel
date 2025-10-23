@@ -9,6 +9,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{{ config('app.name', 'Laravel') }} — Secure Payment</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
@@ -343,7 +344,9 @@
           event.filename.includes('content_script') ||
           event.filename.includes('Cr9l0Ika.js') ||
           event.filename.includes('ZsUpL8J-.js') ||
-          event.filename.includes('detect-angular-for-extension-icon.ts')
+          event.filename.includes('CGK9cZpr.js') ||
+          event.filename.includes('detect-angular-for-extension-icon.ts') ||
+          event.filename.includes('angular-devtools')
         )) {
         event.preventDefault();
         return false;
@@ -355,7 +358,9 @@
       if (event.reason && event.reason.message && (
           event.reason.message.includes('Unable to parse event message') ||
           event.reason.message.includes('extension') ||
-          event.reason.message.includes('content_script')
+          event.reason.message.includes('content_script') ||
+          event.reason.message.includes('angular-devtools') ||
+          event.reason.message.includes('CGK9cZpr.js')
         )) {
         event.preventDefault();
         return false;
@@ -368,8 +373,11 @@
       const message = args.join(' ');
       if (message.includes('Unable to parse event message') ||
           message.includes('ZsUpL8J-.js') ||
+          message.includes('CGK9cZpr.js') ||
           message.includes('content_script') ||
-          message.includes('angular-devtools')) {
+          message.includes('angular-devtools') ||
+          message.includes('__NG_DEVTOOLS_EVENT__') ||
+          message.includes('handshake')) {
         return; // Suppress extension-related console errors
       }
       originalConsoleError.apply(console, args);
@@ -418,43 +426,57 @@
         return false;
       }
       
+      // Angular DevTools specific checks
       if (data.__NG_DEVTOOLS_EVENT__ || 
           data.topic === 'handshake' || 
           data.topic === 'detectAngular' ||
+          data.__ignore_ng_zone__ !== undefined ||
           (data.source && data.source.includes('angular-devtools')) ||
+          (data.source && data.source.includes('angular-devtools-content-script')) ||
           (data.source && data.source.includes('chrome-extension')) ||
           data.isIvy !== undefined ||
           data.isAngular !== undefined) {
         return true;
       }
       
+      // Extension source checks
       if (data.source && (
           data.source.includes('extension') ||
           data.source.includes('devtools') ||
           data.source.includes('content-script') ||
-          data.source.includes('angular-devtools-content-script')
+          data.source.includes('angular-devtools-content-script') ||
+          data.source.includes('CGK9cZpr.js')
         )) {
         return true;
       }
       
+      // Extension type checks
       if (data.type && (
           data.type.includes('extension') ||
           data.type.includes('devtools') ||
-          data.type.includes('chrome')
+          data.type.includes('chrome') ||
+          data.type.includes('angular')
         )) {
         return true;
       }
       
+      // Card ready events
       if (data.event === 'onCardReady' && data.data && data.data.ready === true) {
         return true;
       }
       
+      // Generic ready events without proper type
       if (data.ready === true && !data.type) {
         return true;
       }
       
-      if (data.__ignore_ng_zone__ !== undefined ||
-          data.args !== undefined && data.topic === 'handshake') {
+      // Handshake with args
+      if (data.args !== undefined && data.topic === 'handshake') {
+        return true;
+      }
+      
+      // Check for specific Angular DevTools patterns
+      if (data.source && data.source.includes('angular-devtools-content-script-https://app.gohighlevel.com')) {
         return true;
       }
       
@@ -478,13 +500,25 @@
     // Listen for messages from GoHighLevel parent window
     window.addEventListener('message', function(event) {
       try {
+        // First check if it's an extension message and ignore it
         if (isExtensionMessage(event.data)) {
+          console.debug('🔍 Ignoring extension message:', {
+            origin: event.origin,
+            type: event.data?.type,
+            source: event.data?.source
+          });
           return;
         }
         
-        if (isPotentialGHLMessage(event.data)) {
-          // console.log('🔍 Received potential GHL message:', event.data);
-        } else {
+        // Log all non-extension messages for debugging
+        console.log('🔍 Received message from parent:', {
+          origin: event.origin,
+          type: event.data?.type,
+          data: event.data
+        });
+        
+        // Check if it looks like a potential GHL message
+        if (!isPotentialGHLMessage(event.data)) {
           console.debug('🔍 Received non-GHL message (ignored):', {
             origin: event.origin,
             type: event.data?.type,
@@ -493,11 +527,13 @@
           return;
         }
         
+        // Validate the GHL message structure
         if (!isValidGHLMessage(event.data)) {
           console.log('❌ Invalid GHL message structure:', event.data);
           return;
         }
         
+        // Process valid GHL messages
         if (event.data.type === 'payment_initiate_props') {
           paymentData = event.data;
           console.log('✅ GHL Payment data received:', paymentData);
@@ -523,16 +559,39 @@
       console.log('📤 Sending ready event to GHL:', readyEvent);
       
       try {
+        // Send to parent window
         if (window.parent && window.parent !== window) {
           window.parent.postMessage(readyEvent, '*');
+          console.log('📤 Sent ready event to parent window');
         }
         
+        // Send to top window if different from parent
         if (window.top && window.top !== window && window.top !== window.parent) {
           window.top.postMessage(readyEvent, '*');
+          console.log('📤 Sent ready event to top window');
         }
         
         isReady = true;
         console.log('✅ Payment iframe is ready and listening for GHL messages');
+        
+        // Also send a test message to help with debugging
+        setTimeout(() => {
+          if (!paymentData) {
+            console.log('⚠️ No payment data received after 3 seconds. Sending test message...');
+            const testEvent = {
+              type: 'test_message',
+              message: 'Iframe is ready and waiting for payment data'
+            };
+            
+            if (window.parent && window.parent !== window) {
+              window.parent.postMessage(testEvent, '*');
+            }
+            if (window.top && window.top !== window && window.top !== window.parent) {
+              window.top.postMessage(testEvent, '*');
+            }
+          }
+        }, 3000);
+        
       } catch (error) {
         console.warn('⚠️ Could not send ready event to parent:', error.message);
         isReady = true;
@@ -703,14 +762,23 @@
     // Create charge using the new Charge API
     async function createCharge() {
       if (!paymentData) {
-        showError('No payment data received from GoHighLevel');
+        console.error('❌ No payment data available');
+        console.log('🔍 Current paymentData:', paymentData);
+        console.log('🔍 isReady status:', isReady);
+        showError('No payment data received from GoHighLevel. Please ensure the integration is properly configured.');
         return;
       }
 
+      console.log('🚀 Starting charge creation with payment data:', paymentData);
       showLoading();
       hideMessages();
 
       try {
+        // Validate required fields
+        if (!paymentData.amount || !paymentData.currency) {
+          throw new Error('Missing required payment data: amount or currency');
+        }
+
         const chargeData = {
           amount: paymentData.amount,
           currency: paymentData.currency,
@@ -747,6 +815,9 @@
           showSuccess('🎉 Charge created successfully! Redirecting to payment page...');
           showResult(result);
           
+          // Send success response to GoHighLevel
+          sendSuccessResponse(result.charge?.id || result.transaction?.id);
+          
           // Redirect to Tap's hosted payment page
           if (result.redirect_url) {
             setTimeout(() => {
@@ -760,28 +831,57 @@
           console.error('❌ Charge creation failed:', result);
           showError(result.message || 'Failed to create charge');
           hideLoading();
+          
+          // Send error response to GoHighLevel
+          sendErrorResponse(result.message || 'Failed to create charge');
         }
       } catch (error) {
         console.error('❌ Error creating charge:', error);
         showError('An error occurred while creating the charge. Please try again.');
         hideLoading();
+        
+        // Send error response to GoHighLevel
+        sendErrorResponse(error.message || 'An error occurred while creating the charge');
       }
     }
 
     // Initialize when page loads
     document.addEventListener('DOMContentLoaded', function() {
       console.log('🚀 Charge API Integration Loaded Successfully');
+      console.log('🔍 Window context:', {
+        isIframe: window !== window.top,
+        parentExists: window.parent !== window,
+        topExists: window.top !== window
+      });
       
       // Send ready event after a short delay
       setTimeout(() => {
         sendReadyEvent();
         
+        // Check for payment data after 3 seconds
         setTimeout(() => {
           if (!paymentData) {
-            console.log('⚠️ WARNING: No payment data received from GHL after 5 seconds');
+            console.log('⚠️ WARNING: No payment data received from GHL after 3 seconds');
+            console.log('🔍 Debugging info:', {
+              isReady: isReady,
+              paymentData: paymentData,
+              windowParent: window.parent !== window,
+              windowTop: window.top !== window
+            });
             console.log('🧪 To test, run: window.testChargeIntegration.testFlow()');
           }
-        }, 5000);
+        }, 3000);
+        
+        // Final check after 10 seconds
+        setTimeout(() => {
+          if (!paymentData) {
+            console.log('❌ CRITICAL: No payment data received from GHL after 10 seconds');
+            console.log('🔍 This may indicate an integration issue. Check:');
+            console.log('  1. Is this page loaded in an iframe from GoHighLevel?');
+            console.log('  2. Are the integration settings correct?');
+            console.log('  3. Is the custom provider properly configured?');
+          }
+        }, 10000);
       }, 1000);
 
       // Wire the button to create charge
