@@ -428,26 +428,54 @@
       
       const validTypes = ['payment_initiate_props', 'setup_initiate_props'];
       if (!data.type || !validTypes.includes(data.type)) {
+        console.log('❌ Invalid message type:', data.type);
         return false;
       }
       
       if (data.type === 'payment_initiate_props') {
-        return data.publishableKey && 
-               data.amount && 
-               data.currency && 
-               data.mode && 
-               data.orderId && 
-               data.transactionId && 
-               data.locationId;
+        const hasRequiredFields = data.publishableKey && 
+                                 data.amount && 
+                                 data.currency && 
+                                 data.mode && 
+                                 data.orderId && 
+                                 data.transactionId && 
+                                 data.locationId;
+        
+        if (!hasRequiredFields) {
+          console.log('❌ Missing required fields for payment_initiate_props:', {
+            publishableKey: !!data.publishableKey,
+            amount: !!data.amount,
+            currency: !!data.currency,
+            mode: !!data.mode,
+            orderId: !!data.orderId,
+            transactionId: !!data.transactionId,
+            locationId: !!data.locationId
+          });
+        }
+        
+        return hasRequiredFields;
       }
       
       if (data.type === 'setup_initiate_props') {
-        return data.publishableKey && 
-               data.currency && 
-               data.mode === 'setup' && 
-               data.contact && 
-               data.contact.id && 
-               data.locationId;
+        const hasRequiredFields = data.publishableKey && 
+                                 data.currency && 
+                                 data.mode === 'setup' && 
+                                 data.contact && 
+                                 data.contact.id && 
+                                 data.locationId;
+        
+        if (!hasRequiredFields) {
+          console.log('❌ Missing required fields for setup_initiate_props:', {
+            publishableKey: !!data.publishableKey,
+            currency: !!data.currency,
+            mode: data.mode,
+            contact: !!data.contact,
+            contactId: !!data.contact?.id,
+            locationId: !!data.locationId
+          });
+        }
+        
+        return hasRequiredFields;
       }
       
       return true;
@@ -508,20 +536,59 @@
         return false;
       }
       
-      return data.type === 'payment_initiate_props' || 
-             data.type === 'setup_initiate_props' ||
-             (data.publishableKey && data.amount && data.currency) ||
-             (data.type && data.type.includes('payment')) ||
-             (data.type && data.type.includes('setup')) ||
-             (data.type && data.type.includes('custom_provider'));
+      // Check for exact GHL message types
+      if (data.type === 'payment_initiate_props' || data.type === 'setup_initiate_props') {
+        return true;
+      }
+      
+      // Check for GHL-like structure
+      if (data.publishableKey && (data.amount || data.currency)) {
+        return true;
+      }
+      
+      // Check for GHL-like type patterns
+      if (data.type && (
+          data.type.includes('payment') ||
+          data.type.includes('setup') ||
+          data.type.includes('custom_provider') ||
+          data.type.includes('initiate')
+        )) {
+        return true;
+      }
+      
+      // Check for GHL-specific fields
+      if (data.orderId || data.transactionId || data.locationId) {
+        return true;
+      }
+      
+      // Check for contact/customer data
+      if (data.contact && typeof data.contact === 'object') {
+        return true;
+      }
+      
+      return false;
     }
 
     // Listen for messages from GoHighLevel parent window
     window.addEventListener('message', function(event) {
       try {
+        // Log ALL messages for debugging (we'll filter in the processing)
+        console.log('🔍 Received message:', {
+          origin: event.origin,
+          source: event.source,
+          data: event.data,
+          dataType: typeof event.data
+        });
+        
+        // Skip if no data
+        if (!event.data) {
+          console.debug('🔍 Skipping message with no data');
+          return;
+        }
+        
         // First check if it's an extension message and ignore it
         if (isExtensionMessage(event.data)) {
-          // Completely ignore extension messages without any logging
+          console.debug('🔍 Ignoring extension message:', event.data);
           return;
         }
         
@@ -534,16 +601,10 @@
               dataStr.includes('devtools') ||
               dataStr.includes('angular') ||
               dataStr.includes('__NG_DEVTOOLS_EVENT__')) {
-            return; // Completely ignore these messages
+            console.debug('🔍 Ignoring extension-related message');
+            return;
           }
         }
-        
-        // Log all non-extension messages for debugging
-        console.log('🔍 Received message from parent:', {
-          origin: event.origin,
-          type: event.data?.type,
-          data: event.data
-        });
         
         // Check if it looks like a potential GHL message
         if (!isPotentialGHLMessage(event.data)) {
@@ -555,11 +616,15 @@
           return;
         }
         
+        console.log('🎯 Potential GHL message detected:', event.data);
+        
         // Validate the GHL message structure
         if (!isValidGHLMessage(event.data)) {
           console.log('❌ Invalid GHL message structure:', event.data);
           return;
         }
+        
+        console.log('✅ Valid GHL message received:', event.data);
         
         // Process valid GHL messages
         if (event.data.type === 'payment_initiate_props') {
@@ -576,6 +641,46 @@
       }
     });
 
+    // Fallback message handler for non-standard GHL messages
+    window.addEventListener('message', function(event) {
+      try {
+        // Skip if already processed by main handler
+        if (event.data && typeof event.data === 'object' && 
+            (event.data.type === 'payment_initiate_props' || event.data.type === 'setup_initiate_props')) {
+          return;
+        }
+        
+        // Check for GHL-like data that might not match exact format
+        if (event.data && typeof event.data === 'object' && 
+            (event.data.publishableKey || event.data.amount || event.data.orderId)) {
+          
+          console.log('🔄 Fallback: Processing potential GHL message:', event.data);
+          
+          // Try to construct a valid payment message
+          if (event.data.publishableKey && event.data.amount && event.data.currency) {
+            const fallbackData = {
+              type: 'payment_initiate_props',
+              publishableKey: event.data.publishableKey,
+              amount: event.data.amount,
+              currency: event.data.currency,
+              mode: event.data.mode || 'payment',
+              orderId: event.data.orderId || 'fallback_order_' + Date.now(),
+              transactionId: event.data.transactionId || 'fallback_txn_' + Date.now(),
+              locationId: event.data.locationId || 'fallback_loc_' + Date.now(),
+              contact: event.data.contact || null,
+              productDetails: event.data.productDetails || null
+            };
+            
+            console.log('🔄 Fallback: Constructed payment data:', fallbackData);
+            paymentData = fallbackData;
+            updatePaymentForm(fallbackData);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error processing message from parent:', error);
+      }
+    });
+
     // Send ready event to GoHighLevel parent window
     function sendReadyEvent() {
       const readyEvent = {
@@ -585,22 +690,55 @@
       };
       
       console.log('📤 Sending ready event to GHL:', readyEvent);
+      console.log('🔍 Window context:', {
+        isIframe: window !== window.top,
+        hasParent: window.parent !== window,
+        hasTop: window.top !== window,
+        parentSameAsTop: window.parent === window.top
+      });
       
       try {
         // Send to parent window
         if (window.parent && window.parent !== window) {
           window.parent.postMessage(readyEvent, '*');
           console.log('📤 Sent ready event to parent window');
+        } else {
+          console.warn('⚠️ No parent window available');
         }
         
         // Send to top window if different from parent
         if (window.top && window.top !== window && window.top !== window.parent) {
           window.top.postMessage(readyEvent, '*');
           console.log('📤 Sent ready event to top window');
+        } else if (window.top === window.parent) {
+          console.log('📤 Top window is same as parent, skipping duplicate send');
+        } else {
+          console.warn('⚠️ No top window available');
         }
         
         isReady = true;
         console.log('✅ Payment iframe is ready and listening for GHL messages');
+        
+        // Send multiple ready events with delays to ensure GHL receives it
+        setTimeout(() => {
+          console.log('📤 Sending delayed ready event (attempt 2)');
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage(readyEvent, '*');
+          }
+          if (window.top && window.top !== window) {
+            window.top.postMessage(readyEvent, '*');
+          }
+        }, 1000);
+        
+        setTimeout(() => {
+          console.log('📤 Sending delayed ready event (attempt 3)');
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage(readyEvent, '*');
+          }
+          if (window.top && window.top !== window) {
+            window.top.postMessage(readyEvent, '*');
+          }
+        }, 2000);
         
         // Also send a test message to help with debugging
         setTimeout(() => {
@@ -608,14 +746,17 @@
             console.log('⚠️ No payment data received after 3 seconds. Sending test message...');
             const testEvent = {
               type: 'test_message',
-              message: 'Iframe is ready and waiting for payment data'
+              message: 'Iframe is ready and waiting for payment data',
+              timestamp: new Date().toISOString()
             };
             
             if (window.parent && window.parent !== window) {
               window.parent.postMessage(testEvent, '*');
+              console.log('📤 Sent test message to parent');
             }
             if (window.top && window.top !== window && window.top !== window.parent) {
               window.top.postMessage(testEvent, '*');
+              console.log('📤 Sent test message to top');
             }
           }
         }, 3000);
