@@ -700,7 +700,7 @@
       try {
         // Send to parent window
         if (window.parent && window.parent !== window) {
-          window.parent.postMessage(readyEvent, '*');
+          window.parent.postMessage(JSON.stringify(readyEvent), '*');
           console.log('📤 Sent ready event to parent window');
         } else {
           console.warn('⚠️ No parent window available');
@@ -708,7 +708,7 @@
         
         // Send to top window if different from parent
         if (window.top && window.top !== window && window.top !== window.parent) {
-          window.top.postMessage(readyEvent, '*');
+          window.top.postMessage(JSON.stringify(readyEvent), '*');
           console.log('📤 Sent ready event to top window');
         } else if (window.top === window.parent) {
           console.log('📤 Top window is same as parent, skipping duplicate send');
@@ -723,25 +723,26 @@
         setTimeout(() => {
           console.log('📤 Sending delayed ready event (attempt 2)');
           if (window.parent && window.parent !== window) {
-            window.parent.postMessage(readyEvent, '*');
+            window.parent.postMessage(JSON.stringify(readyEvent), '*');
           }
           if (window.top && window.top !== window) {
-            window.top.postMessage(readyEvent, '*');
+            window.top.postMessage(JSON.stringify(readyEvent), '*');
           }
         }, 1000);
         
         setTimeout(() => {
           console.log('📤 Sending delayed ready event (attempt 3)');
           if (window.parent && window.parent !== window) {
-            window.parent.postMessage(readyEvent, '*');
+            window.parent.postMessage(JSON.stringify(readyEvent), '*');
           }
           if (window.top && window.top !== window) {
-            window.top.postMessage(readyEvent, '*');
+            window.top.postMessage(JSON.stringify(readyEvent), '*');
           }
         }, 2000);
         
         // Also send a test message to help with debugging
         setTimeout(() => {
+          
           if (!paymentData) {
             console.log('⚠️ No payment data received after 3 seconds. Sending test message...');
             const testEvent = {
@@ -751,11 +752,11 @@
             };
             
             if (window.parent && window.parent !== window) {
-              window.parent.postMessage(testEvent, '*');
+              window.parent.postMessage(JSON.stringify(testEvent), '*');
               console.log('📤 Sent test message to parent');
             }
             if (window.top && window.top !== window && window.top !== window.parent) {
-              window.top.postMessage(testEvent, '*');
+              window.top.postMessage(JSON.stringify(testEvent), '*');
               console.log('📤 Sent test message to top');
             }
           }
@@ -830,11 +831,11 @@
       
       try {
         if (window.parent && window.parent !== window) {
-          window.parent.postMessage(successEvent, '*');
+          window.parent.postMessage(JSON.stringify(successEvent), '*');
         }
         
         if (window.top && window.top !== window && window.top !== window.parent) {
-          window.top.postMessage(successEvent, '*');
+          window.top.postMessage(JSON.stringify(successEvent), '*');
         }
       } catch (error) {
         console.warn('⚠️ Could not send success response to parent:', error.message);
@@ -851,11 +852,11 @@
       
       try {
         if (window.parent && window.parent !== window) {
-          window.parent.postMessage(successEvent, '*');
+          window.parent.postMessage(JSON.stringify(successEvent), '*');
         }
         
         if (window.top && window.top !== window && window.top !== window.parent) {
-          window.top.postMessage(successEvent, '*');
+          window.top.postMessage(JSON.stringify(successEvent), '*');
         }
       } catch (error) {
         console.warn('⚠️ Could not send setup success response to parent:', error.message);
@@ -875,11 +876,11 @@
       
       try {
         if (window.parent && window.parent !== window) {
-          window.parent.postMessage(errorEvent, '*');
+          window.parent.postMessage(JSON.stringify(errorEvent), '*');
         }
         
         if (window.top && window.top !== window && window.top !== window.parent) {
-          window.top.postMessage(errorEvent, '*');
+          window.top.postMessage(JSON.stringify(errorEvent), '*');
         }
       } catch (error) {
         console.warn('⚠️ Could not send error response to parent:', error.message);
