@@ -4,7 +4,6 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ClientIntegrationController;
-use App\Http\Controllers\GHLIntegrationController;
 use App\Http\Controllers\LeadConnectorPaymentController;
 use App\Http\Controllers\PaymentQueryController;
 
@@ -68,19 +67,13 @@ Route::get('/payment/redirect', function () {
 })->name('payment.redirect');
 
 // Webhook route for Tap charge completion
-Route::post('/charge/webhook', [ClientIntegrationController::class, 'handleTapWebhook'])
-    ->name('charge.webhook');
+Route::post('/charge/webhook', function (Request $request) {
+    \Log::info('Tap webhook received', ['data' => $request->all()]);
+    return response()->json(['status' => 'success']);
+})->name('charge.webhook');
 
 // Redirect route for Tap charge completion
 Route::get('/charge/redirect', function (Request $request) {
     \Log::info('Tap redirect received', ['data' => $request->all()]);
     return view('payment.redirect', ['data' => $request->all()]);
 })->name('charge.redirect');
-
-// Payment success page
-Route::get('/payment/success', [GHLIntegrationController::class, 'paymentSuccess'])
-    ->name('payment.success');
-
-// GHL query endpoint
-Route::post('/payment/query', [GHLIntegrationController::class, 'handleQuery'])
-    ->name('payment.query');

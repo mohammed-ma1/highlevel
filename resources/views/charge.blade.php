@@ -146,39 +146,6 @@
       transform: none;
     }
 
-    .processing-message {
-      text-align: center;
-      padding: 40px 30px;
-      background: linear-gradient(135deg, #f8f9ff 0%, #e8f0ff 100%);
-      border-radius: 12px;
-      margin-bottom: 20px;
-    }
-
-    .processing-content {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 20px;
-    }
-
-    .processing-spinner {
-      font-size: 32px;
-      color: #667eea;
-    }
-
-    .processing-message h3 {
-      color: #333;
-      font-size: 20px;
-      font-weight: 600;
-      margin: 0;
-    }
-
-    .processing-message p {
-      color: #666;
-      font-size: 14px;
-      margin: 0;
-    }
-
     .loading-spinner {
       display: none;
       width: 20px;
@@ -340,17 +307,6 @@
         <div class="loading-spinner" id="loading-spinner"></div>
         <span id="button-text">Proceed to Payment</span>
       </button>
-
-      <!-- Processing Message (shown when auto-processing) -->
-      <div id="processing-message" class="processing-message" style="display: none;">
-        <div class="processing-content">
-          <div class="processing-spinner">
-            <i class="fas fa-spinner fa-spin"></i>
-          </div>
-          <h3>Processing Payment...</h3>
-          <p>Please wait while we redirect you to the secure payment page.</p>
-        </div>
-      </div>
 
       <!-- Result display -->
       <div class="result-section" id="result-section" style="display: none;">
@@ -613,7 +569,139 @@
       return false;
     }
 
-    // Note: Old message handlers removed - using the new consolidated handler below
+    // Listen for messages from GoHighLevel parent window
+    window.addEventListener('message', function(event) {
+      try {
+        // Log ALL messages for debugging (we'll filter in the processing)
+        console.log('🔍 Received message:', {
+          origin: event.origin,
+          source: event.source,
+          data: event.data,
+          dataType: typeof event.data
+        });
+        
+        // Skip if no data
+        if (!event.data) {
+          console.debug('🔍 Skipping message with no data');
+          return;
+        }
+        
+        // First check if it's an extension message and ignore it
+        if (isExtensionMessage(event.data)) {
+          console.debug('🔍 Ignoring extension message:', event.data);
+          return;
+        }
+        
+        // Additional check for extension patterns
+        if (event.data && typeof event.data === 'object') {
+          const dataStr = JSON.stringify(event.data);
+          if (dataStr.includes('CGK9cZpr.js') ||
+              dataStr.includes('content_script') ||
+              dataStr.includes('extension') ||
+              dataStr.includes('devtools') ||
+              dataStr.includes('angular') ||
+              dataStr.includes('__NG_DEVTOOLS_EVENT__')) {
+            console.debug('🔍 Ignoring extension-related message');
+            return;
+          }
+        }
+        
+        // Parse JSON string if needed
+        let parsedData = event.data;
+        if (typeof event.data === 'string') {
+          try {
+            parsedData = JSON.parse(event.data);
+            console.log('📦 Parsed JSON data:', parsedData);
+          } catch (e) {
+            console.log('❌ Failed to parse JSON string:', e.message);
+            return;
+          }
+        }
+        
+        // Check if it looks like a potential GHL message
+        if (!isPotentialGHLMessage(parsedData)) {
+          console.debug('🔍 Received non-GHL message (ignored):', {
+            origin: event.origin,
+            type: parsedData?.type,
+            reason: 'Not a GHL message format'
+          });
+          return;
+        }
+        
+        console.log('🎯 Potential GHL message detected:', parsedData);
+        
+        // Validate the GHL message structure
+        if (!isValidGHLMessage(parsedData)) {
+          console.log('❌ Invalid GHL message structure:', parsedData);
+          return;
+        }
+        
+        console.log('✅ Valid GHL message received:', parsedData);
+        
+        // Process valid GHL messages
+        if (parsedData.type === 'payment_initiate_props') {
+          paymentData = parsedData;
+          console.log('✅ GHL Payment data received:', paymentData);
+          updatePaymentForm(paymentData);
+        } else if (parsedData.type === 'setup_initiate_props') {
+          paymentData = parsedData;
+          console.log('✅ GHL Setup data received:', paymentData);
+          updatePaymentFormForSetup(paymentData);
+        }
+      } catch (error) {
+        console.error('❌ Error processing message from parent:', error);
+      }
+    });
+
+    // Fallback message handler for non-standard GHL messages
+    window.addEventListener('message', function(event) {
+      try {
+        // Parse JSON string if needed
+        let parsedData = event.data;
+        if (typeof event.data === 'string') {
+          try {
+            parsedData = JSON.parse(event.data);
+          } catch (e) {
+            return; // Not JSON, skip
+          }
+        }
+        
+        // Skip if already processed by main handler
+        if (parsedData && typeof parsedData === 'object' && 
+            (parsedData.type === 'payment_initiate_props' || parsedData.type === 'setup_initiate_props')) {
+          return;
+        }
+        
+        // Check for GHL-like data that might not match exact format
+        if (parsedData && typeof parsedData === 'object' && 
+            (parsedData.publishableKey || parsedData.amount || parsedData.orderId)) {
+          
+          console.log('🔄 Fallback: Processing potential GHL message:', parsedData);
+          
+          // Try to construct a valid payment message
+          if (parsedData.publishableKey && parsedData.amount && parsedData.currency) {
+            const fallbackData = {
+              type: 'payment_initiate_props',
+              publishableKey: parsedData.publishableKey,
+              amount: parsedData.amount,
+              currency: parsedData.currency,
+              mode: parsedData.mode || 'payment',
+              orderId: parsedData.orderId || 'fallback_order_' + Date.now(),
+              transactionId: parsedData.transactionId || 'fallback_txn_' + Date.now(),
+              locationId: parsedData.locationId || 'fallback_loc_' + Date.now(),
+              contact: parsedData.contact || null,
+              productDetails: parsedData.productDetails || null
+            };
+            
+            console.log('🔄 Fallback: Constructed payment data:', fallbackData);
+            paymentData = fallbackData;
+            updatePaymentForm(fallbackData);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error processing message from parent:', error);
+      }
+    });
 
     // Send ready event to GoHighLevel parent window
     function sendReadyEvent() {
@@ -674,22 +762,22 @@
         return;
       }
       
-      // Store payment data for later use
-      paymentData = data;
-      isReady = true;
-      
       if (data.amount && data.currency) {
-        console.log('💰 Amount received:', data.amount + ' ' + data.currency);
+        const amountDisplay = document.getElementById('amount-display');
+        if (amountDisplay) {
+          amountDisplay.textContent = data.amount + ' ' + data.currency;
+          console.log('💰 Amount updated to:', data.amount + ' ' + data.currency);
+        }
       }
       
       if (data.contact) {
         console.log('👤 Customer info received:', data.contact);
       }
       
-      console.log('✅ Payment data received from GoHighLevel successfully!');
-      
-      // Auto-create charge and redirect immediately
-      createChargeAndRedirect();
+      showSuccess('✅ Payment data received from GoHighLevel successfully!');
+      setTimeout(() => {
+        hideMessages();
+      }, 3000);
     }
 
     // Update payment form for setup (Add Card on File) flow
@@ -701,20 +789,20 @@
         return;
       }
       
-      // Store payment data for later use
-      paymentData = data;
-      isReady = true;
-      
-      console.log('💳 Setup mode: Adding card on file');
+      const amountDisplay = document.getElementById('amount-display');
+      if (amountDisplay) {
+        amountDisplay.textContent = 'Card Setup';
+        console.log('💳 Setup mode: Adding card on file');
+      }
       
       if (data.contact) {
         console.log('👤 Customer info for setup:', data.contact);
       }
       
-      console.log('✅ Card setup data received from GoHighLevel successfully!');
-      
-      // Handle card setup (if implementing card on file)
-      handleCardSetup();
+      showSuccess('✅ Card setup data received from GoHighLevel successfully!');
+      setTimeout(() => {
+        hideMessages();
+      }, 3000);
     }
 
     // Send success response to GoHighLevel
@@ -972,205 +1060,6 @@
       }
     }
 
-    // Listen for GHL payment events
-    window.addEventListener('message', (event) => {
-      console.log('📨 Received message from parent:', event.data);
-      
-      if (event.data.type === 'payment_initiate_props') {
-        console.log('💰 GHL Payment event received:', event.data);
-        paymentData = event.data;
-        isReady = true;
-        
-        // Immediately hide all UI and show loading only
-        document.body.innerHTML = `
-          <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-family: 'Inter', sans-serif;">
-            <div style="background: white; padding: 50px; border-radius: 20px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.15); max-width: 400px; width: 90%;">
-              <div style="width: 80px; height: 80px; border: 6px solid #f3f3f3; border-top: 6px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 30px;"></div>
-              <h2 style="color: #333; margin-bottom: 15px; font-size: 24px; font-weight: 600;">Processing Payment</h2>
-              <p style="color: #666; font-size: 16px; line-height: 1.5;">Creating secure payment session...</p>
-              <div style="margin-top: 20px; color: #999; font-size: 14px;">Please wait while we redirect you</div>
-            </div>
-          </div>
-          <style>
-            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-          </style>
-        `;
-        
-        // Auto-create charge and redirect immediately
-        createChargeAndRedirect();
-      } else if (event.data.type === 'setup_initiate_props') {
-        console.log('💳 GHL Setup event received:', event.data);
-        paymentData = event.data;
-        isReady = true;
-        
-        // Handle card setup (if implementing card on file)
-        handleCardSetup();
-      }
-    });
-
-    // Auto-create charge and redirect function
-    async function createChargeAndRedirect() {
-      console.log('🚀 Auto-creating charge and redirecting to Tap checkout...');
-      console.log('📊 Payment data available:', paymentData);
-
-      try {
-        // Validate required fields
-        if (!paymentData || !paymentData.amount || !paymentData.currency) {
-          console.error('❌ Missing payment data:', { paymentData, amount: paymentData?.amount, currency: paymentData?.currency });
-          throw new Error('Missing required payment data: amount or currency');
-        }
-
-        console.log('🚀 Creating charge with data:', paymentData);
-        console.log('🔗 API endpoint: /api/charge/create-tap');
-
-        // Prepare the request body
-        const requestBody = {
-          amount: paymentData.amount,
-          currency: paymentData.currency,
-          customer_initiated: true,
-          threeDSecure: true,
-          save_card: false,
-          description: `Payment for ${paymentData.productDetails?.productId || 'product'}`,
-          metadata: {
-            udf1: `Order: ${paymentData.orderId}`,
-            udf2: `Transaction: ${paymentData.transactionId}`,
-            udf3: `Location: ${paymentData.locationId}`
-          },
-          receipt: {
-            email: false,
-            sms: false
-          },
-          reference: {
-            transaction: paymentData.transactionId,
-            order: paymentData.orderId
-          },
-          customer: paymentData.contact ? {
-            first_name: paymentData.contact.name?.split(' ')[0] || 'Customer',
-            middle_name: '',
-            last_name: paymentData.contact.name?.split(' ').slice(1).join(' ') || 'User',
-            email: paymentData.contact.email || 'customer@example.com',
-            phone: {
-              country_code: 965,
-              number: parseInt(paymentData.contact.contact?.replace(/\D/g, '') || '790000000')
-            }
-          } : {
-            first_name: 'Customer',
-            last_name: 'User',
-            email: 'customer@example.com',
-            phone: {
-              country_code: 965,
-              number: 790000000
-            }
-          },
-          merchant: {
-            id: paymentData.locationId || '1234'
-          },
-          post: {
-            url: window.location.origin + '/charge/webhook'
-          },
-          redirect: {
-            url: window.location.origin + '/payment/success?charge_id='
-          }
-        };
-
-        console.log('📤 Sending request to API:', {
-          url: '/api/charge/create-tap',
-          method: 'POST',
-          body: requestBody
-        });
-
-        // Call Laravel API to create Tap charge
-        const tapResponse = await fetch('/api/charge/create-tap', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
-          },
-          body: JSON.stringify(requestBody)
-        });
-
-        console.log('📡 Response status:', tapResponse.status);
-        console.log('📡 Response headers:', Object.fromEntries(tapResponse.headers.entries()));
-        
-        let result;
-        try {
-          result = await tapResponse.json();
-          console.log('📡 Response data:', result);
-          console.log('✅ API call successful:', result.success);
-        } catch (e) {
-          console.error('❌ Failed to parse JSON response:', e);
-          const textResponse = await tapResponse.text();
-          console.error('❌ Raw response:', textResponse);
-          throw new Error('Invalid JSON response from server');
-        }
-
-        if (tapResponse.ok && result.success && result.charge) {
-          console.log('✅ Tap charge created successfully:', result.charge);
-          console.log('🆔 Charge ID:', result.charge.id);
-          console.log('🔗 Transaction URL:', result.charge.transaction?.url);
-          
-          // Store charge ID and transaction ID for later verification
-          sessionStorage.setItem('tap_charge_id', result.charge.id);
-          sessionStorage.setItem('ghl_transaction_id', paymentData.transactionId);
-          sessionStorage.setItem('ghl_order_id', paymentData.orderId);
-          
-          console.log('💾 Stored in sessionStorage:', {
-            tap_charge_id: result.charge.id,
-            ghl_transaction_id: paymentData.transactionId,
-            ghl_order_id: paymentData.orderId
-          });
-          
-          // Redirect to Tap checkout immediately
-          if (result.charge.transaction?.url) {
-            console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
-            console.log('🚀 About to redirect...');
-            window.location.href = result.charge.transaction.url;
-          } else {
-            console.error('❌ No checkout URL received from Tap');
-            throw new Error('No checkout URL received from Tap');
-          }
-        } else {
-          console.error('❌ Tap charge creation failed:', result);
-          
-          // Show error message
-          document.body.innerHTML = `
-            <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-family: 'Inter', sans-serif;">
-              <div style="background: white; padding: 50px; border-radius: 20px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.15); max-width: 400px; width: 90%;">
-                <div style="color: #ef4444; font-size: 64px; margin-bottom: 20px;">⚠️</div>
-                <h2 style="color: #333; margin-bottom: 15px; font-size: 24px; font-weight: 600;">Payment Failed</h2>
-                <p style="color: #666; font-size: 16px; line-height: 1.5; margin-bottom: 30px;">${result.message || 'Failed to create charge with Tap'}</p>
-                <button onclick="window.location.reload()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 15px 30px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; transition: all 0.3s ease;">Try Again</button>
-              </div>
-            </div>
-          `;
-          
-          sendErrorResponse(result.message || 'Failed to create charge with Tap');
-        }
-      } catch (error) {
-        console.error('❌ Error creating charge:', error);
-        
-        // Show error message
-        document.body.innerHTML = `
-          <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-family: 'Inter', sans-serif;">
-            <div style="background: white; padding: 50px; border-radius: 20px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.15); max-width: 400px; width: 90%;">
-              <div style="color: #ef4444; font-size: 64px; margin-bottom: 20px;">⚠️</div>
-              <h2 style="color: #333; margin-bottom: 15px; font-size: 24px; font-weight: 600;">Payment Error</h2>
-              <p style="color: #666; font-size: 16px; line-height: 1.5; margin-bottom: 30px;">${error.message || 'An error occurred while creating the charge'}</p>
-              <button onclick="window.location.reload()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 15px 30px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; transition: all 0.3s ease;">Try Again</button>
-            </div>
-          </div>
-        `;
-        
-        sendErrorResponse(error.message || 'An error occurred while creating the charge');
-      }
-    }
-
-    // Handle card setup (for future card on file implementation)
-    function handleCardSetup() {
-      console.log('💳 Card setup not yet implemented');
-      sendErrorResponse('Card setup not yet implemented');
-    }
-
     // Initialize when page loads
     document.addEventListener('DOMContentLoaded', function() {
       console.log('🚀 Charge API Integration Loaded Successfully');
@@ -1180,34 +1069,22 @@
         topExists: window.top !== window
       });
       
-      // Show loading state by default
-      document.body.innerHTML = `
-        <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-family: 'Inter', sans-serif;">
-          <div style="background: white; padding: 50px; border-radius: 20px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.15); max-width: 400px; width: 90%;">
-            <div style="width: 80px; height: 80px; border: 6px solid #f3f3f3; border-top: 6px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 30px;"></div>
-            <h2 style="color: #333; margin-bottom: 15px; font-size: 24px; font-weight: 600;">Loading Payment</h2>
-            <p style="color: #666; font-size: 16px; line-height: 1.5;">Preparing secure payment environment...</p>
-            <div style="margin-top: 20px; color: #999; font-size: 14px;">Please wait</div>
-          </div>
-        </div>
-        <style>
-          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        </style>
-      `;
-      
       // Send ready event after a short delay
       setTimeout(() => {
         sendReadyEvent();
+        
+        // Check for payment data after 3 seconds
       }, 1000);
 
-      // For testing purposes - simulate GHL payment data
-      if (window.parent === window) {
-        console.log('🌐 Running in standalone mode - Testing mode');
-        setTimeout(() => {
-          console.log('🧪 Simulating GHL payment data and auto-triggering payment...');
-          simulateGHLPaymentData();
-        }, 2000);
-      }
+      // Wire the button to create charge
+      document.getElementById('create-charge-btn').addEventListener('click', createCharge);
+
+      // Add keyboard support
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !document.getElementById('create-charge-btn').disabled) {
+          document.getElementById('create-charge-btn').click();
+        }
+      });
     });
 
     // Test functions for debugging
