@@ -1060,6 +1060,142 @@
       }
     }
 
+    // Listen for GHL payment events
+    window.addEventListener('message', (event) => {
+      console.log('📨 Received message from parent:', event.data);
+      
+      if (event.data.type === 'payment_initiate_props') {
+        console.log('💰 GHL Payment event received:', event.data);
+        paymentData = event.data;
+        isReady = true;
+        
+        // Auto-create charge immediately
+        createChargeAutomatically();
+      } else if (event.data.type === 'setup_initiate_props') {
+        console.log('💳 GHL Setup event received:', event.data);
+        paymentData = event.data;
+        isReady = true;
+        
+        // Handle card setup (if implementing card on file)
+        handleCardSetup();
+      }
+    });
+
+    // Auto-create charge function
+    async function createChargeAutomatically() {
+      console.log('🚀 Auto-creating charge from GHL payment event...');
+      showLoading();
+      hideMessages();
+
+      try {
+        // Validate required fields
+        if (!paymentData.amount || !paymentData.currency) {
+          throw new Error('Missing required payment data: amount or currency');
+        }
+
+        console.log('🚀 Creating charge with data:', paymentData);
+
+        // Call Laravel API to create Tap charge
+        const tapResponse = await fetch('/api/charge/create-tap', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+          },
+          body: JSON.stringify({
+            amount: paymentData.amount,
+            currency: paymentData.currency,
+            customer_initiated: true,
+            threeDSecure: true,
+            save_card: false,
+            description: `Payment for ${paymentData.productDetails?.productId || 'product'}`,
+            metadata: {
+              udf1: `Order: ${paymentData.orderId}`,
+              udf2: `Transaction: ${paymentData.transactionId}`,
+              udf3: `Location: ${paymentData.locationId}`
+            },
+            receipt: {
+              email: false,
+              sms: false
+            },
+            reference: {
+              transaction: paymentData.transactionId,
+              order: paymentData.orderId
+            },
+            customer: paymentData.contact ? {
+              first_name: paymentData.contact.name?.split(' ')[0] || 'Customer',
+              middle_name: '',
+              last_name: paymentData.contact.name?.split(' ').slice(1).join(' ') || 'User',
+              email: paymentData.contact.email || 'customer@example.com',
+              phone: {
+                country_code: 965,
+                number: parseInt(paymentData.contact.contact?.replace(/\D/g, '') || '790000000')
+              }
+            } : {
+              first_name: 'Customer',
+              last_name: 'User',
+              email: 'customer@example.com',
+              phone: {
+                country_code: 965,
+                number: 790000000
+              }
+            },
+            merchant: {
+              id: paymentData.locationId || '1234'
+            },
+            post: {
+              url: window.location.origin + '/charge/webhook'
+            },
+            redirect: {
+              url: window.location.origin + '/payment/success?charge_id='
+            }
+          })
+        });
+
+        console.log('📡 Response status:', tapResponse.status);
+        
+        let result;
+        try {
+          result = await tapResponse.json();
+          console.log('📡 Response data:', result);
+        } catch (e) {
+          console.error('❌ Failed to parse JSON response:', e);
+          const textResponse = await tapResponse.text();
+          console.error('❌ Raw response:', textResponse);
+          throw new Error('Invalid JSON response from server');
+        }
+
+        if (tapResponse.ok && result.success && result.charge) {
+          console.log('✅ Tap charge created successfully:', result.charge);
+          
+          // Store charge ID and transaction ID for later verification
+          sessionStorage.setItem('tap_charge_id', result.charge.id);
+          sessionStorage.setItem('ghl_transaction_id', paymentData.transactionId);
+          sessionStorage.setItem('ghl_order_id', paymentData.orderId);
+          
+          // Redirect to Tap checkout immediately
+          if (result.charge.transaction?.url) {
+            console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
+            window.location.href = result.charge.transaction.url;
+          } else {
+            throw new Error('No checkout URL received from Tap');
+          }
+        } else {
+          console.error('❌ Tap charge creation failed:', result);
+          sendErrorResponse(result.message || 'Failed to create charge with Tap');
+        }
+      } catch (error) {
+        console.error('❌ Error creating charge:', error);
+        sendErrorResponse(error.message || 'An error occurred while creating the charge');
+      }
+    }
+
+    // Handle card setup (for future card on file implementation)
+    function handleCardSetup() {
+      console.log('💳 Card setup not yet implemented');
+      sendErrorResponse('Card setup not yet implemented');
+    }
+
     // Initialize when page loads
     document.addEventListener('DOMContentLoaded', function() {
       console.log('🚀 Charge API Integration Loaded Successfully');
@@ -1072,11 +1208,18 @@
       // Send ready event after a short delay
       setTimeout(() => {
         sendReadyEvent();
-        
-        // Check for payment data after 3 seconds
       }, 1000);
 
-      // Wire the button to create charge
+      // For testing purposes - simulate GHL payment data
+      if (window.parent === window) {
+        console.log('🌐 Running in standalone mode - Testing mode');
+        setTimeout(() => {
+          console.log('🧪 Simulating GHL payment data...');
+          simulateGHLPaymentData();
+        }, 2000);
+      }
+
+      // Wire the button to create charge (for testing)
       document.getElementById('create-charge-btn').addEventListener('click', createCharge);
 
       // Add keyboard support
