@@ -686,7 +686,11 @@
       const readyEvent = {
         type: 'custom_provider_ready',
         loaded: true,
-        addCardOnFileSupported: true
+        addCardOnFileSupported: true,
+        // Add additional fields that GHL might expect
+        version: '1.0',
+        capabilities: ['payment', 'setup'],
+        supportedModes: ['payment', 'setup']
       };
       
       console.log('📤 Sending ready event to GHL:', readyEvent);
@@ -740,27 +744,6 @@
           }
         }, 2000);
         
-        // Also send a test message to help with debugging
-        setTimeout(() => {
-          
-          if (!paymentData) {
-            console.log('⚠️ No payment data received after 3 seconds. Sending test message...');
-            const testEvent = {
-              type: 'test_message',
-              message: 'Iframe is ready and waiting for payment data',
-              timestamp: new Date().toISOString()
-            };
-            
-            if (window.parent && window.parent !== window) {
-              window.parent.postMessage(JSON.stringify(testEvent), '*');
-              console.log('📤 Sent test message to parent');
-            }
-            if (window.top && window.top !== window && window.top !== window.parent) {
-              window.top.postMessage(JSON.stringify(testEvent), '*');
-              console.log('📤 Sent test message to top');
-            }
-          }
-        }, 3000);
         
       } catch (error) {
         console.warn('⚠️ Could not send ready event to parent:', error.message);
@@ -1029,29 +1012,6 @@
         sendReadyEvent();
         
         // Check for payment data after 3 seconds
-        setTimeout(() => {
-          if (!paymentData) {
-            console.log('⚠️ WARNING: No payment data received from GHL after 3 seconds');
-            console.log('🔍 Debugging info:', {
-              isReady: isReady,
-              paymentData: paymentData,
-              windowParent: window.parent !== window,
-              windowTop: window.top !== window
-            });
-            console.log('🧪 To test, run: window.testChargeIntegration.testFlow()');
-          }
-        }, 3000);
-        
-        // Final check after 10 seconds
-        setTimeout(() => {
-          if (!paymentData) {
-            console.log('❌ CRITICAL: No payment data received from GHL after 10 seconds');
-            console.log('🔍 This may indicate an integration issue. Check:');
-            console.log('  1. Is this page loaded in an iframe from GoHighLevel?');
-            console.log('  2. Are the integration settings correct?');
-            console.log('  3. Is the custom provider properly configured?');
-          }
-        }, 10000);
       }, 1000);
 
       // Wire the button to create charge
@@ -1103,15 +1063,72 @@
       }, 2000);
     }
 
+    // Comprehensive troubleshooting function
+    function diagnoseGHLIntegration() {
+      console.log('🔍 GHL Integration Diagnosis:');
+      console.log('================================');
+      
+      // Check iframe context
+      console.log('📋 Iframe Context:');
+      console.log('  - Current URL:', window.location.href);
+      console.log('  - Is in iframe:', window !== window.top);
+      console.log('  - Has parent:', window.parent !== window);
+      console.log('  - Has top:', window.top !== window);
+      console.log('  - Parent same as top:', window.parent === window.top);
+      
+      // Check URLs (if accessible)
+      try {
+        console.log('  - Parent URL:', window.parent.location?.href || 'Cannot access');
+        console.log('  - Top URL:', window.top.location?.href || 'Cannot access');
+      } catch (e) {
+        console.log('  - Cannot access parent/top URLs (cross-origin)');
+      }
+      
+      // Check referrer and user agent
+      console.log('📋 Request Info:');
+      console.log('  - Referrer:', document.referrer);
+      console.log('  - User Agent:', navigator.userAgent);
+      
+      // Check if GHL is listening
+      console.log('📋 GHL Communication Status:');
+      console.log('  - Ready events sent:', isReady);
+      console.log('  - Payment data received:', !!paymentData);
+      
+      // Check for common issues
+      console.log('📋 Common Issues Check:');
+      console.log('  - Is this loaded from GHL?', document.referrer.includes('gohighlevel') || document.referrer.includes('highlevel'));
+      console.log('  - Is HTTPS?', window.location.protocol === 'https:');
+      console.log('  - Is localhost?', window.location.hostname === 'localhost');
+      
+      // Recommendations
+      console.log('📋 Recommendations:');
+      if (window.location.hostname === 'localhost') {
+        console.log('  ⚠️  You are on localhost - GHL may not be able to reach this URL');
+        console.log('  💡 Try using ngrok or a public URL for testing');
+      }
+      if (!document.referrer.includes('gohighlevel') && !document.referrer.includes('highlevel')) {
+        console.log('  ⚠️  This page may not be loaded from GoHighLevel');
+        console.log('  💡 Ensure this page is embedded as an iframe in GHL');
+      }
+      if (!paymentData) {
+        console.log('  ⚠️  No payment data received from GHL');
+        console.log('  💡 Check GHL integration settings and custom provider configuration');
+      }
+      
+      console.log('================================');
+    }
+
     // Make test functions available globally
     window.testChargeIntegration = {
       simulatePayment: simulateGHLPaymentData,
-      testFlow: testChargeFlow
+      testFlow: testChargeFlow,
+      diagnose: diagnoseGHLIntegration
     };
 
     console.log('📋 Available test functions:');
     console.log('  - window.testChargeIntegration.testFlow() - Test complete charge flow');
     console.log('  - window.testChargeIntegration.simulatePayment() - Test with mock GHL data');
+    console.log('  - window.testChargeIntegration.diagnose() - Diagnose GHL integration issues');
   </script>
 </body>
 </html>
