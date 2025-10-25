@@ -1027,16 +1027,16 @@
           throw new Error('Invalid JSON response from server');
         }
 
-        if (tapResponse.ok && result.id) {
-          console.log('✅ Tap charge created successfully:', result);
+        if (tapResponse.ok && result.success && result.charge) {
+          console.log('✅ Tap charge created successfully:', result.charge);
           showSuccess('🎉 Charge created successfully! Redirecting to payment page...');
-          showResult(result);
+          showResult(result.charge);
           
           // Open Tap's checkout URL in the same window
-          if (result.transaction?.url) {
-            console.log('🔗 Redirecting to Tap checkout:', result.transaction.url);
+          if (result.charge.transaction?.url) {
+            console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
             setTimeout(() => {
-              window.location.href = result.transaction.url;
+              window.location.href = result.charge.transaction.url;
             }, 2000);
           } else {
             showError('No checkout URL received from Tap');
