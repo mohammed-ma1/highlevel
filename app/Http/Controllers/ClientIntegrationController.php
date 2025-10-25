@@ -703,6 +703,8 @@ class ClientIntegrationController extends Controller
     {
         try {
             Log::info('Tap charge creation request received', ['data' => $request->all()]);
+            Log::info('Request method: ' . $request->method());
+            Log::info('Request URL: ' . $request->fullUrl());
             
             $data = $request->all();
             
