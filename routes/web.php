@@ -60,6 +60,9 @@ Route::get('/test-payment-query', function () {
 Route::post('/charge/create', [ClientIntegrationController::class, 'createCharge'])
     ->name('charge.create');
 
+Route::post('/charge/create-tap', [ClientIntegrationController::class, 'createTapCharge'])
+    ->name('charge.create.tap');
+
 Route::get('/payment/redirect', function () {
     return view('payment.redirect');
 })->name('payment.redirect');

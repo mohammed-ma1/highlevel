@@ -695,4 +695,61 @@ class ClientIntegrationController extends Controller
                 return response()->json(['message' => 'Charge creation failed'], 500);
             }
         }
+
+    /**
+     * Create a charge using Tap Payments API
+     */
+    public function createTapCharge(Request $request)
+    {
+        try {
+            $data = $request->all();
+            
+            // Prepare the Tap API request
+            $tapData = [
+                'amount' => $data['amount'],
+                'currency' => $data['currency'],
+                'customer_initiated' => $data['customer_initiated'] ?? true,
+                'threeDSecure' => $data['threeDSecure'] ?? true,
+                'save_card' => $data['save_card'] ?? false,
+                'description' => $data['description'] ?? 'Payment',
+                'metadata' => $data['metadata'] ?? [],
+                'receipt' => $data['receipt'] ?? ['email' => false, 'sms' => false],
+                'reference' => $data['reference'] ?? [],
+                'customer' => $data['customer'] ?? [],
+                'merchant' => $data['merchant'] ?? [],
+                'post' => $data['post'] ?? [],
+                'redirect' => $data['redirect'] ?? []
+            ];
+
+            // Call Tap Payments API
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer sk_test_XKokBfNWv6FIYuTMg5sLPjhJ',
+                'accept' => 'application/json',
+                'content-type' => 'application/json'
+            ])->post('https://api.tap.company/v2/charges/', $tapData);
+
+            if ($response->successful()) {
+                $chargeData = $response->json();
+                
+                return response()->json([
+                    'success' => true,
+                    'charge' => $chargeData,
+                    'message' => 'Charge created successfully'
+                ]);
+            } else {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to create charge with Tap',
+                    'error' => $response->json()
+                ], $response->status());
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Tap charge creation failed', ['error' => $e->getMessage()]);
+            return response()->json([
+                'success' => false,
+                'message' => 'An error occurred while creating the charge'
+            ], 500);
+        }
+    }
 }

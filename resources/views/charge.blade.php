@@ -954,41 +954,87 @@
 
         console.log('🚀 Creating charge with data:', chargeData);
 
-        const response = await fetch('/charge/create', {
+        // Call Tap Payments API through Laravel proxy to avoid CORS
+        const tapResponse = await fetch('/charge/create-tap', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
           },
-          body: JSON.stringify(chargeData)
+          body: JSON.stringify({
+            amount: paymentData.amount,
+            currency: paymentData.currency,
+            customer_initiated: true,
+            threeDSecure: true,
+            save_card: false,
+            description: `Payment for ${paymentData.productDetails?.productId || 'product'}`,
+            metadata: {
+              udf1: `Order: ${paymentData.orderId}`,
+              udf2: `Transaction: ${paymentData.transactionId}`,
+              udf3: `Location: ${paymentData.locationId}`
+            },
+            receipt: {
+              email: false,
+              sms: false
+            },
+            reference: {
+              transaction: paymentData.transactionId,
+              order: paymentData.orderId
+            },
+            customer: paymentData.contact ? {
+              first_name: paymentData.contact.name?.split(' ')[0] || 'Customer',
+              middle_name: '',
+              last_name: paymentData.contact.name?.split(' ').slice(1).join(' ') || 'User',
+              email: paymentData.contact.email || 'customer@example.com',
+              phone: {
+                country_code: 965,
+                number: parseInt(paymentData.contact.contact?.replace(/\D/g, '') || '790000000')
+              }
+            } : {
+              first_name: 'Customer',
+              last_name: 'User',
+              email: 'customer@example.com',
+              phone: {
+                country_code: 965,
+                number: 790000000
+              }
+            },
+            merchant: {
+              id: paymentData.locationId || '1234'
+            },
+            post: {
+              url: window.location.origin + '/charge/webhook'
+            },
+            redirect: {
+              url: window.location.origin + '/charge/redirect'
+            }
+          })
         });
 
-        const result = await response.json();
+        const result = await tapResponse.json();
 
-        if (response.ok && result.success) {
-          console.log('✅ Charge created successfully:', result);
+        if (tapResponse.ok && result.success && result.charge?.id) {
+          console.log('✅ Tap charge created successfully:', result);
           showSuccess('🎉 Charge created successfully! Redirecting to payment page...');
           showResult(result);
           
-          // Send success response to GoHighLevel
-          sendSuccessResponse(result.charge?.id || result.transaction?.id);
-          
-          // Redirect to Tap's hosted payment page
-          if (result.redirect_url) {
+          // Open Tap's checkout URL in the same window
+          if (result.charge?.transaction?.url) {
+            console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
             setTimeout(() => {
-              window.location.href = result.redirect_url;
+              window.location.href = result.charge.transaction.url;
             }, 2000);
           } else {
-            showError('No redirect URL received from charge creation');
+            showError('No checkout URL received from Tap');
             hideLoading();
           }
         } else {
-          console.error('❌ Charge creation failed:', result);
-          showError(result.message || 'Failed to create charge');
+          console.error('❌ Tap charge creation failed:', result);
+          showError(result.message || 'Failed to create charge with Tap');
           hideLoading();
           
           // Send error response to GoHighLevel
-          sendErrorResponse(result.message || 'Failed to create charge');
+          sendErrorResponse(result.message || 'Failed to create charge with Tap');
         }
       } catch (error) {
         console.error('❌ Error creating charge:', error);
