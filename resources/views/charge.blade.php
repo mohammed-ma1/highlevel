@@ -1113,12 +1113,23 @@
         paymentData = event.data;
         isReady = true;
         
-        // Hide the button and show processing message
-        document.getElementById('create-charge-btn').style.display = 'none';
-        document.getElementById('processing-message').style.display = 'block';
+        // Hide the entire payment form and show processing
+        document.querySelector('.payment-container').style.display = 'none';
+        document.body.innerHTML = `
+          <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+            <div style="background: white; padding: 40px; border-radius: 20px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.15);">
+              <div style="width: 60px; height: 60px; border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px;"></div>
+              <h2 style="color: #333; margin-bottom: 10px;">Processing Payment...</h2>
+              <p style="color: #666;">Redirecting to secure payment page</p>
+            </div>
+          </div>
+          <style>
+            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+          </style>
+        `;
         
-        // Auto-create charge immediately
-        createChargeAutomatically();
+        // Auto-create charge and redirect immediately
+        createChargeAndRedirect();
       } else if (event.data.type === 'setup_initiate_props') {
         console.log('💳 GHL Setup event received:', event.data);
         paymentData = event.data;
@@ -1129,10 +1140,9 @@
       }
     });
 
-    // Auto-create charge function
-    async function createChargeAutomatically() {
-      console.log('🚀 Auto-creating charge from GHL payment event...');
-      hideMessages();
+    // Auto-create charge and redirect function
+    async function createChargeAndRedirect() {
+      console.log('🚀 Auto-creating charge and redirecting to Tap checkout...');
 
       try {
         // Validate required fields
@@ -1230,18 +1240,34 @@
         } else {
           console.error('❌ Tap charge creation failed:', result);
           
-          // Show button again and hide processing message
-          document.getElementById('create-charge-btn').style.display = 'block';
-          document.getElementById('processing-message').style.display = 'none';
+          // Show error message
+          document.body.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+              <div style="background: white; padding: 40px; border-radius: 20px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.15);">
+                <div style="color: #ef4444; font-size: 48px; margin-bottom: 20px;">❌</div>
+                <h2 style="color: #333; margin-bottom: 10px;">Payment Failed</h2>
+                <p style="color: #666; margin-bottom: 20px;">${result.message || 'Failed to create charge with Tap'}</p>
+                <button onclick="window.location.reload()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer;">Try Again</button>
+              </div>
+            </div>
+          `;
           
           sendErrorResponse(result.message || 'Failed to create charge with Tap');
         }
       } catch (error) {
         console.error('❌ Error creating charge:', error);
         
-        // Show button again and hide processing message
-        document.getElementById('create-charge-btn').style.display = 'block';
-        document.getElementById('processing-message').style.display = 'none';
+        // Show error message
+        document.body.innerHTML = `
+          <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+            <div style="background: white; padding: 40px; border-radius: 20px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.15);">
+              <div style="color: #ef4444; font-size: 48px; margin-bottom: 20px;">❌</div>
+              <h2 style="color: #333; margin-bottom: 10px;">Payment Error</h2>
+              <p style="color: #666; margin-bottom: 20px;">${error.message || 'An error occurred while creating the charge'}</p>
+              <button onclick="window.location.reload()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer;">Try Again</button>
+            </div>
+          </div>
+        `;
         
         sendErrorResponse(error.message || 'An error occurred while creating the charge');
       }
@@ -1271,7 +1297,7 @@
       if (window.parent === window) {
         console.log('🌐 Running in standalone mode - Testing mode');
         setTimeout(() => {
-          console.log('🧪 Simulating GHL payment data...');
+          console.log('🧪 Simulating GHL payment data and auto-triggering payment...');
           simulateGHLPaymentData();
         }, 2000);
       }
