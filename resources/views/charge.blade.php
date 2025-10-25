@@ -1011,14 +1011,73 @@
     // Auto-create charge and redirect function
     async function createChargeAndRedirect() {
       console.log('🚀 Auto-creating charge and redirecting to Tap checkout...');
+      console.log('📊 Payment data available:', paymentData);
 
       try {
         // Validate required fields
-        if (!paymentData.amount || !paymentData.currency) {
+        if (!paymentData || !paymentData.amount || !paymentData.currency) {
+          console.error('❌ Missing payment data:', { paymentData, amount: paymentData?.amount, currency: paymentData?.currency });
           throw new Error('Missing required payment data: amount or currency');
         }
 
         console.log('🚀 Creating charge with data:', paymentData);
+        console.log('🔗 API endpoint: /api/charge/create-tap');
+
+        // Prepare the request body
+        const requestBody = {
+          amount: paymentData.amount,
+          currency: paymentData.currency,
+          customer_initiated: true,
+          threeDSecure: true,
+          save_card: false,
+          description: `Payment for ${paymentData.productDetails?.productId || 'product'}`,
+          metadata: {
+            udf1: `Order: ${paymentData.orderId}`,
+            udf2: `Transaction: ${paymentData.transactionId}`,
+            udf3: `Location: ${paymentData.locationId}`
+          },
+          receipt: {
+            email: false,
+            sms: false
+          },
+          reference: {
+            transaction: paymentData.transactionId,
+            order: paymentData.orderId
+          },
+          customer: paymentData.contact ? {
+            first_name: paymentData.contact.name?.split(' ')[0] || 'Customer',
+            middle_name: '',
+            last_name: paymentData.contact.name?.split(' ').slice(1).join(' ') || 'User',
+            email: paymentData.contact.email || 'customer@example.com',
+            phone: {
+              country_code: 965,
+              number: parseInt(paymentData.contact.contact?.replace(/\D/g, '') || '790000000')
+            }
+          } : {
+            first_name: 'Customer',
+            last_name: 'User',
+            email: 'customer@example.com',
+            phone: {
+              country_code: 965,
+              number: 790000000
+            }
+          },
+          merchant: {
+            id: paymentData.locationId || '1234'
+          },
+          post: {
+            url: window.location.origin + '/charge/webhook'
+          },
+          redirect: {
+            url: window.location.origin + '/payment/success?charge_id='
+          }
+        };
+
+        console.log('📤 Sending request to API:', {
+          url: '/api/charge/create-tap',
+          method: 'POST',
+          body: requestBody
+        });
 
         // Call Laravel API to create Tap charge
         const tapResponse = await fetch('/api/charge/create-tap', {
@@ -1027,62 +1086,17 @@
             'Content-Type': 'application/json',
             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
           },
-          body: JSON.stringify({
-            amount: paymentData.amount,
-            currency: paymentData.currency,
-            customer_initiated: true,
-            threeDSecure: true,
-            save_card: false,
-            description: `Payment for ${paymentData.productDetails?.productId || 'product'}`,
-            metadata: {
-              udf1: `Order: ${paymentData.orderId}`,
-              udf2: `Transaction: ${paymentData.transactionId}`,
-              udf3: `Location: ${paymentData.locationId}`
-            },
-            receipt: {
-              email: false,
-              sms: false
-            },
-            reference: {
-              transaction: paymentData.transactionId,
-              order: paymentData.orderId
-            },
-            customer: paymentData.contact ? {
-              first_name: paymentData.contact.name?.split(' ')[0] || 'Customer',
-              middle_name: '',
-              last_name: paymentData.contact.name?.split(' ').slice(1).join(' ') || 'User',
-              email: paymentData.contact.email || 'customer@example.com',
-              phone: {
-                country_code: 965,
-                number: parseInt(paymentData.contact.contact?.replace(/\D/g, '') || '790000000')
-              }
-            } : {
-              first_name: 'Customer',
-              last_name: 'User',
-              email: 'customer@example.com',
-              phone: {
-                country_code: 965,
-                number: 790000000
-              }
-            },
-            merchant: {
-              id: paymentData.locationId || '1234'
-            },
-            post: {
-              url: window.location.origin + '/charge/webhook'
-            },
-            redirect: {
-              url: window.location.origin + '/payment/success?charge_id='
-            }
-          })
+          body: JSON.stringify(requestBody)
         });
 
         console.log('📡 Response status:', tapResponse.status);
+        console.log('📡 Response headers:', Object.fromEntries(tapResponse.headers.entries()));
         
         let result;
         try {
           result = await tapResponse.json();
           console.log('📡 Response data:', result);
+          console.log('✅ API call successful:', result.success);
         } catch (e) {
           console.error('❌ Failed to parse JSON response:', e);
           const textResponse = await tapResponse.text();
@@ -1092,17 +1106,27 @@
 
         if (tapResponse.ok && result.success && result.charge) {
           console.log('✅ Tap charge created successfully:', result.charge);
+          console.log('🆔 Charge ID:', result.charge.id);
+          console.log('🔗 Transaction URL:', result.charge.transaction?.url);
           
           // Store charge ID and transaction ID for later verification
           sessionStorage.setItem('tap_charge_id', result.charge.id);
           sessionStorage.setItem('ghl_transaction_id', paymentData.transactionId);
           sessionStorage.setItem('ghl_order_id', paymentData.orderId);
           
+          console.log('💾 Stored in sessionStorage:', {
+            tap_charge_id: result.charge.id,
+            ghl_transaction_id: paymentData.transactionId,
+            ghl_order_id: paymentData.orderId
+          });
+          
           // Redirect to Tap checkout immediately
           if (result.charge.transaction?.url) {
             console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
+            console.log('🚀 About to redirect...');
             window.location.href = result.charge.transaction.url;
           } else {
+            console.error('❌ No checkout URL received from Tap');
             throw new Error('No checkout URL received from Tap');
           }
         } else {
