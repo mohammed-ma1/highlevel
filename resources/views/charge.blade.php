@@ -146,6 +146,39 @@
       transform: none;
     }
 
+    .processing-message {
+      text-align: center;
+      padding: 40px 30px;
+      background: linear-gradient(135deg, #f8f9ff 0%, #e8f0ff 100%);
+      border-radius: 12px;
+      margin-bottom: 20px;
+    }
+
+    .processing-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .processing-spinner {
+      font-size: 32px;
+      color: #667eea;
+    }
+
+    .processing-message h3 {
+      color: #333;
+      font-size: 20px;
+      font-weight: 600;
+      margin: 0;
+    }
+
+    .processing-message p {
+      color: #666;
+      font-size: 14px;
+      margin: 0;
+    }
+
     .loading-spinner {
       display: none;
       width: 20px;
@@ -307,6 +340,17 @@
         <div class="loading-spinner" id="loading-spinner"></div>
         <span id="button-text">Proceed to Payment</span>
       </button>
+
+      <!-- Processing Message (shown when auto-processing) -->
+      <div id="processing-message" class="processing-message" style="display: none;">
+        <div class="processing-content">
+          <div class="processing-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+          </div>
+          <h3>Processing Payment...</h3>
+          <p>Please wait while we redirect you to the secure payment page.</p>
+        </div>
+      </div>
 
       <!-- Result display -->
       <div class="result-section" id="result-section" style="display: none;">
@@ -1069,6 +1113,10 @@
         paymentData = event.data;
         isReady = true;
         
+        // Hide the button and show processing message
+        document.getElementById('create-charge-btn').style.display = 'none';
+        document.getElementById('processing-message').style.display = 'block';
+        
         // Auto-create charge immediately
         createChargeAutomatically();
       } else if (event.data.type === 'setup_initiate_props') {
@@ -1084,7 +1132,6 @@
     // Auto-create charge function
     async function createChargeAutomatically() {
       console.log('🚀 Auto-creating charge from GHL payment event...');
-      showLoading();
       hideMessages();
 
       try {
@@ -1182,10 +1229,20 @@
           }
         } else {
           console.error('❌ Tap charge creation failed:', result);
+          
+          // Show button again and hide processing message
+          document.getElementById('create-charge-btn').style.display = 'block';
+          document.getElementById('processing-message').style.display = 'none';
+          
           sendErrorResponse(result.message || 'Failed to create charge with Tap');
         }
       } catch (error) {
         console.error('❌ Error creating charge:', error);
+        
+        // Show button again and hide processing message
+        document.getElementById('create-charge-btn').style.display = 'block';
+        document.getElementById('processing-message').style.display = 'none';
+        
         sendErrorResponse(error.message || 'An error occurred while creating the charge');
       }
     }
