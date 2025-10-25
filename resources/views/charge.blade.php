@@ -954,14 +954,16 @@
 
         console.log('🚀 Creating charge with data:', chargeData);
 
-        // Call Tap Payments API through Laravel API route (no CSRF protection)
-        console.log('🚀 Calling Tap API through Laravel API route...');
+        // Call Tap Payments API directly with proper CORS handling
+        console.log('🚀 Calling Tap API directly...');
         
-        const tapResponse = await fetch('/api/charge/create-tap', {
+        const tapResponse = await fetch('https://api.tap.company/v2/charges/', {
           method: 'POST',
+          mode: 'cors',
           headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
+            'Authorization': 'Bearer sk_test_XKokBfNWv6FIYuTMg5sLPjhJ',
+            'accept': 'application/json',
+            'content-type': 'application/json'
           },
           body: JSON.stringify({
             amount: paymentData.amount,
@@ -1027,16 +1029,16 @@
           throw new Error('Invalid JSON response from server');
         }
 
-        if (tapResponse.ok && result.success && result.charge?.id) {
+        if (tapResponse.ok && result.id) {
           console.log('✅ Tap charge created successfully:', result);
           showSuccess('🎉 Charge created successfully! Redirecting to payment page...');
           showResult(result);
           
           // Open Tap's checkout URL in the same window
-          if (result.charge?.transaction?.url) {
-            console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
+          if (result.transaction?.url) {
+            console.log('🔗 Redirecting to Tap checkout:', result.transaction.url);
             setTimeout(() => {
-              window.location.href = result.charge.transaction.url;
+              window.location.href = result.transaction.url;
             }, 2000);
           } else {
             showError('No checkout URL received from Tap');
