@@ -708,31 +708,43 @@ class ClientIntegrationController extends Controller
             
             $data = $request->all();
             
-            // Prepare the Tap API request
+            // Prepare the Tap API request using exact format from documentation
             $tapData = [
-                'amount' => $data['amount'],
-                'currency' => $data['currency'],
+                'amount' => $data['amount'] ?? 1,
+                'currency' => $data['currency'] ?? 'KWD',
                 'customer_initiated' => $data['customer_initiated'] ?? true,
                 'threeDSecure' => $data['threeDSecure'] ?? true,
                 'save_card' => $data['save_card'] ?? false,
-                'description' => $data['description'] ?? 'Payment',
-                'metadata' => $data['metadata'] ?? [],
+                'description' => $data['description'] ?? 'Test Description',
+                'metadata' => $data['metadata'] ?? ['udf1' => 'Metadata 1'],
                 'receipt' => $data['receipt'] ?? ['email' => false, 'sms' => false],
-                'reference' => $data['reference'] ?? [],
-                'customer' => $data['customer'] ?? [],
-                'merchant' => $data['merchant'] ?? [],
-                'post' => $data['post'] ?? [],
-                'redirect' => $data['redirect'] ?? []
+                'reference' => $data['reference'] ?? ['transaction' => 'txn_01', 'order' => 'ord_01'],
+                'customer' => $data['customer'] ?? [
+                    'first_name' => 'test',
+                    'middle_name' => 'test', 
+                    'last_name' => 'test',
+                    'email' => 'test@test.com',
+                    'phone' => ['country_code' => 965, 'number' => 51234567]
+                ],
+                'merchant' => $data['merchant'] ?? ['id' => '1234'],
+                'source' => $data['source'] ?? ['id' => 'token_id'],
+                'post' => $data['post'] ?? ['url' => 'http://your_website.com/post_url'],
+                'redirect' => $data['redirect'] ?? ['url' => 'http://your_website.com/redirect_url']
             ];
 
-            // Call Tap Payments API
+            // Call Tap Payments API using exact format from documentation
             Log::info('Calling Tap API with data', ['tapData' => $tapData]);
+            
+            // Convert to JSON string like the PHP example
+            $jsonBody = json_encode($tapData);
+            Log::info('JSON body being sent', ['jsonBody' => $jsonBody]);
             
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer sk_test_XKokBfNWv6FIYuTMg5sLPjhJ',
                 'accept' => 'application/json',
                 'content-type' => 'application/json'
-            ])->post('https://api.tap.company/v2/charges/', $tapData);
+            ])->withBody($jsonBody, 'application/json')
+              ->post('https://api.tap.company/v2/charges/');
             
             Log::info('Tap API response', [
                 'status' => $response->status(),
