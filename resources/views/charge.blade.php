@@ -1113,14 +1113,14 @@
         paymentData = event.data;
         isReady = true;
         
-        // Hide the entire payment form and show processing
-        document.querySelector('.payment-container').style.display = 'none';
+        // Immediately hide all UI and show loading only
         document.body.innerHTML = `
-          <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-            <div style="background: white; padding: 40px; border-radius: 20px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.15);">
-              <div style="width: 60px; height: 60px; border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px;"></div>
-              <h2 style="color: #333; margin-bottom: 10px;">Processing Payment...</h2>
-              <p style="color: #666;">Redirecting to secure payment page</p>
+          <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-family: 'Inter', sans-serif;">
+            <div style="background: white; padding: 50px; border-radius: 20px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.15); max-width: 400px; width: 90%;">
+              <div style="width: 80px; height: 80px; border: 6px solid #f3f3f3; border-top: 6px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 30px;"></div>
+              <h2 style="color: #333; margin-bottom: 15px; font-size: 24px; font-weight: 600;">Processing Payment</h2>
+              <p style="color: #666; font-size: 16px; line-height: 1.5;">Creating secure payment session...</p>
+              <div style="margin-top: 20px; color: #999; font-size: 14px;">Please wait while we redirect you</div>
             </div>
           </div>
           <style>
@@ -1242,12 +1242,12 @@
           
           // Show error message
           document.body.innerHTML = `
-            <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-              <div style="background: white; padding: 40px; border-radius: 20px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.15);">
-                <div style="color: #ef4444; font-size: 48px; margin-bottom: 20px;">❌</div>
-                <h2 style="color: #333; margin-bottom: 10px;">Payment Failed</h2>
-                <p style="color: #666; margin-bottom: 20px;">${result.message || 'Failed to create charge with Tap'}</p>
-                <button onclick="window.location.reload()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer;">Try Again</button>
+            <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-family: 'Inter', sans-serif;">
+              <div style="background: white; padding: 50px; border-radius: 20px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.15); max-width: 400px; width: 90%;">
+                <div style="color: #ef4444; font-size: 64px; margin-bottom: 20px;">⚠️</div>
+                <h2 style="color: #333; margin-bottom: 15px; font-size: 24px; font-weight: 600;">Payment Failed</h2>
+                <p style="color: #666; font-size: 16px; line-height: 1.5; margin-bottom: 30px;">${result.message || 'Failed to create charge with Tap'}</p>
+                <button onclick="window.location.reload()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 15px 30px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; transition: all 0.3s ease;">Try Again</button>
               </div>
             </div>
           `;
@@ -1259,12 +1259,12 @@
         
         // Show error message
         document.body.innerHTML = `
-          <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-            <div style="background: white; padding: 40px; border-radius: 20px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.15);">
-              <div style="color: #ef4444; font-size: 48px; margin-bottom: 20px;">❌</div>
-              <h2 style="color: #333; margin-bottom: 10px;">Payment Error</h2>
-              <p style="color: #666; margin-bottom: 20px;">${error.message || 'An error occurred while creating the charge'}</p>
-              <button onclick="window.location.reload()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer;">Try Again</button>
+          <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-family: 'Inter', sans-serif;">
+            <div style="background: white; padding: 50px; border-radius: 20px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.15); max-width: 400px; width: 90%;">
+              <div style="color: #ef4444; font-size: 64px; margin-bottom: 20px;">⚠️</div>
+              <h2 style="color: #333; margin-bottom: 15px; font-size: 24px; font-weight: 600;">Payment Error</h2>
+              <p style="color: #666; font-size: 16px; line-height: 1.5; margin-bottom: 30px;">${error.message || 'An error occurred while creating the charge'}</p>
+              <button onclick="window.location.reload()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 15px 30px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; transition: all 0.3s ease;">Try Again</button>
             </div>
           </div>
         `;
@@ -1288,6 +1288,21 @@
         topExists: window.top !== window
       });
       
+      // Show loading state by default
+      document.body.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-family: 'Inter', sans-serif;">
+          <div style="background: white; padding: 50px; border-radius: 20px; text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.15); max-width: 400px; width: 90%;">
+            <div style="width: 80px; height: 80px; border: 6px solid #f3f3f3; border-top: 6px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 30px;"></div>
+            <h2 style="color: #333; margin-bottom: 15px; font-size: 24px; font-weight: 600;">Loading Payment</h2>
+            <p style="color: #666; font-size: 16px; line-height: 1.5;">Preparing secure payment environment...</p>
+            <div style="margin-top: 20px; color: #999; font-size: 14px;">Please wait</div>
+          </div>
+        </div>
+        <style>
+          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        </style>
+      `;
+      
       // Send ready event after a short delay
       setTimeout(() => {
         sendReadyEvent();
@@ -1301,16 +1316,6 @@
           simulateGHLPaymentData();
         }, 2000);
       }
-
-      // Wire the button to create charge (for testing)
-      document.getElementById('create-charge-btn').addEventListener('click', createCharge);
-
-      // Add keyboard support
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !document.getElementById('create-charge-btn').disabled) {
-          document.getElementById('create-charge-btn').click();
-        }
-      });
     });
 
     // Test functions for debugging
