@@ -12,9 +12,8 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->api(prepend: [
-            \Fruitcake\Cors\HandleCors::class,
-        ]);
+        // CORS is handled by Laravel's built-in CORS middleware
+        // No additional CORS middleware needed for same-origin requests
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

@@ -706,6 +706,8 @@ class ClientIntegrationController extends Controller
             Log::info('Request method: ' . $request->method());
             Log::info('Request URL: ' . $request->fullUrl());
             
+            // CORS headers will be handled by Laravel's built-in middleware
+            
             $data = $request->all();
             
             // Prepare the Tap API request using exact format from documentation
@@ -758,13 +760,17 @@ class ClientIntegrationController extends Controller
                     'success' => true,
                     'charge' => $chargeData,
                     'message' => 'Charge created successfully'
-                ]);
+                ])->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             } else {
                 return response()->json([
                     'success' => false,
                     'message' => 'Failed to create charge with Tap',
                     'error' => $response->json()
-                ], $response->status());
+                ], $response->status())->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             }
 
         } catch (\Exception $e) {
@@ -772,7 +778,9 @@ class ClientIntegrationController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'An error occurred while creating the charge'
-            ], 500);
+            ], 500)->header('Access-Control-Allow-Origin', '*')
+              ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+              ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
         }
     }
 }
