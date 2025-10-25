@@ -727,9 +727,9 @@ class ClientIntegrationController extends Controller
                     'phone' => ['country_code' => 965, 'number' => 51234567]
                 ],
                 'merchant' => $data['merchant'] ?? ['id' => '1234'],
-                'source' => $data['source'] ?? ['id' => 'token_id'],
-                'post' => $data['post'] ?? ['url' => 'http://your_website.com/post_url'],
-                'redirect' => $data['redirect'] ?? ['url' => 'http://your_website.com/redirect_url']
+                'source' => $data['source'] ?? ['id' => 'src_all'], // Use src_all for all payment methods
+                'post' => $data['post'] ?? ['url' => config('app.url') . '/charge/webhook'],
+                'redirect' => $data['redirect'] ?? ['url' => config('app.url') . '/charge/redirect']
             ];
 
             // Call Tap Payments API using exact format from documentation

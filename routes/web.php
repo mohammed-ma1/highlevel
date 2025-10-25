@@ -1,6 +1,7 @@
 
 <?php
 
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ClientIntegrationController;
 use App\Http\Controllers\LeadConnectorPaymentController;
@@ -64,3 +65,15 @@ Route::post('/charge/create', [ClientIntegrationController::class, 'createCharge
 Route::get('/payment/redirect', function () {
     return view('payment.redirect');
 })->name('payment.redirect');
+
+// Webhook route for Tap charge completion
+Route::post('/charge/webhook', function (Request $request) {
+    \Log::info('Tap webhook received', ['data' => $request->all()]);
+    return response()->json(['status' => 'success']);
+})->name('charge.webhook');
+
+// Redirect route for Tap charge completion
+Route::get('/charge/redirect', function (Request $request) {
+    \Log::info('Tap redirect received', ['data' => $request->all()]);
+    return view('payment.redirect', ['data' => $request->all()]);
+})->name('charge.redirect');

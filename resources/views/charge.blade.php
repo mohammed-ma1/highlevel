@@ -955,14 +955,13 @@
         console.log('🚀 Creating charge with data:', chargeData);
 
         // Call Tap Payments API directly
-        console.log('🚀 Calling Tap API directly...');
+        console.log('🚀 Calling Laravel API to create Tap charge...');
         
-        const tapResponse = await fetch('https://api.tap.company/v2/charges/', {
+        const tapResponse = await fetch('/api/charge/create-tap', {
           method: 'POST',
           headers: {
-            'Authorization': 'Bearer sk_test_XKokBfNWv6FIYuTMg5sLPjhJ',
-            'accept': 'application/json',
-            'content-type': 'application/json'
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
           },
           body: JSON.stringify({
             amount: paymentData.amount,
