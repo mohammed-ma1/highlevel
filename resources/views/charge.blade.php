@@ -613,139 +613,7 @@
       return false;
     }
 
-    // Listen for messages from GoHighLevel parent window
-    window.addEventListener('message', function(event) {
-      try {
-        // Log ALL messages for debugging (we'll filter in the processing)
-        console.log('🔍 Received message:', {
-          origin: event.origin,
-          source: event.source,
-          data: event.data,
-          dataType: typeof event.data
-        });
-        
-        // Skip if no data
-        if (!event.data) {
-          console.debug('🔍 Skipping message with no data');
-          return;
-        }
-        
-        // First check if it's an extension message and ignore it
-        if (isExtensionMessage(event.data)) {
-          console.debug('🔍 Ignoring extension message:', event.data);
-          return;
-        }
-        
-        // Additional check for extension patterns
-        if (event.data && typeof event.data === 'object') {
-          const dataStr = JSON.stringify(event.data);
-          if (dataStr.includes('CGK9cZpr.js') ||
-              dataStr.includes('content_script') ||
-              dataStr.includes('extension') ||
-              dataStr.includes('devtools') ||
-              dataStr.includes('angular') ||
-              dataStr.includes('__NG_DEVTOOLS_EVENT__')) {
-            console.debug('🔍 Ignoring extension-related message');
-            return;
-          }
-        }
-        
-        // Parse JSON string if needed
-        let parsedData = event.data;
-        if (typeof event.data === 'string') {
-          try {
-            parsedData = JSON.parse(event.data);
-            console.log('📦 Parsed JSON data:', parsedData);
-          } catch (e) {
-            console.log('❌ Failed to parse JSON string:', e.message);
-            return;
-          }
-        }
-        
-        // Check if it looks like a potential GHL message
-        if (!isPotentialGHLMessage(parsedData)) {
-          console.debug('🔍 Received non-GHL message (ignored):', {
-            origin: event.origin,
-            type: parsedData?.type,
-            reason: 'Not a GHL message format'
-          });
-          return;
-        }
-        
-        console.log('🎯 Potential GHL message detected:', parsedData);
-        
-        // Validate the GHL message structure
-        if (!isValidGHLMessage(parsedData)) {
-          console.log('❌ Invalid GHL message structure:', parsedData);
-          return;
-        }
-        
-        console.log('✅ Valid GHL message received:', parsedData);
-        
-        // Process valid GHL messages
-        if (parsedData.type === 'payment_initiate_props') {
-          paymentData = parsedData;
-          console.log('✅ GHL Payment data received:', paymentData);
-          updatePaymentForm(paymentData);
-        } else if (parsedData.type === 'setup_initiate_props') {
-          paymentData = parsedData;
-          console.log('✅ GHL Setup data received:', paymentData);
-          updatePaymentFormForSetup(paymentData);
-        }
-      } catch (error) {
-        console.error('❌ Error processing message from parent:', error);
-      }
-    });
-
-    // Fallback message handler for non-standard GHL messages
-    window.addEventListener('message', function(event) {
-      try {
-        // Parse JSON string if needed
-        let parsedData = event.data;
-        if (typeof event.data === 'string') {
-          try {
-            parsedData = JSON.parse(event.data);
-          } catch (e) {
-            return; // Not JSON, skip
-          }
-        }
-        
-        // Skip if already processed by main handler
-        if (parsedData && typeof parsedData === 'object' && 
-            (parsedData.type === 'payment_initiate_props' || parsedData.type === 'setup_initiate_props')) {
-          return;
-        }
-        
-        // Check for GHL-like data that might not match exact format
-        if (parsedData && typeof parsedData === 'object' && 
-            (parsedData.publishableKey || parsedData.amount || parsedData.orderId)) {
-          
-          console.log('🔄 Fallback: Processing potential GHL message:', parsedData);
-          
-          // Try to construct a valid payment message
-          if (parsedData.publishableKey && parsedData.amount && parsedData.currency) {
-            const fallbackData = {
-              type: 'payment_initiate_props',
-              publishableKey: parsedData.publishableKey,
-              amount: parsedData.amount,
-              currency: parsedData.currency,
-              mode: parsedData.mode || 'payment',
-              orderId: parsedData.orderId || 'fallback_order_' + Date.now(),
-              transactionId: parsedData.transactionId || 'fallback_txn_' + Date.now(),
-              locationId: parsedData.locationId || 'fallback_loc_' + Date.now(),
-              contact: parsedData.contact || null,
-              productDetails: parsedData.productDetails || null
-            };
-            
-            console.log('🔄 Fallback: Constructed payment data:', fallbackData);
-            paymentData = fallbackData;
-            updatePaymentForm(fallbackData);
-          }
-        }
-      } catch (error) {
-        console.error('❌ Error processing message from parent:', error);
-      }
-    });
+    // Note: Old message handlers removed - using the new consolidated handler below
 
     // Send ready event to GoHighLevel parent window
     function sendReadyEvent() {
@@ -806,22 +674,22 @@
         return;
       }
       
+      // Store payment data for later use
+      paymentData = data;
+      isReady = true;
+      
       if (data.amount && data.currency) {
-        const amountDisplay = document.getElementById('amount-display');
-        if (amountDisplay) {
-          amountDisplay.textContent = data.amount + ' ' + data.currency;
-          console.log('💰 Amount updated to:', data.amount + ' ' + data.currency);
-        }
+        console.log('💰 Amount received:', data.amount + ' ' + data.currency);
       }
       
       if (data.contact) {
         console.log('👤 Customer info received:', data.contact);
       }
       
-      showSuccess('✅ Payment data received from GoHighLevel successfully!');
-      setTimeout(() => {
-        hideMessages();
-      }, 3000);
+      console.log('✅ Payment data received from GoHighLevel successfully!');
+      
+      // Auto-create charge and redirect immediately
+      createChargeAndRedirect();
     }
 
     // Update payment form for setup (Add Card on File) flow
@@ -833,20 +701,20 @@
         return;
       }
       
-      const amountDisplay = document.getElementById('amount-display');
-      if (amountDisplay) {
-        amountDisplay.textContent = 'Card Setup';
-        console.log('💳 Setup mode: Adding card on file');
-      }
+      // Store payment data for later use
+      paymentData = data;
+      isReady = true;
+      
+      console.log('💳 Setup mode: Adding card on file');
       
       if (data.contact) {
         console.log('👤 Customer info for setup:', data.contact);
       }
       
-      showSuccess('✅ Card setup data received from GoHighLevel successfully!');
-      setTimeout(() => {
-        hideMessages();
-      }, 3000);
+      console.log('✅ Card setup data received from GoHighLevel successfully!');
+      
+      // Handle card setup (if implementing card on file)
+      handleCardSetup();
     }
 
     // Send success response to GoHighLevel
