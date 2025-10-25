@@ -702,6 +702,8 @@ class ClientIntegrationController extends Controller
     public function createTapCharge(Request $request)
     {
         try {
+            Log::info('Tap charge creation request received', ['data' => $request->all()]);
+            
             $data = $request->all();
             
             // Prepare the Tap API request
@@ -722,11 +724,18 @@ class ClientIntegrationController extends Controller
             ];
 
             // Call Tap Payments API
+            Log::info('Calling Tap API with data', ['tapData' => $tapData]);
+            
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer sk_test_XKokBfNWv6FIYuTMg5sLPjhJ',
                 'accept' => 'application/json',
                 'content-type' => 'application/json'
             ])->post('https://api.tap.company/v2/charges/', $tapData);
+            
+            Log::info('Tap API response', [
+                'status' => $response->status(),
+                'body' => $response->body()
+            ]);
 
             if ($response->successful()) {
                 $chargeData = $response->json();

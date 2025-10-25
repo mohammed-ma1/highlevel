@@ -61,7 +61,8 @@ Route::post('/charge/create', [ClientIntegrationController::class, 'createCharge
     ->name('charge.create');
 
 Route::post('/charge/create-tap', [ClientIntegrationController::class, 'createTapCharge'])
-    ->name('charge.create.tap');
+    ->name('charge.create.tap')
+    ->withoutMiddleware(['csrf']);
 
 Route::get('/payment/redirect', function () {
     return view('payment.redirect');

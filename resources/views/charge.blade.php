@@ -955,11 +955,15 @@
         console.log('🚀 Creating charge with data:', chargeData);
 
         // Call Tap Payments API through Laravel proxy to avoid CORS
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        console.log('🔐 CSRF Token:', csrfToken);
+        
         const tapResponse = await fetch('/charge/create-tap', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+            'X-CSRF-TOKEN': csrfToken,
+            'Accept': 'application/json'
           },
           body: JSON.stringify({
             amount: paymentData.amount,
@@ -1011,7 +1015,19 @@
           })
         });
 
-        const result = await tapResponse.json();
+        console.log('📡 Response status:', tapResponse.status);
+        console.log('📡 Response headers:', tapResponse.headers);
+        
+        let result;
+        try {
+          result = await tapResponse.json();
+          console.log('📡 Response data:', result);
+        } catch (e) {
+          console.error('❌ Failed to parse JSON response:', e);
+          const textResponse = await tapResponse.text();
+          console.error('❌ Raw response:', textResponse);
+          throw new Error('Invalid JSON response from server');
+        }
 
         if (tapResponse.ok && result.success && result.charge?.id) {
           console.log('✅ Tap charge created successfully:', result);
