@@ -606,33 +606,45 @@
           }
         }
         
+        // Parse JSON string if needed
+        let parsedData = event.data;
+        if (typeof event.data === 'string') {
+          try {
+            parsedData = JSON.parse(event.data);
+            console.log('📦 Parsed JSON data:', parsedData);
+          } catch (e) {
+            console.log('❌ Failed to parse JSON string:', e.message);
+            return;
+          }
+        }
+        
         // Check if it looks like a potential GHL message
-        if (!isPotentialGHLMessage(event.data)) {
+        if (!isPotentialGHLMessage(parsedData)) {
           console.debug('🔍 Received non-GHL message (ignored):', {
             origin: event.origin,
-            type: event.data?.type,
+            type: parsedData?.type,
             reason: 'Not a GHL message format'
           });
           return;
         }
         
-        console.log('🎯 Potential GHL message detected:', event.data);
+        console.log('🎯 Potential GHL message detected:', parsedData);
         
         // Validate the GHL message structure
-        if (!isValidGHLMessage(event.data)) {
-          console.log('❌ Invalid GHL message structure:', event.data);
+        if (!isValidGHLMessage(parsedData)) {
+          console.log('❌ Invalid GHL message structure:', parsedData);
           return;
         }
         
-        console.log('✅ Valid GHL message received:', event.data);
+        console.log('✅ Valid GHL message received:', parsedData);
         
         // Process valid GHL messages
-        if (event.data.type === 'payment_initiate_props') {
-          paymentData = event.data;
+        if (parsedData.type === 'payment_initiate_props') {
+          paymentData = parsedData;
           console.log('✅ GHL Payment data received:', paymentData);
           updatePaymentForm(paymentData);
-        } else if (event.data.type === 'setup_initiate_props') {
-          paymentData = event.data;
+        } else if (parsedData.type === 'setup_initiate_props') {
+          paymentData = parsedData;
           console.log('✅ GHL Setup data received:', paymentData);
           updatePaymentFormForSetup(paymentData);
         }
@@ -644,31 +656,41 @@
     // Fallback message handler for non-standard GHL messages
     window.addEventListener('message', function(event) {
       try {
+        // Parse JSON string if needed
+        let parsedData = event.data;
+        if (typeof event.data === 'string') {
+          try {
+            parsedData = JSON.parse(event.data);
+          } catch (e) {
+            return; // Not JSON, skip
+          }
+        }
+        
         // Skip if already processed by main handler
-        if (event.data && typeof event.data === 'object' && 
-            (event.data.type === 'payment_initiate_props' || event.data.type === 'setup_initiate_props')) {
+        if (parsedData && typeof parsedData === 'object' && 
+            (parsedData.type === 'payment_initiate_props' || parsedData.type === 'setup_initiate_props')) {
           return;
         }
         
         // Check for GHL-like data that might not match exact format
-        if (event.data && typeof event.data === 'object' && 
-            (event.data.publishableKey || event.data.amount || event.data.orderId)) {
+        if (parsedData && typeof parsedData === 'object' && 
+            (parsedData.publishableKey || parsedData.amount || parsedData.orderId)) {
           
-          console.log('🔄 Fallback: Processing potential GHL message:', event.data);
+          console.log('🔄 Fallback: Processing potential GHL message:', parsedData);
           
           // Try to construct a valid payment message
-          if (event.data.publishableKey && event.data.amount && event.data.currency) {
+          if (parsedData.publishableKey && parsedData.amount && parsedData.currency) {
             const fallbackData = {
               type: 'payment_initiate_props',
-              publishableKey: event.data.publishableKey,
-              amount: event.data.amount,
-              currency: event.data.currency,
-              mode: event.data.mode || 'payment',
-              orderId: event.data.orderId || 'fallback_order_' + Date.now(),
-              transactionId: event.data.transactionId || 'fallback_txn_' + Date.now(),
-              locationId: event.data.locationId || 'fallback_loc_' + Date.now(),
-              contact: event.data.contact || null,
-              productDetails: event.data.productDetails || null
+              publishableKey: parsedData.publishableKey,
+              amount: parsedData.amount,
+              currency: parsedData.currency,
+              mode: parsedData.mode || 'payment',
+              orderId: parsedData.orderId || 'fallback_order_' + Date.now(),
+              transactionId: parsedData.transactionId || 'fallback_txn_' + Date.now(),
+              locationId: parsedData.locationId || 'fallback_loc_' + Date.now(),
+              contact: parsedData.contact || null,
+              productDetails: parsedData.productDetails || null
             };
             
             console.log('🔄 Fallback: Constructed payment data:', fallbackData);
@@ -723,26 +745,6 @@
         isReady = true;
         console.log('✅ Payment iframe is ready and listening for GHL messages');
         
-        // Send multiple ready events with delays to ensure GHL receives it
-        setTimeout(() => {
-          console.log('📤 Sending delayed ready event (attempt 2)');
-          if (window.parent && window.parent !== window) {
-            window.parent.postMessage(JSON.stringify(readyEvent), '*');
-          }
-          if (window.top && window.top !== window) {
-            window.top.postMessage(JSON.stringify(readyEvent), '*');
-          }
-        }, 1000);
-        
-        setTimeout(() => {
-          console.log('📤 Sending delayed ready event (attempt 3)');
-          if (window.parent && window.parent !== window) {
-            window.parent.postMessage(JSON.stringify(readyEvent), '*');
-          }
-          if (window.top && window.top !== window) {
-            window.top.postMessage(JSON.stringify(readyEvent), '*');
-          }
-        }, 2000);
         
         
       } catch (error) {
