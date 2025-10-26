@@ -217,6 +217,7 @@
     // Parse URL parameters
     function getUrlParams() {
       const params = new URLSearchParams(window.location.search);
+      console.log('params', params);
       return {
         charge_id: params.get('charge_id'),
         status: params.get('status'),
