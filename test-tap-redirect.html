@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Tap Redirect</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        .test-button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #0056b3;
+        }
+        .url-display {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            word-break: break-all;
+            margin: 10px 0;
+        }
+        .instructions {
+            background: #e7f3ff;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Test Tap Payment Redirect</h1>
+        
+        <div class="instructions">
+            <h3>📋 Instructions:</h3>
+            <p>This page helps you test the new Tap payment redirect functionality that extracts <code>tap_id</code> and retrieves charge status from the Tap API.</p>
+        </div>
+
+        <div class="test-section">
+            <h3>🔗 Test Redirect URLs</h3>
+            <p>Click the buttons below to test the redirect page with different scenarios:</p>
+            
+            <button class="test-button" onclick="testWithTapId()">
+                Test with tap_id (chg_TS07A0420251408Fw5i2610058)
+            </button>
+            
+            <button class="test-button" onclick="testWithFullUrl()">
+                Test with Full URL (from your example)
+            </button>
+            
+            <button class="test-button" onclick="testWithChargeId()">
+                Test with charge_id (fallback)
+            </button>
+            
+            <button class="test-button" onclick="testWithNoParams()">
+                Test with No Parameters (error case)
+            </button>
+        </div>
+
+        <div class="test-section">
+            <h3>🔍 Test API Endpoint Directly</h3>
+            <p>Test the charge status API endpoint directly:</p>
+            
+            <button class="test-button" onclick="testApiEndpoint()">
+                Test API: /charge/status?tap_id=chg_TS07A0420251408Fw5i2610058
+            </button>
+            
+            <button class="test-button" onclick="testApiEndpointWithInvalidId()">
+                Test API with Invalid tap_id
+            </button>
+        </div>
+
+        <div class="test-section">
+            <h3>📊 Current URL</h3>
+            <div class="url-display" id="current-url">
+                <script>document.getElementById('current-url').textContent = window.location.href;</script>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function testWithTapId() {
+            const baseUrl = window.location.origin;
+            const testUrl = `${baseUrl}/charge/redirect?tap_id=chg_TS07A0420251408Fw5i2610058`;
+            window.open(testUrl, '_blank');
+        }
+
+        function testWithFullUrl() {
+            const baseUrl = window.location.origin;
+            const testUrl = `${baseUrl}/charge/redirect?tap_id=chg_TS07A0420251408Fw5i2610058&data=D6D8A8A5E5457C90502CCC0822074F3A3C02A50C8D770BD51F7C9E6E229526E1552CA9A15B5D7CC0FA276307A7EFFB4E25D48E99313A8B8EDBEF347F3FFC462F5A3A6209B0F45BE1416CE856D0749C559BF0314E6BCCACE86580035DC4F3728BD5B166783015825C365DCCE18A1C5862235CDA1EA1F86BAD8D61C2026F01EAF25050AFA44C72412A90CC6F850CA5B254E5629E13610BF11BCF0A29F6291F97F66E7E858999E1D83D05C1DA0A44BEC6DE2F34F601BA29FAE7FD2E8AAC79C74A3B9896E5131D2CEDC35FE785F86C3B4EE4F93A7D1EB6F2DE9399D5F33A0178814D2F34F601BA29FAE7C2399611CBF179CFAE94F6182006F20B5136482284218A89FE654886D437B010`;
+            window.open(testUrl, '_blank');
+        }
+
+        function testWithChargeId() {
+            const baseUrl = window.location.origin;
+            const testUrl = `${baseUrl}/charge/redirect?charge_id=chg_TS07A0420251408Fw5i2610058&status=CAPTURED&amount=100&currency=JOD`;
+            window.open(testUrl, '_blank');
+        }
+
+        function testWithNoParams() {
+            const baseUrl = window.location.origin;
+            const testUrl = `${baseUrl}/charge/redirect`;
+            window.open(testUrl, '_blank');
+        }
+
+        async function testApiEndpoint() {
+            try {
+                const response = await fetch('/charge/status?tap_id=chg_TS07A0420251408Fw5i2610058');
+                const data = await response.json();
+                alert('API Response:\n' + JSON.stringify(data, null, 2));
+            } catch (error) {
+                alert('API Error:\n' + error.message);
+            }
+        }
+
+        async function testApiEndpointWithInvalidId() {
+            try {
+                const response = await fetch('/charge/status?tap_id=invalid_id');
+                const data = await response.json();
+                alert('API Response:\n' + JSON.stringify(data, null, 2));
+            } catch (error) {
+                alert('API Error:\n' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>

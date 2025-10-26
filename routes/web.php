@@ -61,6 +61,18 @@ Route::get('/test-payment-query', function () {
 Route::post('/charge/create', [ClientIntegrationController::class, 'createCharge'])
     ->name('charge.create');
 
+// Charge status retrieval endpoint
+Route::get('/charge/status', [ClientIntegrationController::class, 'getChargeStatus'])
+    ->name('charge.status');
+
+// Test route for charge status (for debugging)
+Route::get('/test-charge-status/{tapId}', function ($tapId) {
+    $request = new \Illuminate\Http\Request(['tap_id' => $tapId]);
+    $controller = new \App\Http\Controllers\ClientIntegrationController();
+    
+    return $controller->getChargeStatus($request);
+})->name('test.charge.status');
+
 
 Route::get('/payment/redirect', function () {
     return view('payment.redirect');

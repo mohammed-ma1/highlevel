@@ -223,6 +223,7 @@
       console.log('location', window.location);
 
       return {
+        tap_id: params.get('tap_id'),
         charge_id: params.get('charge_id'),
         status: params.get('status'),
         amount: params.get('amount'),
@@ -230,6 +231,37 @@
         transaction_id: params.get('transaction_id'),
         order_id: params.get('order_id')
       };
+    }
+
+    // Fetch charge status from API
+    async function fetchChargeStatus(tapId) {
+      try {
+        console.log('🔍 Fetching charge status for tap_id:', tapId);
+        
+        const response = await fetch(`/charge/status?tap_id=${encodeURIComponent(tapId)}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('📊 Charge status response:', data);
+
+        if (data.success) {
+          return data;
+        } else {
+          throw new Error(data.message || 'Failed to retrieve charge status');
+        }
+      } catch (error) {
+        console.error('❌ Error fetching charge status:', error);
+        throw error;
+      }
     }
 
     // Update UI based on payment status
@@ -316,16 +348,52 @@
     }
 
     // Initialize when page loads
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', async function() {
       console.log('🚀 Payment Redirect Handler Loaded');
       
       const params = getUrlParams();
       console.log('📋 URL Parameters:', params);
       
-      if (params.charge_id) {
+      if (params.tap_id) {
+        try {
+          // Fetch charge status from Tap API
+          const chargeData = await fetchChargeStatus(params.tap_id);
+          
+          // Update UI with the retrieved charge data
+          const updatedParams = {
+            ...params,
+            charge_id: chargeData.charge_id,
+            status: chargeData.status,
+            amount: chargeData.amount,
+            currency: chargeData.currency,
+            transaction_id: chargeData.transaction_id,
+            order_id: chargeData.order_id
+          };
+          
+          updatePaymentStatus(updatedParams);
+          
+          // Auto-send success if in iframe and payment is successful
+          if (window.autoSendSuccess && (chargeData.status === 'CAPTURED' || chargeData.status === 'success')) {
+            setTimeout(() => {
+              sendSuccessToGHL();
+            }, 2000);
+          }
+        } catch (error) {
+          console.error('❌ Failed to fetch charge status:', error);
+          
+          // Hide loading spinner
+          document.getElementById('loading-spinner').style.display = 'none';
+          
+          // Show error message
+          document.getElementById('redirect-title').textContent = 'Error Loading Payment';
+          document.getElementById('redirect-message').textContent = 'Unable to retrieve payment status. Please try again or contact support.';
+          document.getElementById('action-buttons').style.display = 'flex';
+        }
+      } else if (params.charge_id) {
+        // Fallback to old behavior if charge_id is present but no tap_id
         updatePaymentStatus(params);
       } else {
-        // No charge ID in URL, show error
+        // No charge ID or tap_id in URL, show error
         document.getElementById('loading-spinner').style.display = 'none';
         document.getElementById('redirect-title').textContent = 'Invalid Redirect';
         document.getElementById('redirect-message').textContent = 'No payment information found in the redirect URL.';
@@ -335,12 +403,8 @@
 
     // Auto-send success if in iframe and payment is successful
     if (window !== window.top) {
-      const params = getUrlParams();
-      if (params.status === 'CAPTURED' || params.status === 'success') {
-        setTimeout(() => {
-          sendSuccessToGHL();
-        }, 2000);
-      }
+      // This will be handled in the DOMContentLoaded event after we fetch the charge status
+      window.autoSendSuccess = true;
     }
   </script>
 </body>

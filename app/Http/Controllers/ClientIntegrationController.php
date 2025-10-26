@@ -783,4 +783,94 @@ class ClientIntegrationController extends Controller
               ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
         }
     }
+
+    /**
+     * Retrieve charge status from Tap API
+     */
+    public function getChargeStatus(Request $request)
+    {
+        try {
+            $tapId = $request->input('tap_id');
+            
+            if (!$tapId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'tap_id parameter is required'
+                ], 400)->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+            }
+
+            // Get the first user's API keys for demo purposes
+            // In production, you should get the API keys based on the user/session
+            $user = User::whereNotNull('lead_test_secret_key')->first();
+            
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No API keys configured'
+                ], 500)->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+            }
+
+            // Initialize TapPaymentService
+            $tapService = new \App\Services\TapPaymentService(
+                $user->lead_test_secret_key,
+                $user->lead_test_publishable_key,
+                false // isLive = false for test mode
+            );
+
+            // Retrieve charge from Tap API
+            $chargeData = $tapService->retrieveCharge($tapId);
+
+            if (!$chargeData) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to retrieve charge from Tap API'
+                ], 500)->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+            }
+
+            // Extract relevant information from the charge response
+            $response = [
+                'success' => true,
+                'charge_id' => $chargeData['id'] ?? $tapId,
+                'status' => $chargeData['status'] ?? 'UNKNOWN',
+                'amount' => $chargeData['amount'] ?? null,
+                'currency' => $chargeData['currency'] ?? null,
+                'transaction_id' => $chargeData['reference']['transaction'] ?? null,
+                'order_id' => $chargeData['reference']['order'] ?? null,
+                'description' => $chargeData['description'] ?? null,
+                'created' => $chargeData['created'] ?? null,
+                'receipt' => $chargeData['receipt'] ?? null,
+                'customer' => $chargeData['customer'] ?? null,
+                'source' => $chargeData['source'] ?? null
+            ];
+
+            Log::info('Charge status retrieved successfully', [
+                'tap_id' => $tapId,
+                'status' => $response['status'],
+                'amount' => $response['amount']
+            ]);
+
+            return response()->json($response)->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+
+        } catch (\Exception $e) {
+            Log::error('Error retrieving charge status', [
+                'error' => $e->getMessage(),
+                'tap_id' => $request->input('tap_id')
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'An error occurred while retrieving charge status'
+            ], 500)->header('Access-Control-Allow-Origin', '*')
+              ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+              ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+        }
+    }
 }
