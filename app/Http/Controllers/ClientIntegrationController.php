@@ -827,8 +827,6 @@ class ClientIntegrationController extends Controller
                 'user_location_id' => $user ? $user->lead_location_id : null
             ]);
 
-            dd($user);
-            
             if (!$user) {
                 return response()->json([
                     'success' => false,
