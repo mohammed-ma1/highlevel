@@ -364,6 +364,17 @@
                                 </div>
                                 
                                 <div class="form-group">
+                                    <label class="form-label">Live Secret Key</label>
+                                    <input 
+                                        name="live_secretKey" 
+                                        type="password" 
+                                        value="{{ old('live_secretKey') }}" 
+                                        placeholder="sk_live_xxx" 
+                                        class="form-input"
+                                    />
+                                </div>
+                                
+                                <div class="form-group">
                                     <label class="form-label">Test API Key</label>
                                     <input 
                                         name="test_apiKey" 
@@ -381,6 +392,17 @@
                                         type="text" 
                                         value="{{ old('test_publishableKey') }}" 
                                         placeholder="pk_test_xxx" 
+                                        class="form-input"
+                                    />
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label class="form-label">Test Secret Key</label>
+                                    <input 
+                                        name="test_secretKey" 
+                                        type="password" 
+                                        value="{{ old('test_secretKey') }}" 
+                                        placeholder="sk_test_xxx" 
                                         class="form-input"
                                     />
                                 </div>
@@ -463,8 +485,10 @@
                 connectBtn.addEventListener('click', function(e) {
                     const liveApiKey = form.querySelector('input[name="live_apiKey"]').value;
                     const livePubKey = form.querySelector('input[name="live_publishableKey"]').value;
+                    const liveSecretKey = form.querySelector('input[name="live_secretKey"]').value;
                     const testApiKey = form.querySelector('input[name="test_apiKey"]').value;
                     const testPubKey = form.querySelector('input[name="test_publishableKey"]').value;
+                    const testSecretKey = form.querySelector('input[name="test_secretKey"]').value;
                     
                     if (!liveApiKey && !testApiKey) {
                         e.preventDefault();
@@ -472,15 +496,15 @@
                         return false;
                     }
                     
-                    if (liveApiKey && !livePubKey) {
+                    if (liveApiKey && (!livePubKey || !liveSecretKey)) {
                         e.preventDefault();
-                        alert('Please enter the Live Publishable Key when providing Live API Key.');
+                        alert('Please enter both Live Publishable Key and Live Secret Key when providing Live API Key.');
                         return false;
                     }
                     
-                    if (testApiKey && !testPubKey) {
+                    if (testApiKey && (!testPubKey || !testSecretKey)) {
                         e.preventDefault();
-                        alert('Please enter the Test Publishable Key when providing Test API Key.');
+                        alert('Please enter both Test Publishable Key and Test Secret Key when providing Test API Key.');
                         return false;
                     }
                 });

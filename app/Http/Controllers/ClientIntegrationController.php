@@ -412,8 +412,10 @@ class ClientIntegrationController extends Controller
             $request->validate([
                 'live_apiKey'          => ['required_without:test_apiKey', 'string'],
                 'live_publishableKey'  => ['required_without:test_publishableKey', 'string'],
+                'live_secretKey'       => ['required_without:test_secretKey', 'string'],
                 'test_apiKey'          => ['required_without:live_apiKey', 'string'],
                 'test_publishableKey'  => ['required_without:live_publishableKey', 'string'],
+                'test_secretKey'       => ['required_without:live_secretKey', 'string'],
             ]);
 
             // Save API keys to user
@@ -423,11 +425,17 @@ class ClientIntegrationController extends Controller
             if ($request->has('live_publishableKey')) {
                 $user->lead_live_publishable_key = $request->input('live_publishableKey');
             }
+            if ($request->has('live_secretKey')) {
+                $user->lead_live_secret_key = $request->input('live_secretKey');
+            }
             if ($request->has('test_apiKey')) {
                 $user->lead_test_api_key = $request->input('test_apiKey');
             }
             if ($request->has('test_publishableKey')) {
                 $user->lead_test_publishable_key = $request->input('test_publishableKey');
+            }
+            if ($request->has('test_secretKey')) {
+                $user->lead_test_secret_key = $request->input('test_secretKey');
             }
             
             // Set tap_mode based on which keys are provided
@@ -833,8 +841,17 @@ class ClientIntegrationController extends Controller
             }
 
             // Use the correct secret keys based on tap_mode
-            $secretKey = $user->tap_mode === 'live' ? 'sk_live_EaKIPe3xmJQ2y9oNRM0X61q8' : 'sk_test_kDlmt4SRjXnPFgB80GsApi9c';
+            $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
             $isLive = $user->tap_mode === 'live';
+
+            if (!$secretKey) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Secret key not configured for ' . $user->tap_mode . ' mode'
+                ], 500)->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+            }
 
             Log::info('API key debug', [
                 'secret_key_prefix' => substr($secretKey, 0, 15) . '...',
