@@ -900,10 +900,29 @@ class ClientIntegrationController extends Controller
 
             $chargeData = $response->json();
             
+            // Log the charge status for debugging
+            Log::info('Charge status retrieved', [
+                'tap_id' => $tapId,
+                'status' => $chargeData['status'] ?? 'unknown',
+                'amount' => $chargeData['amount'] ?? 0,
+                'currency' => $chargeData['currency'] ?? 'unknown',
+                'response_code' => $chargeData['response']['code'] ?? 'unknown',
+                'response_message' => $chargeData['response']['message'] ?? 'unknown'
+            ]);
+            
+            // Determine payment status based on charge status
+            $paymentStatus = $this->determinePaymentStatus($chargeData);
+            
             return response()->json([
                 'success' => true,
                 'charge' => $chargeData,
-                'message' => 'Charge retrieved successfully'
+                'payment_status' => $paymentStatus['status'],
+                'message' => $paymentStatus['message'],
+                'is_successful' => $paymentStatus['is_successful'],
+                'amount' => $chargeData['amount'] ?? 0,
+                'currency' => $chargeData['currency'] ?? 'USD',
+                'transaction_id' => $chargeData['reference']['transaction'] ?? null,
+                'order_id' => $chargeData['reference']['order'] ?? null
             ])->header('Access-Control-Allow-Origin', '*')
               ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
               ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
@@ -916,6 +935,74 @@ class ClientIntegrationController extends Controller
             ], 500)->header('Access-Control-Allow-Origin', '*')
               ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
               ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+        }
+    }
+
+    /**
+     * Determine payment status based on Tap charge data
+     */
+    private function determinePaymentStatus($chargeData)
+    {
+        $status = $chargeData['status'] ?? 'UNKNOWN';
+        $responseCode = $chargeData['response']['code'] ?? 'unknown';
+        $responseMessage = $chargeData['response']['message'] ?? 'unknown';
+        
+        switch ($status) {
+            case 'CAPTURED':
+                return [
+                    'status' => 'success',
+                    'message' => 'Payment completed successfully',
+                    'is_successful' => true
+                ];
+                
+            case 'AUTHORIZED':
+                return [
+                    'status' => 'authorized',
+                    'message' => 'Payment authorized but not yet captured',
+                    'is_successful' => true
+                ];
+                
+            case 'INITIATED':
+                return [
+                    'status' => 'pending',
+                    'message' => 'Payment is being processed',
+                    'is_successful' => false
+                ];
+                
+            case 'FAILED':
+                return [
+                    'status' => 'failed',
+                    'message' => 'Payment failed: ' . $responseMessage,
+                    'is_successful' => false
+                ];
+                
+            case 'CANCELLED':
+                return [
+                    'status' => 'cancelled',
+                    'message' => 'Payment was cancelled',
+                    'is_successful' => false
+                ];
+                
+            case 'DECLINED':
+                return [
+                    'status' => 'declined',
+                    'message' => 'Payment was declined: ' . $responseMessage,
+                    'is_successful' => false
+                ];
+                
+            case 'REVERSED':
+                return [
+                    'status' => 'reversed',
+                    'message' => 'Payment was reversed',
+                    'is_successful' => false
+                ];
+                
+            default:
+                return [
+                    'status' => 'unknown',
+                    'message' => 'Payment status unknown: ' . $status,
+                    'is_successful' => false
+                ];
         }
     }
 }
