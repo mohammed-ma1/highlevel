@@ -288,21 +288,30 @@
 
       paymentStatus.style.display = 'block';
 
-      if (params.status === 'CAPTURED' || params.status === 'success') {
+      // Check both processed status and raw status for compatibility
+      const isSuccessful = params.is_successful || params.status === 'success' || params.status === 'CAPTURED' || params.status === 'AUTHORIZED';
+      const isFailed = params.status === 'failed' || params.status === 'FAILED' || params.status === 'DECLINED' || params.status === 'CANCELLED' || params.status === 'REVERSED';
+      
+      if (isSuccessful) {
         // Payment successful
         statusMessage.innerHTML = '<div class="success-badge"><i class="fas fa-check-circle"></i> Payment Successful!</div>';
         redirectTitle.textContent = 'Payment Complete';
         redirectMessage.textContent = 'Your payment has been processed successfully.';
         actionButtons.style.display = 'flex';
-      } else if (params.status === 'FAILED' || params.status === 'DECLINED' || params.status === 'CANCELLED') {
+      } else if (isFailed) {
         // Payment failed
         statusMessage.innerHTML = '<div class="error-badge"><i class="fas fa-times-circle"></i> Payment Failed</div>';
         redirectTitle.textContent = 'Payment Failed';
         redirectMessage.textContent = 'Your payment could not be processed. Please try again.';
         actionButtons.style.display = 'flex';
       } else {
-        // Unknown status
-        statusMessage.innerHTML = '<div class="error-badge"><i class="fas fa-exclamation-triangle"></i> Unknown Payment Status</div>';
+        // Unknown status - show both processed and raw status for debugging
+        statusMessage.innerHTML = `<div class="error-badge"><i class="fas fa-exclamation-triangle"></i> Unknown Payment Status</div>
+          <div style="margin-top: 10px; font-size: 12px; color: #666;">
+            Processed Status: ${params.status || 'N/A'}<br>
+            Raw Status: ${params.raw_status || 'N/A'}<br>
+            Is Successful: ${params.is_successful || 'N/A'}
+          </div>`;
         redirectTitle.textContent = 'Payment Status Unknown';
         redirectMessage.textContent = 'We could not determine the payment status. Please contact support.';
         actionButtons.style.display = 'flex';
@@ -366,18 +375,21 @@
           // Update UI with the retrieved charge data
           const updatedParams = {
             ...params,
-            charge_id: chargeData.charge_id,
-            status: chargeData.status,
+            charge_id: chargeData.charge.id,
+            status: chargeData.payment_status, // Use processed payment status instead of raw status
             amount: chargeData.amount,
             currency: chargeData.currency,
             transaction_id: chargeData.transaction_id,
-            order_id: chargeData.order_id
+            order_id: chargeData.order_id,
+            is_successful: chargeData.is_successful,
+            raw_status: chargeData.charge.status // Keep raw status for reference
           };
           
+          console.log('📊 Updated params for UI:', updatedParams);
           updatePaymentStatus(updatedParams);
           
           // Auto-send success if in iframe and payment is successful
-          if (window.autoSendSuccess && (chargeData.status === 'CAPTURED' || chargeData.status === 'success')) {
+          if (window.autoSendSuccess && chargeData.is_successful) {
             setTimeout(() => {
               sendSuccessToGHL();
             }, 2000);
