@@ -429,6 +429,15 @@ class ClientIntegrationController extends Controller
             if ($request->has('test_publishableKey')) {
                 $user->lead_test_publishable_key = $request->input('test_publishableKey');
             }
+            
+            // Set tap_mode based on which keys are provided
+            // If live keys are provided, set to live mode, otherwise test mode
+            if ($request->has('live_apiKey') && !empty($request->input('live_apiKey'))) {
+                $user->tap_mode = 'live';
+            } else {
+                $user->tap_mode = 'test';
+            }
+            
             $user->save();
         }
 
@@ -658,16 +667,17 @@ class ClientIntegrationController extends Controller
                     return response()->json(['message' => 'User not found'], 404);
                 }
 
-                // Get API keys from user
-                $apiKey = $user->lead_test_api_key ?? $user->lead_live_api_key;
-                $publishableKey = $user->lead_test_publishable_key ?? $user->lead_live_publishable_key;
+                // Get API keys based on tap_mode
+                $apiKey = $user->tap_mode === 'live' ? $user->lead_live_api_key : $user->lead_test_api_key;
+                $publishableKey = $user->tap_mode === 'live' ? $user->lead_live_publishable_key : $user->lead_test_publishable_key;
+                $isLive = $user->tap_mode === 'live';
 
                 if (!$apiKey || !$publishableKey) {
                     return response()->json(['message' => 'API keys not configured'], 400);
                 }
 
                 // Initialize Tap service
-                $tapService = new \App\Services\TapPaymentService($apiKey, $publishableKey);
+                $tapService = new \App\Services\TapPaymentService($apiKey, $publishableKey, $isLive);
 
                 // Create charge with src_all
                 $chargeResponse = $tapService->createChargeWithAllPaymentMethods(
@@ -804,6 +814,15 @@ class ClientIntegrationController extends Controller
 
             // Find user by location ID (same as createCharge method)
             $user = User::where('lead_location_id', $locationId)->first();
+            
+            Log::info('Charge status request debug', [
+                'tap_id' => $tapId,
+                'locationId' => $locationId,
+                'user_found' => $user ? true : false,
+                'user_id' => $user ? $user->id : null,
+                'user_location_id' => $user ? $user->lead_location_id : null
+            ]);
+            
             if (!$user) {
                 return response()->json([
                     'success' => false,
@@ -813,22 +832,20 @@ class ClientIntegrationController extends Controller
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             }
 
-            // Get API keys from user (same as createCharge method)
-            $apiKey = $user->lead_test_api_key ?? $user->lead_live_api_key;
-            $isLive = !empty($user->lead_live_api_key);
+            // Use the correct secret keys based on tap_mode
+            $secretKey = $user->tap_mode === 'live' ? 'sk_live_EaKIPe3xmJQ2y9oNRM0X61q8' : 'sk_test_kDlmt4SRjXnPFgB80GsApi9c';
+            $isLive = $user->tap_mode === 'live';
 
-            if (!$apiKey) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No API key configured for this user'
-                ], 500)->header('Access-Control-Allow-Origin', '*')
-                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-            }
+            Log::info('API key debug', [
+                'secret_key_prefix' => substr($secretKey, 0, 15) . '...',
+                'is_live' => $isLive,
+                'has_test_key' => !empty($user->lead_test_api_key),
+                'has_live_key' => !empty($user->lead_live_api_key)
+            ]);
 
-            // Call Tap API with correct API key
+            // Call Tap API with correct secret key
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $apiKey,
+                'Authorization' => 'Bearer ' . $secretKey,
                 'accept' => 'application/json',
             ])->get('https://api.tap.company/v2/charges/' . $tapId);
 
