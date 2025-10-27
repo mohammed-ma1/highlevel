@@ -803,7 +803,7 @@ class ClientIntegrationController extends Controller
 
             // Get the first user's API keys for demo purposes
             // In production, you should get the API keys based on the user/session
-            $user = User::whereNotNull('lead_test_secret_key')->first();
+            $user = User::whereNotNull('lead_test_api_key')->first();
             
             if (!$user) {
                 return response()->json([
@@ -816,7 +816,7 @@ class ClientIntegrationController extends Controller
 
             // Initialize TapPaymentService
             $tapService = new \App\Services\TapPaymentService(
-                $user->lead_test_secret_key,
+                $user->lead_test_api_key,
                 $user->lead_test_publishable_key,
                 false // isLive = false for test mode
             );
