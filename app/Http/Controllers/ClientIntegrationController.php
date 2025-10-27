@@ -410,12 +410,13 @@ class ClientIntegrationController extends Controller
         // 4) Validate inputs if action=connect
         if ($action === 'connect') {
             $request->validate([
-                'live_apiKey'          => ['required_without:test_apiKey', 'string'],
-                'live_publishableKey'  => ['required_without:test_publishableKey', 'string'],
-                'live_secretKey'       => ['required_without:test_secretKey', 'string'],
-                'test_apiKey'          => ['required_without:live_apiKey', 'string'],
-                'test_publishableKey'  => ['required_without:live_publishableKey', 'string'],
-                'test_secretKey'       => ['required_without:live_secretKey', 'string'],
+                'connect_mode'         => ['required', 'in:test,live'],
+                'live_apiKey'          => ['required_if:connect_mode,live', 'string'],
+                'live_publishableKey'  => ['required_if:connect_mode,live', 'string'],
+                'live_secretKey'       => ['required_if:connect_mode,live', 'string'],
+                'test_apiKey'          => ['required_if:connect_mode,test', 'string'],
+                'test_publishableKey'  => ['required_if:connect_mode,test', 'string'],
+                'test_secretKey'       => ['required_if:connect_mode,test', 'string'],
             ]);
 
             // Save API keys to user
@@ -438,13 +439,8 @@ class ClientIntegrationController extends Controller
                 $user->lead_test_secret_key = $request->input('test_secretKey');
             }
             
-            // Set tap_mode based on which keys are provided
-            // If live keys are provided, set to live mode, otherwise test mode
-            if ($request->has('live_apiKey') && !empty($request->input('live_apiKey'))) {
-                $user->tap_mode = 'live';
-            } else {
-                $user->tap_mode = 'test';
-            }
+            // Set tap_mode based on the selected connect_mode
+            $user->tap_mode = $request->input('connect_mode');
             
             $user->save();
         }
@@ -830,6 +826,8 @@ class ClientIntegrationController extends Controller
                 'user_id' => $user ? $user->id : null,
                 'user_location_id' => $user ? $user->lead_location_id : null
             ]);
+
+            dd($user);
             
             if (!$user) {
                 return response()->json([
@@ -840,29 +838,14 @@ class ClientIntegrationController extends Controller
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             }
 
-            // Determine if this is a test or live charge based on the tap_id prefix
-            // Test charges start with 'chg_TS' and live charges start with 'chg_LS'
-            $isTestCharge = strpos($tapId, 'chg_TS') === 0;
-            $isLiveCharge = strpos($tapId, 'chg_LS') === 0;
-            
-            // Use the appropriate secret key based on the charge type
-            if ($isTestCharge) {
-                $secretKey = $user->lead_test_secret_key;
-                $isLive = false;
-            } elseif ($isLiveCharge) {
-                $secretKey = $user->lead_live_secret_key;
-                $isLive = true;
-            } else {
-                // Fallback to user's stored mode if we can't determine from tap_id
-                $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
-                $isLive = $user->tap_mode === 'live';
-            }
+            // Use the secret key based on the user's stored tap_mode
+            $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
+            $isLive = $user->tap_mode === 'live';
 
             if (!$secretKey) {
-                $mode = $isTestCharge ? 'test' : ($isLiveCharge ? 'live' : $user->tap_mode);
                 return response()->json([
                     'success' => false,
-                    'message' => 'Secret key not configured for ' . $mode . ' mode'
+                    'message' => 'Secret key not configured for ' . $user->tap_mode . ' mode'
                 ], 500)->header('Access-Control-Allow-Origin', '*')
                   ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
@@ -870,8 +853,7 @@ class ClientIntegrationController extends Controller
 
             Log::info('API key debug', [
                 'tap_id' => $tapId,
-                'is_test_charge' => $isTestCharge,
-                'is_live_charge' => $isLiveCharge,
+                'user_tap_mode' => $user->tap_mode,
                 'secret_key_prefix' => substr($secretKey, 0, 15) . '...',
                 'is_live' => $isLive,
                 'has_test_key' => !empty($user->lead_test_api_key),

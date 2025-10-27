@@ -411,6 +411,34 @@
 
                         <div class="divider"></div>
 
+                        {{-- Mode Selection for Connect --}}
+                        <div class="section">
+                            <h2 class="section-title">Connect Mode Selection</h2>
+                            <p class="help-text">Choose which mode you want to connect when using the connect action.</p>
+                            
+                            <div class="mode-selector">
+                                <div class="mode-option">
+                                    <input type="radio" name="connect_mode" value="test" id="connect_test" {{ old('connect_mode', 'test') === 'test' ? 'checked' : '' }}>
+                                    <label for="connect_test">
+                                        <strong>Test Mode</strong>
+                                        <br>
+                                        <small>Connect test payment processing</small>
+                                    </label>
+                                </div>
+                                
+                                <div class="mode-option">
+                                    <input type="radio" name="connect_mode" value="live" id="connect_live" {{ old('connect_mode') === 'live' ? 'checked' : '' }}>
+                                    <label for="connect_live">
+                                        <strong>Live Mode</strong>
+                                        <br>
+                                        <small>Connect live payment processing</small>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="divider"></div>
+
                         {{-- Mode Selection for Disconnect --}}
                         <div class="section">
                             <h2 class="section-title">Disconnect Mode Selection</h2>
@@ -483,6 +511,7 @@
                 
                 // Connect button validation
                 connectBtn.addEventListener('click', function(e) {
+                    const connectMode = form.querySelector('input[name="connect_mode"]:checked');
                     const liveApiKey = form.querySelector('input[name="live_apiKey"]').value;
                     const livePubKey = form.querySelector('input[name="live_publishableKey"]').value;
                     const liveSecretKey = form.querySelector('input[name="live_secretKey"]').value;
@@ -490,22 +519,24 @@
                     const testPubKey = form.querySelector('input[name="test_publishableKey"]').value;
                     const testSecretKey = form.querySelector('input[name="test_secretKey"]').value;
                     
-                    if (!liveApiKey && !testApiKey) {
+                    if (!connectMode) {
                         e.preventDefault();
-                        alert('Please enter at least one set of API keys (Live or Test) to connect.');
+                        alert('Please select a mode (Test or Live) to connect.');
                         return false;
                     }
                     
-                    if (liveApiKey && (!livePubKey || !liveSecretKey)) {
-                        e.preventDefault();
-                        alert('Please enter both Live Publishable Key and Live Secret Key when providing Live API Key.');
-                        return false;
-                    }
-                    
-                    if (testApiKey && (!testPubKey || !testSecretKey)) {
-                        e.preventDefault();
-                        alert('Please enter both Test Publishable Key and Test Secret Key when providing Test API Key.');
-                        return false;
+                    if (connectMode.value === 'live') {
+                        if (!liveApiKey || !livePubKey || !liveSecretKey) {
+                            e.preventDefault();
+                            alert('Please enter all Live API keys (API Key, Publishable Key, and Secret Key) for Live mode.');
+                            return false;
+                        }
+                    } else if (connectMode.value === 'test') {
+                        if (!testApiKey || !testPubKey || !testSecretKey) {
+                            e.preventDefault();
+                            alert('Please enter all Test API keys (API Key, Publishable Key, and Secret Key) for Test mode.');
+                            return false;
+                        }
                     }
                 });
                 
