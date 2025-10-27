@@ -840,20 +840,38 @@ class ClientIntegrationController extends Controller
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             }
 
-            // Use the correct secret keys based on tap_mode
-            $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
-            $isLive = $user->tap_mode === 'live';
+            // Determine if this is a test or live charge based on the tap_id prefix
+            // Test charges start with 'chg_TS' and live charges start with 'chg_LS'
+            $isTestCharge = strpos($tapId, 'chg_TS') === 0;
+            $isLiveCharge = strpos($tapId, 'chg_LS') === 0;
+            
+            // Use the appropriate secret key based on the charge type
+            if ($isTestCharge) {
+                $secretKey = $user->lead_test_secret_key;
+                $isLive = false;
+            } elseif ($isLiveCharge) {
+                $secretKey = $user->lead_live_secret_key;
+                $isLive = true;
+            } else {
+                // Fallback to user's stored mode if we can't determine from tap_id
+                $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
+                $isLive = $user->tap_mode === 'live';
+            }
 
             if (!$secretKey) {
+                $mode = $isTestCharge ? 'test' : ($isLiveCharge ? 'live' : $user->tap_mode);
                 return response()->json([
                     'success' => false,
-                    'message' => 'Secret key not configured for ' . $user->tap_mode . ' mode'
+                    'message' => 'Secret key not configured for ' . $mode . ' mode'
                 ], 500)->header('Access-Control-Allow-Origin', '*')
                   ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             }
 
             Log::info('API key debug', [
+                'tap_id' => $tapId,
+                'is_test_charge' => $isTestCharge,
+                'is_live_charge' => $isLiveCharge,
                 'secret_key_prefix' => substr($secretKey, 0, 15) . '...',
                 'is_live' => $isLive,
                 'has_test_key' => !empty($user->lead_test_api_key),
