@@ -410,13 +410,10 @@ class ClientIntegrationController extends Controller
         // 4) Validate inputs if action=connect
         if ($action === 'connect') {
             $request->validate([
-                'connect_mode'         => ['required', 'in:test,live'],
-                'live_apiKey'          => ['required_if:connect_mode,live', 'string'],
-                'live_publishableKey'  => ['required_if:connect_mode,live', 'string'],
-                'live_secretKey'       => ['required_if:connect_mode,live', 'string'],
-                'test_apiKey'          => ['required_if:connect_mode,test', 'string'],
-                'test_publishableKey'  => ['required_if:connect_mode,test', 'string'],
-                'test_secretKey'       => ['required_if:connect_mode,test', 'string'],
+                'live_apiKey'          => ['required_without:test_apiKey', 'string'],
+                'live_publishableKey'  => ['required_without:test_publishableKey', 'string'],
+                'test_apiKey'          => ['required_without:live_apiKey', 'string'],
+                'test_publishableKey'  => ['required_without:live_publishableKey', 'string'],
             ]);
 
             // Save API keys to user
@@ -426,22 +423,12 @@ class ClientIntegrationController extends Controller
             if ($request->has('live_publishableKey')) {
                 $user->lead_live_publishable_key = $request->input('live_publishableKey');
             }
-            if ($request->has('live_secretKey')) {
-                $user->lead_live_secret_key = $request->input('live_secretKey');
-            }
             if ($request->has('test_apiKey')) {
                 $user->lead_test_api_key = $request->input('test_apiKey');
             }
             if ($request->has('test_publishableKey')) {
                 $user->lead_test_publishable_key = $request->input('test_publishableKey');
             }
-            if ($request->has('test_secretKey')) {
-                $user->lead_test_secret_key = $request->input('test_secretKey');
-            }
-            
-            // Set tap_mode based on the selected connect_mode
-            $user->tap_mode = $request->input('connect_mode');
-            
             $user->save();
         }
 
@@ -671,17 +658,16 @@ class ClientIntegrationController extends Controller
                     return response()->json(['message' => 'User not found'], 404);
                 }
 
-                // Get API keys based on tap_mode
-                $apiKey = $user->tap_mode === 'live' ? $user->lead_live_api_key : $user->lead_test_api_key;
-                $publishableKey = $user->tap_mode === 'live' ? $user->lead_live_publishable_key : $user->lead_test_publishable_key;
-                $isLive = $user->tap_mode === 'live';
+                // Get API keys from user
+                $apiKey = $user->lead_test_api_key ?? $user->lead_live_api_key;
+                $publishableKey = $user->lead_test_publishable_key ?? $user->lead_live_publishable_key;
 
                 if (!$apiKey || !$publishableKey) {
                     return response()->json(['message' => 'API keys not configured'], 400);
                 }
 
                 // Initialize Tap service
-                $tapService = new \App\Services\TapPaymentService($apiKey, $publishableKey, $isLive);
+                $tapService = new \App\Services\TapPaymentService($apiKey, $publishableKey);
 
                 // Create charge with src_all
                 $chargeResponse = $tapService->createChargeWithAllPaymentMethods(
@@ -748,6 +734,32 @@ class ClientIntegrationController extends Controller
                 'redirect' => $data['redirect'] ?? ['url' => config('app.url') . '/charge/redirect']
             ];
 
+            // Get user and API keys based on locationId
+            $locationId = $data['merchant']['id'] ?? null;
+            $user = User::where('lead_location_id', $locationId)->first();
+            
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not found for locationId: ' . $locationId
+                ], 404)->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+            }
+
+            // Use the secret key based on the user's stored tap_mode
+            $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
+            $isLive = $user->tap_mode === 'live';
+
+            if (!$secretKey) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Secret key not configured for ' . $user->tap_mode . ' mode'
+                ], 500)->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+            }
+
             // Call Tap Payments API using exact format from documentation
             Log::info('Calling Tap API with data', ['tapData' => $tapData]);
             
@@ -755,8 +767,17 @@ class ClientIntegrationController extends Controller
             $jsonBody = json_encode($tapData);
             Log::info('JSON body being sent', ['jsonBody' => $jsonBody]);
             
+            Log::info('API key debug for charge creation', [
+                'locationId' => $locationId,
+                'user_tap_mode' => $user->tap_mode,
+                'secret_key_prefix' => substr($secretKey, 0, 15) . '...',
+                'is_live' => $isLive,
+                'has_test_key' => !empty($user->lead_test_secret_key),
+                'has_live_key' => !empty($user->lead_live_secret_key)
+            ]);
+            
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer sk_test_XKokBfNWv6FIYuTMg5sLPjhJ',
+                'Authorization' => 'Bearer ' . $secretKey,
                 'accept' => 'application/json',
                 'content-type' => 'application/json'
             ])->withBody($jsonBody, 'application/json')
@@ -836,7 +857,7 @@ class ClientIntegrationController extends Controller
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             }
 
-            // Use the secret key based on the user's stored tap_mode
+            // Use the secret key based on the user's stored tap_mode (same as createCharge)
             $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
             $isLive = $user->tap_mode === 'live';
 
@@ -849,16 +870,16 @@ class ClientIntegrationController extends Controller
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             }
 
-            Log::info('API key debug', [
+            Log::info('API key debug for charge retrieval', [
                 'tap_id' => $tapId,
                 'user_tap_mode' => $user->tap_mode,
                 'secret_key_prefix' => substr($secretKey, 0, 15) . '...',
                 'is_live' => $isLive,
-                'has_test_key' => !empty($user->lead_test_api_key),
-                'has_live_key' => !empty($user->lead_live_api_key)
+                'has_test_key' => !empty($user->lead_test_secret_key),
+                'has_live_key' => !empty($user->lead_live_secret_key)
             ]);
 
-            // Call Tap API with correct secret key
+            // Call Tap API with correct secret key (same as createCharge)
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $secretKey,
                 'accept' => 'application/json',
@@ -878,39 +899,17 @@ class ClientIntegrationController extends Controller
             }
 
             $chargeData = $response->json();
-
-            // Extract relevant information from the charge response
-            $apiResponse = [
+            
+            return response()->json([
                 'success' => true,
-                'charge_id' => $chargeData['id'] ?? $tapId,
-                'status' => $chargeData['status'] ?? 'UNKNOWN',
-                'amount' => $chargeData['amount'] ?? null,
-                'currency' => $chargeData['currency'] ?? null,
-                'transaction_id' => $chargeData['reference']['transaction'] ?? null,
-                'order_id' => $chargeData['reference']['order'] ?? null,
-                'description' => $chargeData['description'] ?? null,
-                'created' => $chargeData['created'] ?? null,
-                'receipt' => $chargeData['receipt'] ?? null,
-                'customer' => $chargeData['customer'] ?? null,
-                'source' => $chargeData['source'] ?? null
-            ];
-
-            Log::info('Charge status retrieved successfully', [
-                'tap_id' => $tapId,
-                'status' => $apiResponse['status'],
-                'amount' => $apiResponse['amount']
-            ]);
-
-            return response()->json($apiResponse)->header('Access-Control-Allow-Origin', '*')
-                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+                'charge' => $chargeData,
+                'message' => 'Charge retrieved successfully'
+            ])->header('Access-Control-Allow-Origin', '*')
+              ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+              ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
 
         } catch (\Exception $e) {
-            Log::error('Error retrieving charge status', [
-                'error' => $e->getMessage(),
-                'tap_id' => $request->input('tap_id')
-            ]);
-
+            Log::error('Charge status retrieval failed', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
                 'message' => 'An error occurred while retrieving charge status'
