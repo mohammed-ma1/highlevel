@@ -238,7 +238,11 @@
       try {
         console.log('🔍 Fetching charge status for tap_id:', tapId);
         
-        const response = await fetch(`/charge/status?tap_id=${encodeURIComponent(tapId)}`, {
+        // Get locationId from URL parameters or use a default
+        const urlParams = new URLSearchParams(window.location.search);
+        const locationId = urlParams.get('locationId') || 'xAN9Y8iZDOugbNvKBKad'; // Default locationId
+        
+        const response = await fetch(`/charge/status?tap_id=${encodeURIComponent(tapId)}&locationId=${encodeURIComponent(locationId)}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',

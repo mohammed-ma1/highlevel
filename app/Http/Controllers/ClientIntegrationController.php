@@ -791,6 +791,7 @@ class ClientIntegrationController extends Controller
     {
         try {
             $tapId = $request->input('tap_id');
+            $locationId = $request->input('locationId');
             
             if (!$tapId) {
                 return response()->json([
@@ -801,30 +802,41 @@ class ClientIntegrationController extends Controller
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             }
 
-            // Get the first user's API keys for demo purposes
-            // In production, you should get the API keys based on the user/session
-            $user = User::whereNotNull('lead_test_api_key')->first();
-            
+            // Find user by location ID (same as createCharge method)
+            $user = User::where('lead_location_id', $locationId)->first();
             if (!$user) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'No API keys configured'
+                    'message' => 'User not found for locationId: ' . $locationId
+                ], 404)->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+            }
+
+            // Get API keys from user (same as createCharge method)
+            $apiKey = $user->lead_test_api_key ?? $user->lead_live_api_key;
+            $isLive = !empty($user->lead_live_api_key);
+
+            if (!$apiKey) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No API key configured for this user'
                 ], 500)->header('Access-Control-Allow-Origin', '*')
                   ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             }
 
-            // Initialize TapPaymentService
-            $tapService = new \App\Services\TapPaymentService(
-                $user->lead_test_api_key,
-                $user->lead_test_publishable_key,
-                false // isLive = false for test mode
-            );
+            // Call Tap API with correct API key
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $apiKey,
+                'accept' => 'application/json',
+            ])->get('https://api.tap.company/v2/charges/' . $tapId);
 
-            // Retrieve charge from Tap API
-            $chargeData = $tapService->retrieveCharge($tapId);
-
-            if (!$chargeData) {
+            if (!$response->successful()) {
+                Log::error('Tap charge retrieval failed', [
+                    'status' => $response->status(),
+                    'response' => $response->json()
+                ]);
                 return response()->json([
                     'success' => false,
                     'message' => 'Failed to retrieve charge from Tap API'
@@ -833,8 +845,10 @@ class ClientIntegrationController extends Controller
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             }
 
+            $chargeData = $response->json();
+
             // Extract relevant information from the charge response
-            $response = [
+            $apiResponse = [
                 'success' => true,
                 'charge_id' => $chargeData['id'] ?? $tapId,
                 'status' => $chargeData['status'] ?? 'UNKNOWN',
@@ -851,11 +865,11 @@ class ClientIntegrationController extends Controller
 
             Log::info('Charge status retrieved successfully', [
                 'tap_id' => $tapId,
-                'status' => $response['status'],
-                'amount' => $response['amount']
+                'status' => $apiResponse['status'],
+                'amount' => $apiResponse['amount']
             ]);
 
-            return response()->json($response)->header('Access-Control-Allow-Origin', '*')
+            return response()->json($apiResponse)->header('Access-Control-Allow-Origin', '*')
                   ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
 
