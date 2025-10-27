@@ -324,12 +324,25 @@
     function sendSuccessToGHL() {
       const params = getUrlParams();
       
+      // Get charge ID from either the stored charge data or URL params
+      const chargeId = chargeData?.charge?.id || params.charge_id || params.tap_id;
+      
       const successEvent = {
         type: 'custom_element_success_response',
-        chargeId: params.charge_id
+        data: {
+          chargeId: chargeId,
+          transactionId: chargeData?.transaction_id || params.transaction_id,
+          orderId: chargeData?.order_id || params.order_id,
+          amount: chargeData?.amount || params.amount,
+          currency: chargeData?.currency || params.currency,
+          status: chargeData?.payment_status || 'success',
+          success: true,
+          message: 'Payment completed successfully'
+        }
       };
       
       console.log('✅ Sending success response to GHL:', successEvent);
+      console.log('📊 Charge data available:', chargeData);
       
       try {
         if (window.parent && window.parent !== window) {
@@ -370,7 +383,7 @@
       if (params.tap_id) {
         try {
           // Fetch charge status from Tap API
-          const chargeData = await fetchChargeStatus(params.tap_id);
+          chargeData = await fetchChargeStatus(params.tap_id);
           
           // Update UI with the retrieved charge data
           const updatedParams = {
