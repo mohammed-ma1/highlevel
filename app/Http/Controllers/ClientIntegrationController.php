@@ -1005,4 +1005,148 @@ class ClientIntegrationController extends Controller
                 ];
         }
     }
+
+    /**
+     * Verify payment for GoHighLevel integration
+     * This endpoint is called by GHL to verify if a payment was successful
+     */
+    public function verifyPayment(Request $request)
+    {
+        try {
+            $data = $request->all();
+            
+            Log::info('Payment verification request received', [
+                'type' => $data['type'] ?? 'unknown',
+                'transactionId' => $data['transactionId'] ?? 'unknown',
+                'chargeId' => $data['chargeId'] ?? 'unknown',
+                'apiKey' => $data['apiKey'] ?? 'unknown',
+                'subscriptionId' => $data['subscriptionId'] ?? null
+            ]);
+
+            // Validate required fields
+            if (!isset($data['type']) || $data['type'] !== 'verify') {
+                return response()->json([
+                    'failed' => true,
+                    'message' => 'Invalid verification request type'
+                ]);
+            }
+
+            if (!isset($data['transactionId']) || !isset($data['chargeId'])) {
+                return response()->json([
+                    'failed' => true,
+                    'message' => 'Missing required fields: transactionId or chargeId'
+                ]);
+            }
+
+            $transactionId = $data['transactionId'];
+            $chargeId = $data['chargeId'];
+            $apiKey = $data['apiKey'] ?? null;
+
+            // Find user by API key or transaction ID
+            $user = null;
+            if ($apiKey) {
+                $user = User::where('lead_test_api_key', $apiKey)
+                          ->orWhere('lead_live_api_key', $apiKey)
+                          ->first();
+            }
+
+            if (!$user) {
+                // Try to find user by transaction ID from charge metadata
+                // This is a fallback method
+                Log::warning('User not found by API key, attempting to verify by charge ID', [
+                    'chargeId' => $chargeId,
+                    'transactionId' => $transactionId
+                ]);
+            }
+
+            // Verify the charge with Tap API
+            $isPaymentSuccessful = $this->verifyChargeWithTap($chargeId, $user);
+
+            if ($isPaymentSuccessful) {
+                Log::info('Payment verification successful', [
+                    'chargeId' => $chargeId,
+                    'transactionId' => $transactionId
+                ]);
+
+                return response()->json([
+                    'success' => true
+                ]);
+            } else {
+                Log::warning('Payment verification failed', [
+                    'chargeId' => $chargeId,
+                    'transactionId' => $transactionId
+                ]);
+
+                return response()->json([
+                    'failed' => true
+                ]);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Payment verification error', [
+                'error' => $e->getMessage(),
+                'data' => $request->all()
+            ]);
+
+            return response()->json([
+                'failed' => true,
+                'message' => 'Verification failed due to server error'
+            ]);
+        }
+    }
+
+    /**
+     * Verify charge with Tap API
+     */
+    private function verifyChargeWithTap($chargeId, $user = null)
+    {
+        try {
+            // If no user provided, we can't verify with Tap API
+            if (!$user) {
+                Log::warning('Cannot verify charge without user context', ['chargeId' => $chargeId]);
+                return false;
+            }
+
+            // Use the secret key based on the user's stored tap_mode
+            $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
+
+            if (!$secretKey) {
+                Log::error('No secret key available for user', ['userId' => $user->id, 'tap_mode' => $user->tap_mode]);
+                return false;
+            }
+
+            // Call Tap API to get charge details
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $secretKey,
+                'accept' => 'application/json',
+            ])->get('https://api.tap.company/v2/charges/' . $chargeId);
+
+            if (!$response->successful()) {
+                Log::error('Tap API verification failed', [
+                    'status' => $response->status(),
+                    'response' => $response->json()
+                ]);
+                return false;
+            }
+
+            $chargeData = $response->json();
+            $status = $chargeData['status'] ?? 'UNKNOWN';
+
+            Log::info('Tap charge verification result', [
+                'chargeId' => $chargeId,
+                'status' => $status,
+                'response_code' => $chargeData['response']['code'] ?? 'unknown'
+            ]);
+
+            // Consider payment successful if status is CAPTURED or AUTHORIZED
+            return in_array($status, ['CAPTURED', 'AUTHORIZED']);
+
+        } catch (\Exception $e) {
+            Log::error('Error verifying charge with Tap API', [
+                'chargeId' => $chargeId,
+                'error' => $e->getMessage()
+            ]);
+            return false;
+        }
+    }
 }

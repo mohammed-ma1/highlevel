@@ -32,6 +32,10 @@ Route::get('/charge', function () {
     return view('charge');
 })->name('charge');
 
+// GoHighLevel payment verification endpoint
+Route::post('/payment/verify', [ClientIntegrationController::class, 'verifyPayment'])
+    ->name('payment.verify');
+
 Route::post('/webhook', [ClientIntegrationController::class, 'webhook'])
     ->name('client.webhook');
 

@@ -304,6 +304,10 @@
         redirectTitle.textContent = 'Payment Failed';
         redirectMessage.textContent = 'Your payment could not be processed. Please try again.';
         actionButtons.style.display = 'flex';
+        
+        // Send error response to GoHighLevel
+        const errorMessage = params.message || 'Payment failed. Please try again.';
+        sendErrorToGHL(errorMessage);
       } else {
         // Unknown status - show both processed and raw status for debugging
         statusMessage.innerHTML = `<div class="error-badge"><i class="fas fa-exclamation-triangle"></i> Unknown Payment Status</div>
@@ -329,38 +333,57 @@
       
       const successEvent = {
         type: 'custom_element_success_response',
-        data: {
-          chargeId: chargeId,
-          transactionId: chargeData?.transaction_id || params.transaction_id,
-          orderId: chargeData?.order_id || params.order_id,
-          amount: chargeData?.amount || params.amount,
-          currency: chargeData?.currency || params.currency,
-          status: chargeData?.payment_status || 'success',
-          success: true,
-          message: 'Payment completed successfully'
-        }
+        chargeId: chargeId
       };
       
       console.log('✅ Sending success response to GHL:', successEvent);
       console.log('📊 Charge data available:', chargeData);
       
+      sendMessageToGHL(successEvent);
+      
+      // Show success message
+      document.getElementById('redirect-title').textContent = 'Payment Complete';
+      document.getElementById('redirect-message').textContent = 'Success response sent to GoHighLevel.';
+      
+      // Hide action buttons
+      document.getElementById('action-buttons').style.display = 'none';
+    }
+
+    // Send error response to GoHighLevel
+    function sendErrorToGHL(errorMessage) {
+      const errorEvent = {
+        type: 'custom_element_error_response',
+        error: {
+          description: errorMessage
+        }
+      };
+      
+      console.log('❌ Sending error response to GHL:', errorEvent);
+      sendMessageToGHL(errorEvent);
+    }
+
+    // Send close response to GoHighLevel
+    function sendCloseToGHL() {
+      const closeEvent = {
+        type: 'custom_element_close_response'
+      };
+      
+      console.log('🚪 Sending close response to GHL:', closeEvent);
+      sendMessageToGHL(closeEvent);
+    }
+
+    // Generic function to send messages to GoHighLevel
+    function sendMessageToGHL(message) {
       try {
         if (window.parent && window.parent !== window) {
-          window.parent.postMessage(successEvent, '*');
+          window.parent.postMessage(message, '*');
         }
         
         if (window.top && window.top !== window && window.top !== window.parent) {
-          window.top.postMessage(successEvent, '*');
+          window.top.postMessage(message, '*');
         }
-        
-        // Show success message
-        document.getElementById('redirect-title').textContent = 'Payment Complete';
-        document.getElementById('redirect-message').textContent = 'Success response sent to GoHighLevel.';
-        
-        // Hide action buttons
-        document.getElementById('action-buttons').style.display = 'none';
       } catch (error) {
-        console.warn('⚠️ Could not send success response to parent:', error.message);
+        console.warn('⚠️ Could not send message to parent:', error.message);
       }
     }
 
