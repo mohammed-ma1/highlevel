@@ -273,6 +273,28 @@
       margin-top: 20px;
     }
 
+    .initial-spinner-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+    }
+
+    .initial-spinner {
+      width: 80px;
+      height: 80px;
+      border: 6px solid rgba(255, 255, 255, 0.3);
+      border-top: 6px solid white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
     @media (max-width: 480px) {
       .payment-container {
         margin: 10px;
@@ -298,77 +320,20 @@
   </style>
 </head>
 <body>
-  <div class="payment-container">
+  <div class="payment-container" id="payment-container" style="display: none;">
     <div class="payment-header">
       <h1><i class="fas fa-credit-card"></i> Secure Payment</h1>
       <p>Complete your transaction safely and securely</p>
     </div>
     
-    <div class="payment-body">
-      <div class="payment-amount">
-        <div class="amount-label">Amount to Pay</div>
-        <div class="amount-value" id="amount-display">1.00 JOD</div>
-      </div>
-
-      <div class="error-message" id="error-message"></div>
-      <div class="success-message" id="success-message"></div>
-
-      <!-- Initial waiting state -->
-      <div id="waiting-state" class="payment-section">
-        <div class="section-title">
-          <i class="fas fa-clock"></i>
-          Waiting for Payment Data
-        </div>
-        
-        <div class="payment-methods-info">
-          <h3><i class="fas fa-spinner fa-spin"></i> Preparing Your Payment</h3>
-          <p>Please wait while we prepare your payment details from GoHighLevel...</p>
-        </div>
-      </div>
-
-      <!-- Payment form (hidden initially) -->
-      <div id="payment-form" class="payment-section" style="display: none;">
-        <div class="section-title">
-          <i class="fas fa-credit-card"></i>
-          Payment Methods
-        </div>
-        
-        <div class="payment-methods-info">
-          <h3><i class="fas fa-shield-alt"></i> All Payment Methods Available</h3>
-          <p>You'll be redirected to Tap's secure payment page where you can choose from all available payment methods including cards, digital wallets, and local payment options.</p>
-        </div>
-      </div>
-
-      <!-- Create Charge Button (hidden initially) -->
-      <button id="create-charge-btn" type="button" class="payment-button" style="display: none;">
-        <div class="loading-spinner" id="loading-spinner"></div>
-        <span id="button-text">Proceed to Payment</span>
-      </button>
-
-      <!-- Result display -->
-      <div class="result-section" id="result-section" style="display: none;">
-        <div class="section-title">
-          <i class="fas fa-receipt"></i>
-          Transaction Details
-        </div>
-        <div id="charge-result" class="result-content"></div>
-      </div>
-
-      <div class="security-badges">
-        <div class="security-badge">
-          <i class="fas fa-shield-alt"></i>
-          <span>SSL Secured</span>
-        </div>
-        <div class="security-badge">
-          <i class="fas fa-lock"></i>
-          <span>256-bit Encryption</span>
-        </div>
-        <div class="security-badge">
-          <i class="fas fa-check-circle"></i>
-          <span>PCI Compliant</span>
-        </div>
-      </div>
+    <div class="payment-body" id="payment-body">
+      <!-- Initially hidden - will be populated when GHL data is received -->
     </div>
+  </div>
+
+  <!-- Initial spinner - shown while waiting for GHL data -->
+  <div id="initial-spinner" class="initial-spinner-container">
+    <div class="initial-spinner"></div>
   </div>
 
   <script>
@@ -799,24 +764,29 @@
         return;
       }
       
-      // Hide waiting state and show payment form
-      document.getElementById('waiting-state').style.display = 'none';
-      document.getElementById('payment-form').style.display = 'block';
+      // Hide initial spinner and show payment container
+      document.getElementById('initial-spinner').style.display = 'none';
+      document.getElementById('payment-container').style.display = 'block';
       
-      if (data.amount && data.currency) {
-        const amountDisplay = document.getElementById('amount-display');
-        if (amountDisplay) {
-          amountDisplay.textContent = data.amount + ' ' + data.currency;
-          console.log('💰 Amount updated to:', data.amount + ' ' + data.currency);
-        }
-      }
+      // Populate the payment body with clean UI
+      const paymentBody = document.getElementById('payment-body');
+      paymentBody.innerHTML = `
+        <div class="payment-amount">
+          <div class="amount-label">Amount to Pay</div>
+          <div class="amount-value" id="amount-display">${data.amount || '1.00'} ${data.currency || 'JOD'}</div>
+        </div>
+
+        <div class="error-message" id="error-message"></div>
+        <div class="success-message" id="success-message"></div>
+
+        <div class="processing-container">
+          <div class="processing-spinner"></div>
+        </div>
+      `;
       
       if (data.contact) {
         console.log('👤 Customer info received:', data.contact);
       }
-      
-      // Show processing state and automatically create charge
-      showProcessingState();
       
       // Automatically create charge after a short delay
       setTimeout(() => {
@@ -919,15 +889,23 @@
 
     // UI Helper functions
     function showLoading() {
-      document.getElementById('loading-spinner').style.display = 'inline-block';
-      document.getElementById('button-text').textContent = 'Creating Charge...';
-      document.getElementById('create-charge-btn').disabled = true;
+      const loadingSpinner = document.getElementById('loading-spinner');
+      const buttonText = document.getElementById('button-text');
+      const createChargeBtn = document.getElementById('create-charge-btn');
+      
+      if (loadingSpinner) loadingSpinner.style.display = 'inline-block';
+      if (buttonText) buttonText.textContent = 'Creating Charge...';
+      if (createChargeBtn) createChargeBtn.disabled = true;
     }
 
     function hideLoading() {
-      document.getElementById('loading-spinner').style.display = 'none';
-      document.getElementById('button-text').textContent = 'Proceed to Payment';
-      document.getElementById('create-charge-btn').disabled = false;
+      const loadingSpinner = document.getElementById('loading-spinner');
+      const buttonText = document.getElementById('button-text');
+      const createChargeBtn = document.getElementById('create-charge-btn');
+      
+      if (loadingSpinner) loadingSpinner.style.display = 'none';
+      if (buttonText) buttonText.textContent = 'Proceed to Payment';
+      if (createChargeBtn) createChargeBtn.disabled = false;
     }
 
     function showProcessingState() {
@@ -958,6 +936,10 @@
     }
 
     function showButton() {
+      // Hide initial spinner and show payment container
+      document.getElementById('initial-spinner').style.display = 'none';
+      document.getElementById('payment-container').style.display = 'block';
+      
       // Keep the clean UI but add a retry button
       const paymentBody = document.querySelector('.payment-body');
       paymentBody.innerHTML = `
@@ -1022,14 +1004,28 @@
         console.log('🔍 Current paymentData:', paymentData);
         console.log('🔍 isReady status:', isReady);
         showError('No payment data received from GoHighLevel. Please ensure the integration is properly configured.');
-        hideProcessingState();
         return;
       }
 
       console.log('🚀 Starting charge creation with payment data:', paymentData);
-      showLoading();
+      
+      // Update UI to show loading state
+      const paymentBody = document.getElementById('payment-body');
+      paymentBody.innerHTML = `
+        <div class="payment-amount">
+          <div class="amount-label">Amount to Pay</div>
+          <div class="amount-value" id="amount-display">${paymentData.amount || '1.00'} ${paymentData.currency || 'JOD'}</div>
+        </div>
+
+        <div class="error-message" id="error-message"></div>
+        <div class="success-message" id="success-message"></div>
+
+        <div class="processing-container">
+          <div class="processing-spinner"></div>
+        </div>
+      `;
+      
       hideMessages();
-      hideProcessingState();
 
       try {
         // Validate required fields
@@ -1143,12 +1139,11 @@
             }, 2000);
           } else {
             showError('No checkout URL received from Tap');
-            hideLoading();
+            showButton();
           }
         } else {
           console.error('❌ Tap charge creation failed:', result);
           showError(result.message || 'Failed to create charge with Tap');
-          hideLoading();
           showButton();
           
           // Send error response to GoHighLevel
@@ -1157,7 +1152,6 @@
       } catch (error) {
         console.error('❌ Error creating charge:', error);
         showError('An error occurred while creating the charge. Please try again.');
-        hideLoading();
         showButton();
         
         // Send error response to GoHighLevel
