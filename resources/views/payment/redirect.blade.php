@@ -293,11 +293,21 @@
       const isFailed = params.status === 'failed' || params.status === 'FAILED' || params.status === 'DECLINED' || params.status === 'CANCELLED' || params.status === 'REVERSED';
       
       if (isSuccessful) {
-        // Payment successful
+        // Payment successful - auto-send success and redirect
         statusMessage.innerHTML = '<div class="success-badge"><i class="fas fa-check-circle"></i> Payment Successful!</div>';
         redirectTitle.textContent = 'Payment Complete';
-        redirectMessage.textContent = 'Your payment has been processed successfully.';
-        actionButtons.style.display = 'flex';
+        redirectMessage.textContent = 'Your payment has been processed successfully. Redirecting...';
+        
+        // Auto-send success response to GHL
+        sendSuccessToGHL();
+        
+        // Auto-redirect to MediaSolution preview page after 2 seconds
+        setTimeout(() => {
+          window.location.href = 'https://app.mediasolution.io/v2/preview/FHNVMDKeSCxgu8V07UUO';
+        }, 2000);
+        
+        // Hide action buttons since we're auto-processing
+        actionButtons.style.display = 'none';
       } else if (isFailed) {
         // Payment failed
         statusMessage.innerHTML = '<div class="error-badge"><i class="fas fa-times-circle"></i> Payment Failed</div>';
@@ -424,12 +434,7 @@
           console.log('📊 Updated params for UI:', updatedParams);
           updatePaymentStatus(updatedParams);
           
-          // Auto-send success if in iframe and payment is successful
-          if (window.autoSendSuccess && chargeData.is_successful) {
-            setTimeout(() => {
-              sendSuccessToGHL();
-            }, 2000);
-          }
+          // Auto-send success is now handled in updatePaymentStatus function
         } catch (error) {
           console.error('❌ Failed to fetch charge status:', error);
           

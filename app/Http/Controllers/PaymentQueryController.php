@@ -85,47 +85,98 @@ class PaymentQueryController extends Controller
 
     /**
      * Handle payment verification
+     * GHL sends: type=verify, transactionId, chargeId, apiKey, subscriptionId
      */
     private function handleVerify(Request $request, User $user)
     {
         $transactionId = $request->input('transactionId');
+        $chargeId = $request->input('chargeId');
         
-        if (!$transactionId) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Transaction ID is required'
-            ], 400);
-        }
-
-        // Get user's Tap credentials
-        $apiKey = $user->lead_live_api_key ?? $user->lead_test_api_key;
-        $isLive = !empty($user->lead_live_api_key);
+        // Accept either transactionId or chargeId (chargeId is preferred per GHL docs)
+        $tapChargeId = $chargeId ?: $transactionId;
         
-        if (!$apiKey) {
+        if (!$tapChargeId) {
             return response()->json([
-                'success' => false,
-                'message' => 'No API key configured for this location'
-            ], 400);
+                'failed' => true,
+                'message' => 'Transaction ID or Charge ID is required'
+            ]);
         }
 
-        $tapService = new TapPaymentService($apiKey, '', $isLive);
-        $charge = $tapService->retrieveCharge($transactionId);
-
-        if (!$charge) {
+        // Get user's Tap secret keys based on tap_mode
+        $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
+        
+        if (!$secretKey) {
+            Log::error('No secret key configured for user', [
+                'userId' => $user->id,
+                'tap_mode' => $user->tap_mode,
+                'has_live_secret' => !empty($user->lead_live_secret_key),
+                'has_test_secret' => !empty($user->lead_test_secret_key)
+            ]);
+            
             return response()->json([
-                'success' => false,
-                'message' => 'Transaction not found'
-            ], 404);
+                'failed' => true,
+                'message' => 'No secret key configured for this location'
+            ]);
         }
 
-        return response()->json([
-            'success' => true,
-            'verified' => $charge['status'] === 'CAPTURED',
-            'transactionId' => $transactionId,
-            'status' => strtolower($charge['status']),
-            'amount' => $charge['amount'],
-            'currency' => $charge['currency']
-        ]);
+        try {
+            // Call Tap API directly to retrieve charge
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $secretKey,
+                'accept' => 'application/json',
+            ])->get('https://api.tap.company/v2/charges/' . $tapChargeId);
+
+            if (!$response->successful()) {
+                Log::error('Tap charge retrieval failed', [
+                    'status' => $response->status(),
+                    'response' => $response->json(),
+                    'chargeId' => $tapChargeId
+                ]);
+                
+                return response()->json([
+                    'failed' => true,
+                    'message' => 'Failed to retrieve charge from Tap API'
+                ]);
+            }
+
+            $chargeData = $response->json();
+            $status = $chargeData['status'] ?? 'UNKNOWN';
+            
+            Log::info('Tap charge verification result', [
+                'chargeId' => $tapChargeId,
+                'status' => $status,
+                'response_code' => $chargeData['response']['code'] ?? 'unknown'
+            ]);
+
+            // Return response according to GHL documentation
+            if (in_array($status, ['CAPTURED', 'AUTHORIZED'])) {
+                // Payment successful
+                return response()->json([
+                    'success' => true
+                ]);
+            } elseif (in_array($status, ['FAILED', 'DECLINED', 'CANCELLED', 'REVERSED'])) {
+                // Payment failed
+                return response()->json([
+                    'failed' => true
+                ]);
+            } else {
+                // Payment pending (INITIATED, etc.) - keep in pending state
+                return response()->json([
+                    'success' => false
+                ]);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Error verifying charge with Tap API', [
+                'chargeId' => $tapChargeId,
+                'error' => $e->getMessage()
+            ]);
+            
+            return response()->json([
+                'failed' => true,
+                'message' => 'Verification failed due to server error'
+            ]);
+        }
     }
 
     /**

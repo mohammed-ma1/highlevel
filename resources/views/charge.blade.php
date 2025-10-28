@@ -290,7 +290,21 @@
       <div class="error-message" id="error-message"></div>
       <div class="success-message" id="success-message"></div>
 
-      <div class="payment-section">
+      <!-- Initial waiting state -->
+      <div id="waiting-state" class="payment-section">
+        <div class="section-title">
+          <i class="fas fa-clock"></i>
+          Waiting for Payment Data
+        </div>
+        
+        <div class="payment-methods-info">
+          <h3><i class="fas fa-spinner fa-spin"></i> Preparing Your Payment</h3>
+          <p>Please wait while we prepare your payment details from GoHighLevel...</p>
+        </div>
+      </div>
+
+      <!-- Payment form (hidden initially) -->
+      <div id="payment-form" class="payment-section" style="display: none;">
         <div class="section-title">
           <i class="fas fa-credit-card"></i>
           Payment Methods
@@ -302,8 +316,8 @@
         </div>
       </div>
 
-      <!-- Create Charge Button -->
-      <button id="create-charge-btn" type="button" class="payment-button">
+      <!-- Create Charge Button (hidden initially) -->
+      <button id="create-charge-btn" type="button" class="payment-button" style="display: none;">
         <div class="loading-spinner" id="loading-spinner"></div>
         <span id="button-text">Proceed to Payment</span>
       </button>
@@ -762,6 +776,10 @@
         return;
       }
       
+      // Hide waiting state and show payment form
+      document.getElementById('waiting-state').style.display = 'none';
+      document.getElementById('payment-form').style.display = 'block';
+      
       if (data.amount && data.currency) {
         const amountDisplay = document.getElementById('amount-display');
         if (amountDisplay) {
@@ -774,10 +792,14 @@
         console.log('👤 Customer info received:', data.contact);
       }
       
-      showSuccess('✅ Payment data received from GoHighLevel successfully!');
+      // Show processing state and automatically create charge
+      showProcessingState();
+      
+      // Automatically create charge after a short delay
       setTimeout(() => {
-        hideMessages();
-      }, 3000);
+        console.log('🚀 Auto-creating charge...');
+        createCharge();
+      }, 1000);
     }
 
     // Update payment form for setup (Add Card on File) flow
@@ -885,6 +907,36 @@
       document.getElementById('create-charge-btn').disabled = false;
     }
 
+    function showProcessingState() {
+      // Hide the payment button and show processing message
+      document.getElementById('create-charge-btn').style.display = 'none';
+      
+      // Show processing message
+      const processingDiv = document.createElement('div');
+      processingDiv.id = 'processing-message';
+      processingDiv.className = 'success-message';
+      processingDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing your payment...';
+      processingDiv.style.display = 'block';
+      
+      // Insert after the payment section
+      const paymentSection = document.querySelector('.payment-section');
+      paymentSection.appendChild(processingDiv);
+    }
+
+    function hideProcessingState() {
+      const processingDiv = document.getElementById('processing-message');
+      if (processingDiv) {
+        processingDiv.remove();
+      }
+    }
+
+    function showButton() {
+      // Show the payment form and button again
+      document.getElementById('payment-form').style.display = 'block';
+      document.getElementById('create-charge-btn').style.display = 'block';
+      document.getElementById('waiting-state').style.display = 'none';
+    }
+
     function showError(message) {
       const errorDiv = document.getElementById('error-message');
       errorDiv.textContent = message;
@@ -921,12 +973,14 @@
         console.log('🔍 Current paymentData:', paymentData);
         console.log('🔍 isReady status:', isReady);
         showError('No payment data received from GoHighLevel. Please ensure the integration is properly configured.');
+        hideProcessingState();
         return;
       }
 
       console.log('🚀 Starting charge creation with payment data:', paymentData);
       showLoading();
       hideMessages();
+      hideProcessingState();
 
       try {
         // Validate required fields
@@ -1046,6 +1100,7 @@
           console.error('❌ Tap charge creation failed:', result);
           showError(result.message || 'Failed to create charge with Tap');
           hideLoading();
+          showButton();
           
           // Send error response to GoHighLevel
           sendErrorResponse(result.message || 'Failed to create charge with Tap');
@@ -1054,6 +1109,7 @@
         console.error('❌ Error creating charge:', error);
         showError('An error occurred while creating the charge. Please try again.');
         hideLoading();
+        showButton();
         
         // Send error response to GoHighLevel
         sendErrorResponse(error.message || 'An error occurred while creating the charge');

@@ -39,3 +39,4 @@ if ($usersWithApiKeys->count() > 0) {
 }
 
 echo "\n=== Test Complete ===\n";
+
