@@ -945,21 +945,37 @@
 
     function showError(message) {
       const errorDiv = document.getElementById('error-message');
-      errorDiv.textContent = message;
-      errorDiv.style.display = 'block';
-      document.getElementById('success-message').style.display = 'none';
+      if (errorDiv) {
+        errorDiv.textContent = message;
+        errorDiv.style.display = 'block';
+      }
+      const successDiv = document.getElementById('success-message');
+      if (successDiv) {
+        successDiv.style.display = 'none';
+      }
     }
 
     function showSuccess(message) {
       const successDiv = document.getElementById('success-message');
-      successDiv.textContent = message;
-      successDiv.style.display = 'block';
-      document.getElementById('error-message').style.display = 'none';
+      if (successDiv) {
+        successDiv.textContent = message;
+        successDiv.style.display = 'block';
+      }
+      const errorDiv = document.getElementById('error-message');
+      if (errorDiv) {
+        errorDiv.style.display = 'none';
+      }
     }
 
     function hideMessages() {
-      document.getElementById('error-message').style.display = 'none';
-      document.getElementById('success-message').style.display = 'none';
+      const errorDiv = document.getElementById('error-message');
+      if (errorDiv) {
+        errorDiv.style.display = 'none';
+      }
+      const successDiv = document.getElementById('success-message');
+      if (successDiv) {
+        successDiv.style.display = 'none';
+      }
     }
 
     function showResult(data) {
