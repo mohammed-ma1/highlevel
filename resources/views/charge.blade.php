@@ -250,6 +250,29 @@
       line-height: 1.5;
     }
 
+    .processing-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 200px;
+      margin: 40px 0;
+    }
+
+    .processing-spinner {
+      width: 60px;
+      height: 60px;
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    .retry-container {
+      display: flex;
+      justify-content: center;
+      margin-top: 20px;
+    }
+
     @media (max-width: 480px) {
       .payment-container {
         margin: 10px;
@@ -908,19 +931,23 @@
     }
 
     function showProcessingState() {
-      // Hide the payment button and show processing message
+      // Hide all payment UI elements
       document.getElementById('create-charge-btn').style.display = 'none';
+      document.getElementById('payment-form').style.display = 'none';
+      document.getElementById('waiting-state').style.display = 'none';
       
-      // Show processing message
-      const processingDiv = document.createElement('div');
-      processingDiv.id = 'processing-message';
-      processingDiv.className = 'success-message';
-      processingDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing your payment...';
-      processingDiv.style.display = 'block';
-      
-      // Insert after the payment section
-      const paymentSection = document.querySelector('.payment-section');
-      paymentSection.appendChild(processingDiv);
+      // Hide the entire payment body and show only spinner
+      const paymentBody = document.querySelector('.payment-body');
+      paymentBody.innerHTML = `
+        <div class="payment-amount">
+          <div class="amount-label">Amount to Pay</div>
+          <div class="amount-value" id="amount-display">${paymentData ? paymentData.amount + ' ' + paymentData.currency : '1.00 JOD'}</div>
+        </div>
+        
+        <div class="processing-container">
+          <div class="processing-spinner"></div>
+        </div>
+      `;
     }
 
     function hideProcessingState() {
@@ -931,10 +958,32 @@
     }
 
     function showButton() {
-      // Show the payment form and button again
-      document.getElementById('payment-form').style.display = 'block';
-      document.getElementById('create-charge-btn').style.display = 'block';
-      document.getElementById('waiting-state').style.display = 'none';
+      // Keep the clean UI but add a retry button
+      const paymentBody = document.querySelector('.payment-body');
+      paymentBody.innerHTML = `
+        <div class="payment-amount">
+          <div class="amount-label">Amount to Pay</div>
+          <div class="amount-value" id="amount-display">${paymentData ? paymentData.amount + ' ' + paymentData.currency : '1.00 JOD'}</div>
+        </div>
+
+        <div class="error-message" id="error-message"></div>
+        <div class="success-message" id="success-message"></div>
+
+        <div class="processing-container">
+          <div class="processing-spinner"></div>
+        </div>
+
+        <div class="retry-container">
+          <button id="retry-btn" type="button" class="payment-button">
+            <span>Retry Payment</span>
+          </button>
+        </div>
+      `;
+
+      // Add retry button event listener
+      document.getElementById('retry-btn').addEventListener('click', () => {
+        createCharge();
+      });
     }
 
     function showError(message) {
