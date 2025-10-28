@@ -321,11 +321,6 @@
 </head>
 <body>
   <div class="payment-container" id="payment-container" style="display: none;">
-    <div class="payment-header">
-      <h1><i class="fas fa-credit-card"></i> Secure Payment</h1>
-      <p>Complete your transaction safely and securely</p>
-    </div>
-    
     <div class="payment-body" id="payment-body">
       <!-- Initially hidden - will be populated when GHL data is received -->
     </div>
@@ -764,31 +759,11 @@
         return;
       }
       
-      // Hide initial spinner and show payment container
-      document.getElementById('initial-spinner').style.display = 'none';
-      document.getElementById('payment-container').style.display = 'block';
-      
-      // Populate the payment body with clean UI
-      const paymentBody = document.getElementById('payment-body');
-      paymentBody.innerHTML = `
-        <div class="payment-amount">
-          <div class="amount-label">Amount to Pay</div>
-          <div class="amount-value" id="amount-display">${data.amount || '1.00'} ${data.currency || 'JOD'}</div>
-        </div>
-
-        <div class="error-message" id="error-message"></div>
-        <div class="success-message" id="success-message"></div>
-
-        <div class="processing-container">
-          <div class="processing-spinner"></div>
-        </div>
-      `;
-      
       if (data.contact) {
         console.log('👤 Customer info received:', data.contact);
       }
       
-      // Automatically create charge after a short delay
+      // Keep showing spinner and automatically create charge
       setTimeout(() => {
         console.log('🚀 Auto-creating charge...');
         createCharge();
@@ -991,10 +966,14 @@
       const resultSection = document.getElementById('result-section');
       const resultContent = document.getElementById('charge-result');
       
-      resultContent.textContent = 'Charge Response:\n' + JSON.stringify(data, null, 2);
-      resultSection.style.display = 'block';
+      if (resultContent) {
+        resultContent.textContent = 'Charge Response:\n' + JSON.stringify(data, null, 2);
+      }
       
-      resultSection.scrollIntoView({ behavior: 'smooth' });
+      if (resultSection) {
+        resultSection.style.display = 'block';
+        resultSection.scrollIntoView({ behavior: 'smooth' });
+      }
     }
 
     // Create charge using the new Charge API
@@ -1009,23 +988,7 @@
 
       console.log('🚀 Starting charge creation with payment data:', paymentData);
       
-      // Update UI to show loading state
-      const paymentBody = document.getElementById('payment-body');
-      paymentBody.innerHTML = `
-        <div class="payment-amount">
-          <div class="amount-label">Amount to Pay</div>
-          <div class="amount-value" id="amount-display">${paymentData.amount || '1.00'} ${paymentData.currency || 'JOD'}</div>
-        </div>
-
-        <div class="error-message" id="error-message"></div>
-        <div class="success-message" id="success-message"></div>
-
-        <div class="processing-container">
-          <div class="processing-spinner"></div>
-        </div>
-      `;
-      
-      hideMessages();
+      // Keep showing only the spinner - no UI changes needed
 
       try {
         // Validate required fields
@@ -1175,13 +1138,17 @@
         // Check for payment data after 3 seconds
       }, 1000);
 
-      // Wire the button to create charge
-      document.getElementById('create-charge-btn').addEventListener('click', createCharge);
+      // Wire the button to create charge (if it exists)
+      const createChargeBtn = document.getElementById('create-charge-btn');
+      if (createChargeBtn) {
+        createChargeBtn.addEventListener('click', createCharge);
+      }
 
       // Add keyboard support
       document.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !document.getElementById('create-charge-btn').disabled) {
-          document.getElementById('create-charge-btn').click();
+        const createChargeBtn = document.getElementById('create-charge-btn');
+        if (e.key === 'Enter' && createChargeBtn && !createChargeBtn.disabled) {
+          createChargeBtn.click();
         }
       });
     });
