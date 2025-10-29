@@ -301,29 +301,10 @@
         // Auto-send success response to GHL
         sendSuccessToGHL();
         
-        // Auto-close window after 3 seconds if opened from iframe
+        // Auto-redirect to MediaSolution preview page after 2 seconds
         setTimeout(() => {
-          if (window.opener) {
-            // If opened in new window, close it
-            console.log('🔍 Closing payment window (opened from iframe)');
-            window.close();
-          } else if (isSafariIframe()) {
-            // For Safari iframes, try to communicate with parent and then redirect
-            console.log('🍎 Safari iframe - sending success message to parent');
-            sendMessageToParent({
-              type: 'payment_completed',
-              success: true,
-              chargeId: chargeData?.charge?.id,
-              data: chargeData
-            });
-            
-            // Redirect to MediaSolution preview page
-            window.location.href = 'https://app.mediasolution.io/v2/preview/FHNVMDKeSCxgu8V07UUO';
-          } else {
-            // If in iframe, redirect to MediaSolution preview page
-            window.location.href = 'https://app.mediasolution.io/v2/preview/FHNVMDKeSCxgu8V07UUO';
-          }
-        }, 3000);
+          window.location.href = 'https://app.mediasolution.io/v2/preview/FHNVMDKeSCxgu8V07UUO';
+        }, 2000);
         
         // Hide action buttons since we're auto-processing
         actionButtons.style.display = 'none';
@@ -370,14 +351,6 @@
       
       sendMessageToGHL(successEvent);
       
-      // Also send message to parent window if opened from iframe
-      sendMessageToParent({
-        type: 'payment_completed',
-        success: true,
-        chargeId: chargeId,
-        data: chargeData
-      });
-      
       // Show success message
       document.getElementById('redirect-title').textContent = 'Payment Complete';
       document.getElementById('redirect-message').textContent = 'Success response sent to GoHighLevel.';
@@ -397,13 +370,6 @@
       
       console.log('❌ Sending error response to GHL:', errorEvent);
       sendMessageToGHL(errorEvent);
-      
-      // Also send message to parent window if opened from iframe
-      sendMessageToParent({
-        type: 'payment_completed',
-        success: false,
-        error: errorMessage
-      });
     }
 
     // Send close response to GoHighLevel
@@ -431,25 +397,6 @@
       }
     }
 
-    // Function to send messages to parent window (for iframe communication)
-    function sendMessageToParent(message) {
-      try {
-        if (window.opener) {
-          // If opened in a new window, send to opener
-          window.opener.postMessage(message, '*');
-          console.log('📤 Sent message to opener window:', message);
-        } else if (window.parent && window.parent !== window) {
-          // If in iframe, send to parent
-          window.parent.postMessage(message, '*');
-          console.log('📤 Sent message to parent window:', message);
-        } else {
-          console.log('⚠️ No parent window or opener available');
-        }
-      } catch (error) {
-        console.warn('⚠️ Could not send message to parent/opener:', error.message);
-      }
-    }
-
     // Go back to previous page
     function goBack() {
       if (window.history.length > 1) {
@@ -458,30 +405,6 @@
         window.close();
       }
     }
-
-    // Safari detection
-    function isSafari() {
-      const ua = navigator.userAgent.toLowerCase();
-      return ua.includes('safari') && !ua.includes('chrome') && !ua.includes('crios') && !ua.includes('fxios');
-    }
-
-    // Safari mobile detection
-    function isSafariMobile() {
-      const ua = navigator.userAgent.toLowerCase();
-      return ua.includes('safari') && ua.includes('mobile') && !ua.includes('chrome');
-    }
-
-    // Check if we're in Safari iframe
-    function isSafariIframe() {
-      return isSafari() && window !== window.top;
-    }
-
-    console.log('🔍 Safari detection:', {
-      isSafari: isSafari(),
-      isSafariMobile: isSafariMobile(),
-      isSafariIframe: isSafariIframe(),
-      userAgent: navigator.userAgent
-    });
 
     // Initialize when page loads
     document.addEventListener('DOMContentLoaded', async function() {

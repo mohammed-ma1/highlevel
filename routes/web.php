@@ -30,7 +30,7 @@ Route::get('/tap', function () {
 
 Route::get('/charge', function () {
     return view('charge');
-})->name('charge')->middleware('payment.policy');
+})->name('charge');
 
 // GoHighLevel payment verification endpoint
 Route::post('/payment/verify', [ClientIntegrationController::class, 'verifyPayment'])
@@ -80,7 +80,7 @@ Route::get('/test-charge-status/{tapId}', function ($tapId) {
 
 Route::get('/payment/redirect', function () {
     return view('payment.redirect');
-})->name('payment.redirect')->middleware('payment.policy');
+})->name('payment.redirect');
 
 // Webhook route for Tap charge completion
 Route::post('/charge/webhook', function (Request $request) {
@@ -92,145 +92,4 @@ Route::post('/charge/webhook', function (Request $request) {
 Route::get('/charge/redirect', function (Request $request) {
     \Log::info('Tap redirect received', ['data' => $request->all()]);
     return view('payment.redirect', ['data' => $request->all()]);
-})->name('charge.redirect')->middleware('payment.policy');
-
-// Safari iframe intermediate page - shows user-friendly message before redirect
-Route::get('/charge/safari', function (Request $request) {
-    return view('payment.safari', ['data' => $request->all()]);
-})->name('charge.safari')->middleware('payment.policy');
-
-// Safari iframe workaround route - creates charge outside iframe context
-Route::get('/charge/safari-redirect', function (Request $request) {
-    \Log::info('Safari redirect workaround', ['data' => $request->all()]);
-    
-    $amount = $request->get('amount');
-    $currency = $request->get('currency', 'JOD');
-    $orderId = $request->get('orderId');
-    $transactionId = $request->get('transactionId');
-    $locationId = $request->get('locationId');
-    $customerData = $request->get('customer');
-    
-    // Parse customer data if provided
-    $customer = null;
-    if ($customerData) {
-        try {
-            $customer = json_decode($customerData, true);
-        } catch (\Exception $e) {
-            \Log::warning('Safari redirect: Failed to parse customer data', ['error' => $e->getMessage()]);
-        }
-    }
-    
-    // Find user by location ID
-    $user = \App\Models\User::where('lead_location_id', $locationId)->first();
-    if (!$user) {
-        \Log::error('Safari redirect: User not found for locationId', ['locationId' => $locationId]);
-        return view('payment.error', ['message' => 'User not found for location: ' . $locationId]);
-    }
-    
-    \Log::info('Safari redirect: User found', ['userId' => $user->id, 'locationId' => $locationId]);
-    
-    // Get API keys from user - use the same logic as the main controller
-    $apiKey = $user->lead_test_api_key ?? $user->lead_live_api_key;
-    $publishableKey = $user->lead_test_publishable_key ?? $user->lead_live_publishable_key;
-    $isLive = !empty($user->lead_live_api_key);
-    
-    \Log::info('Safari redirect: API keys', [
-        'isLive' => $isLive,
-        'hasApiKey' => !empty($apiKey),
-        'hasPublishableKey' => !empty($publishableKey),
-        'apiKeyPrefix' => $apiKey ? substr($apiKey, 0, 20) . '...' : 'none',
-        'userTapMode' => $user->lead_tap_mode,
-        'hasTestApiKey' => !empty($user->lead_test_api_key),
-        'hasLiveApiKey' => !empty($user->lead_live_api_key),
-        'hasTestPublishableKey' => !empty($user->lead_test_publishable_key),
-        'hasLivePublishableKey' => !empty($user->lead_live_publishable_key)
-    ]);
-    
-    // Fallback: if no API key found, try secret keys
-    if (!$apiKey) {
-        $apiKey = $user->lead_test_secret_key ?? $user->lead_live_secret_key;
-        $isLive = !empty($user->lead_live_secret_key);
-        \Log::info('Safari redirect: Using secret key as fallback', ['isLive' => $isLive]);
-    }
-    
-    if (!$apiKey) {
-        \Log::error('Safari redirect: No API keys or secret keys configured', [
-            'hasApiKey' => !empty($apiKey),
-            'hasPublishableKey' => !empty($publishableKey),
-            'hasTestApiKey' => !empty($user->lead_test_api_key),
-            'hasLiveApiKey' => !empty($user->lead_live_api_key),
-            'hasTestSecretKey' => !empty($user->lead_test_secret_key),
-            'hasLiveSecretKey' => !empty($user->lead_live_secret_key),
-            'isLive' => $isLive
-        ]);
-        return view('payment.error', ['message' => 'No API keys or secret keys configured for this location']);
-    }
-    
-    // Override the redirect URLs to use production domain
-    $productionUrl = 'https://dashboard.mediasolution.io';
-    
-    // Create a custom payload with production URLs and customer data
-    $customPayload = [
-        'amount' => $amount,
-        'currency' => $currency,
-        'threeDSecure' => true,
-        'save_card' => false,
-        'customer_initiated' => true,
-        'description' => 'Payment via GoHighLevel Integration',
-        'statement_descriptor' => 'GHL Payment',
-        'source' => ['id' => 'src_all'],
-        'redirect' => ['url' => $productionUrl . '/charge/redirect'],
-        'post' => ['url' => $productionUrl . '/charge/webhook'],
-        'reference' => [
-            'order' => $orderId,
-            'transaction' => $transactionId
-        ],
-        'receipt' => ['email' => true, 'sms' => false],
-        'merchant' => ['id' => $locationId]
-    ];
-    
-    // Add customer data if available
-    if ($customer && isset($customer['name']) && isset($customer['email'])) {
-        $customerName = $customer['name'];
-        $nameParts = explode(' ', $customerName, 2);
-        
-        $customPayload['customer'] = [
-            'first_name' => $nameParts[0] ?? 'Customer',
-            'last_name' => $nameParts[1] ?? 'User',
-            'email' => $customer['email'] ?? 'customer@example.com',
-            'phone' => [
-                'country_code' => '965',
-                'number' => $customer['contact'] ?? '790000000'
-            ]
-        ];
-    }
-    
-    \Log::info('Safari redirect: Creating charge with payload', ['payload' => $customPayload]);
-    
-    // Make direct API call with production URLs
-    $response = \Illuminate\Support\Facades\Http::withHeaders([
-        'Authorization' => 'Bearer ' . $apiKey,
-        'accept' => 'application/json',
-        'content-type' => 'application/json'
-    ])->withBody(json_encode($customPayload), 'application/json')
-      ->post('https://api.tap.company/v2/charges/');
-    
-    if ($response->successful()) {
-        $chargeResponse = $response->json();
-        \Log::info('Safari redirect: Charge created successfully', ['chargeId' => $chargeResponse['id'] ?? 'unknown']);
-        
-        // Redirect to Tap checkout URL
-        if (isset($chargeResponse['transaction']['url'])) {
-            return redirect($chargeResponse['transaction']['url']);
-        } else {
-            \Log::error('Safari redirect: No checkout URL in response', ['response' => $chargeResponse]);
-            return view('payment.error', ['message' => 'No checkout URL received from Tap']);
-        }
-    } else {
-        \Log::error('Safari redirect: Failed to create charge', [
-            'status' => $response->status(),
-            'response' => $response->json()
-        ]);
-        return view('payment.error', ['message' => 'Failed to create charge with Tap: ' . ($response->json()['errors'][0]['description'] ?? 'Unknown error')]);
-    }
-})->name('charge.safari-redirect')->middleware('payment.policy');
+})->name('charge.redirect');

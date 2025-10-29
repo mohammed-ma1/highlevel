@@ -365,36 +365,7 @@
       };
     })();
 
-    // Safari detection
-    function isSafari() {
-      const ua = navigator.userAgent.toLowerCase();
-      return ua.includes('safari') && !ua.includes('chrome') && !ua.includes('crios') && !ua.includes('fxios');
-    }
-
-    // Safari mobile detection
-    function isSafariMobile() {
-      const ua = navigator.userAgent.toLowerCase();
-      return ua.includes('safari') && ua.includes('mobile') && !ua.includes('chrome');
-    }
-
-    // Check if we're in Safari iframe
-    function isSafariIframe() {
-      return isSafari() && window !== window.top;
-    }
-
-    // Check if Safari iframe payment is blocked
-    function isSafariIframeBlocked() {
-      return isSafariIframe() || (isSafari() && window !== window.top);
-    }
-
-    console.log('🔍 Browser detection:', {
-      isSafari: isSafari(),
-      isSafariMobile: isSafariMobile(),
-      isSafariIframe: isSafariIframe(),
-      userAgent: navigator.userAgent
-    });
-
-    // Global error handler to suppress extension-related errors and Safari iframe payment errors
+    // Global error handler to suppress extension-related errors
     window.addEventListener('error', function(event) {
       if (event.filename && (
           event.filename.includes('chrome-extension://') ||
@@ -409,35 +380,9 @@
         event.preventDefault();
         return false;
       }
-      
-      // Handle Safari iframe payment errors by redirecting to full-page flow
-      if (event.message && event.message.includes('Third-party iframes are not allowed to request payments')) {
-        console.log('🍎 Safari iframe payment blocked - redirecting to full-page flow');
-        event.preventDefault();
-        
-        // Redirect to full-page payment flow
-        if (paymentData && paymentData.amount && paymentData.currency) {
-          const redirectUrl = window.location.origin + '/charge/safari?' + 
-            'amount=' + encodeURIComponent(paymentData.amount) +
-            '&currency=' + encodeURIComponent(paymentData.currency) +
-            '&orderId=' + encodeURIComponent(paymentData.orderId || '') +
-            '&transactionId=' + encodeURIComponent(paymentData.transactionId || '') +
-            '&locationId=' + encodeURIComponent(paymentData.locationId || '') +
-            '&customer=' + encodeURIComponent(JSON.stringify(paymentData.contact || {}));
-          
-          console.log('🍎 Redirecting to full-page payment:', redirectUrl);
-          try {
-            window.top.location.href = redirectUrl;
-          } catch (e) {
-            console.log('🍎 Cross-origin redirect blocked, using iframe redirect');
-            window.location.href = redirectUrl;
-          }
-        }
-        return false;
-      }
     });
 
-    // Suppress unhandled promise rejections from extensions and Safari iframe payment errors
+    // Suppress unhandled promise rejections from extensions
     window.addEventListener('unhandledrejection', function(event) {
       if (event.reason && event.reason.message && (
           event.reason.message.includes('Unable to parse event message') ||
@@ -448,32 +393,6 @@
           event.reason.message.includes('angular')
         )) {
         event.preventDefault();
-        return false;
-      }
-      
-      // Handle Safari iframe payment promise rejections by redirecting to full-page flow
-      if (event.reason && event.reason.message && event.reason.message.includes('Third-party iframes are not allowed to request payments')) {
-        console.log('🍎 Safari iframe payment promise rejected - redirecting to full-page flow');
-        event.preventDefault();
-        
-        // Redirect to full-page payment flow
-        if (paymentData && paymentData.amount && paymentData.currency) {
-          const redirectUrl = window.location.origin + '/charge/safari?' + 
-            'amount=' + encodeURIComponent(paymentData.amount) +
-            '&currency=' + encodeURIComponent(paymentData.currency) +
-            '&orderId=' + encodeURIComponent(paymentData.orderId || '') +
-            '&transactionId=' + encodeURIComponent(paymentData.transactionId || '') +
-            '&locationId=' + encodeURIComponent(paymentData.locationId || '') +
-            '&customer=' + encodeURIComponent(JSON.stringify(paymentData.contact || {}));
-          
-          console.log('🍎 Redirecting to full-page payment:', redirectUrl);
-          try {
-            window.top.location.href = redirectUrl;
-          } catch (e) {
-            console.log('🍎 Cross-origin redirect blocked, using iframe redirect');
-            window.location.href = redirectUrl;
-          }
-        }
         return false;
       }
     });
@@ -1083,45 +1002,6 @@
         return;
       }
 
-      // Check for Safari iframe payment restrictions
-      if (isSafariIframe()) {
-        console.log('🍎 Safari iframe detected - using full-page redirect to avoid restrictions');
-        showSuccess('Redirecting to secure payment page...');
-        
-        // For Safari iframes, redirect the entire iframe to a full-page payment flow
-        // This completely avoids iframe payment restrictions
-        if (paymentData.amount && paymentData.currency) {
-          const redirectUrl = window.location.origin + '/charge/safari?' + 
-            'amount=' + encodeURIComponent(paymentData.amount) +
-            '&currency=' + encodeURIComponent(paymentData.currency) +
-            '&orderId=' + encodeURIComponent(paymentData.orderId || '') +
-            '&transactionId=' + encodeURIComponent(paymentData.transactionId || '') +
-            '&locationId=' + encodeURIComponent(paymentData.locationId || '') +
-            '&customer=' + encodeURIComponent(JSON.stringify(paymentData.contact || {}));
-          
-          console.log('🍎 Safari iframe - redirecting to full-page payment:', redirectUrl);
-          
-          // For Safari iframes, we need to use a different approach due to cross-origin restrictions
-          // Instead of redirecting the top window, we'll redirect the current iframe
-          setTimeout(() => {
-            try {
-              // Try to redirect the top window first
-              try {
-            window.top.location.href = redirectUrl;
-          } catch (e) {
-            console.log('🍎 Cross-origin redirect blocked, using iframe redirect');
-            window.location.href = redirectUrl;
-          }
-            } catch (e) {
-              console.log('🍎 Cross-origin redirect blocked, using iframe redirect');
-              // If that fails due to cross-origin restrictions, redirect the iframe itself
-              window.location.href = redirectUrl;
-            }
-          }, 1000);
-          return;
-        }
-      }
-
       console.log('🚀 Starting charge creation with payment data:', paymentData);
       
       // Keep showing only the spinner - no UI changes needed
@@ -1230,121 +1110,12 @@
           showSuccess('🎉 Charge created successfully! Redirecting to payment page...');
           showResult(result.charge);
           
-          // Open Tap's checkout URL - Safari-specific handling
+          // Open Tap's checkout URL in the same window
           if (result.charge.transaction?.url) {
-            console.log('🔗 Opening Tap checkout:', result.charge.transaction.url);
-            console.log('🔍 Safari context:', { isSafari: isSafari(), isSafariMobile: isSafariMobile(), isSafariIframe: isSafariIframe() });
-            
-            if (isSafariIframe()) {
-              // For Safari iframes, always use same-window redirect to avoid restrictions
-              console.log('🍎 Safari iframe detected - using same window redirect');
-              showSuccess('Redirecting to payment page...');
-              
-              setTimeout(() => {
-                window.location.href = result.charge.transaction.url;
-              }, 1500);
-            } else if (isSafariMobile()) {
-              // For Safari mobile, try new window first, fallback to same window
-              console.log('📱 Safari mobile detected - trying new window');
-              const paymentWindow = window.open(result.charge.transaction.url, '_blank', 'width=800,height=600,scrollbars=yes,resizable=yes');
-              
-              if (paymentWindow) {
-                // Listen for the payment completion
-                const checkPaymentStatus = setInterval(() => {
-                  if (paymentWindow.closed) {
-                    clearInterval(checkPaymentStatus);
-                    console.log('🔍 Payment window closed, checking status...');
-                    
-                    // Send a message to parent window that payment window was closed
-                    if (window.parent && window.parent !== window) {
-                      window.parent.postMessage({
-                        type: 'payment_window_closed',
-                        chargeId: result.charge.id
-                      }, '*');
-                    }
-                    
-                    showSuccess('Payment window closed. Please check your payment status.');
-                    showButton();
-                  }
-                }, 1000);
-                
-                // Listen for messages from the payment window
-                window.addEventListener('message', function(event) {
-                  if (event.data && event.data.type === 'payment_completed') {
-                    clearInterval(checkPaymentStatus);
-                    console.log('✅ Payment completed message received:', event.data);
-                    
-                    if (event.data.success) {
-                      showSuccess('🎉 Payment completed successfully!');
-                      sendSuccessResponse(result.charge.id);
-                    } else {
-                      showError('Payment failed. Please try again.');
-                      sendErrorResponse(event.data.error || 'Payment failed');
-                    }
-                    
-                    showButton();
-                  }
-                });
-              } else {
-                // Fallback for Safari mobile popup blocked
-                console.log('⚠️ Safari mobile popup blocked, using same window redirect');
-                showError('Popup blocked. Redirecting in same window...');
-                
-                setTimeout(() => {
-                  window.location.href = result.charge.transaction.url;
-                }, 2000);
-              }
-            } else {
-              // For other browsers or desktop Safari, use new window
-              console.log('🌐 Non-Safari or desktop Safari - using new window');
-              const paymentWindow = window.open(result.charge.transaction.url, '_blank', 'width=800,height=600,scrollbars=yes,resizable=yes');
-              
-              if (paymentWindow) {
-                // Listen for the payment completion
-                const checkPaymentStatus = setInterval(() => {
-                  if (paymentWindow.closed) {
-                    clearInterval(checkPaymentStatus);
-                    console.log('🔍 Payment window closed, checking status...');
-                    
-                    if (window.parent && window.parent !== window) {
-                      window.parent.postMessage({
-                        type: 'payment_window_closed',
-                        chargeId: result.charge.id
-                      }, '*');
-                    }
-                    
-                    showSuccess('Payment window closed. Please check your payment status.');
-                    showButton();
-                  }
-                }, 1000);
-                
-                // Listen for messages from the payment window
-                window.addEventListener('message', function(event) {
-                  if (event.data && event.data.type === 'payment_completed') {
-                    clearInterval(checkPaymentStatus);
-                    console.log('✅ Payment completed message received:', event.data);
-                    
-                    if (event.data.success) {
-                      showSuccess('🎉 Payment completed successfully!');
-                      sendSuccessResponse(result.charge.id);
-                    } else {
-                      showError('Payment failed. Please try again.');
-                      sendErrorResponse(event.data.error || 'Payment failed');
-                    }
-                    
-                    showButton();
-                  }
-                });
-              } else {
-                // Fallback: try to redirect in same window as last resort
-                console.log('⚠️ Popup blocked, trying fallback redirect in same window');
-                showError('Popup blocked. Redirecting in same window...');
-                
-                setTimeout(() => {
-                  window.location.href = result.charge.transaction.url;
-                }, 2000);
-              }
-            }
+            console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
+            setTimeout(() => {
+              window.location.href = result.charge.transaction.url;
+            }, 2000);
           } else {
             showError('No checkout URL received from Tap');
             showButton();
