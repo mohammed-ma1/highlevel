@@ -10,4 +10,5 @@ Route::get('/test', function () {
 });
 
 Route::post('/charge/create-tap', [ClientIntegrationController::class, 'createTapCharge'])
-    ->name('api.charge.create.tap');
+    ->name('api.charge.create.tap')
+    ->middleware('payment.policy');

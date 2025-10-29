@@ -30,7 +30,7 @@ Route::get('/tap', function () {
 
 Route::get('/charge', function () {
     return view('charge');
-})->name('charge');
+})->name('charge')->middleware('payment.policy');
 
 // GoHighLevel payment verification endpoint
 Route::post('/payment/verify', [ClientIntegrationController::class, 'verifyPayment'])
@@ -80,7 +80,7 @@ Route::get('/test-charge-status/{tapId}', function ($tapId) {
 
 Route::get('/payment/redirect', function () {
     return view('payment.redirect');
-})->name('payment.redirect');
+})->name('payment.redirect')->middleware('payment.policy');
 
 // Webhook route for Tap charge completion
 Route::post('/charge/webhook', function (Request $request) {
@@ -92,4 +92,4 @@ Route::post('/charge/webhook', function (Request $request) {
 Route::get('/charge/redirect', function (Request $request) {
     \Log::info('Tap redirect received', ['data' => $request->all()]);
     return view('payment.redirect', ['data' => $request->all()]);
-})->name('charge.redirect');
+})->name('charge.redirect')->middleware('payment.policy');

@@ -1110,12 +1110,60 @@
           showSuccess('🎉 Charge created successfully! Redirecting to payment page...');
           showResult(result.charge);
           
-          // Open Tap's checkout URL in the same window
+          // Open Tap's checkout URL in a new window to avoid iframe restrictions
           if (result.charge.transaction?.url) {
-            console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
-            setTimeout(() => {
-              window.location.href = result.charge.transaction.url;
-            }, 2000);
+            console.log('🔗 Opening Tap checkout in new window:', result.charge.transaction.url);
+            
+            // Open in new window instead of same window to avoid iframe payment restrictions
+            const paymentWindow = window.open(result.charge.transaction.url, '_blank', 'width=800,height=600,scrollbars=yes,resizable=yes');
+            
+            if (paymentWindow) {
+              // Listen for the payment completion by checking if window is closed
+              const checkPaymentStatus = setInterval(() => {
+                if (paymentWindow.closed) {
+                  clearInterval(checkPaymentStatus);
+                  console.log('🔍 Payment window closed, checking status...');
+                  
+                  // Send a message to parent window that payment window was closed
+                  if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({
+                      type: 'payment_window_closed',
+                      chargeId: result.charge.id
+                    }, '*');
+                  }
+                  
+                  // Show a message to user
+                  showSuccess('Payment window closed. Please check your payment status.');
+                  showButton();
+                }
+              }, 1000);
+              
+              // Also listen for messages from the payment window
+              window.addEventListener('message', function(event) {
+                if (event.data && event.data.type === 'payment_completed') {
+                  clearInterval(checkPaymentStatus);
+                  console.log('✅ Payment completed message received:', event.data);
+                  
+                  if (event.data.success) {
+                    showSuccess('🎉 Payment completed successfully!');
+                    sendSuccessResponse(result.charge.id);
+                  } else {
+                    showError('Payment failed. Please try again.');
+                    sendErrorResponse(event.data.error || 'Payment failed');
+                  }
+                  
+                  showButton();
+                }
+              });
+            } else {
+              // Fallback: try to redirect in same window as last resort
+              console.log('⚠️ Popup blocked, trying fallback redirect in same window');
+              showError('Popup blocked. Redirecting in same window...');
+              
+              setTimeout(() => {
+                window.location.href = result.charge.transaction.url;
+              }, 2000);
+            }
           } else {
             showError('No checkout URL received from Tap');
             showButton();

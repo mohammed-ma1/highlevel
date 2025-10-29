@@ -301,10 +301,16 @@
         // Auto-send success response to GHL
         sendSuccessToGHL();
         
-        // Auto-redirect to MediaSolution preview page after 2 seconds
+        // Auto-close window after 3 seconds if opened from iframe
         setTimeout(() => {
-          window.location.href = 'https://app.mediasolution.io/v2/preview/FHNVMDKeSCxgu8V07UUO';
-        }, 2000);
+          if (window.opener) {
+            // If opened in new window, close it
+            window.close();
+          } else {
+            // If in iframe, redirect to MediaSolution preview page
+            window.location.href = 'https://app.mediasolution.io/v2/preview/FHNVMDKeSCxgu8V07UUO';
+          }
+        }, 3000);
         
         // Hide action buttons since we're auto-processing
         actionButtons.style.display = 'none';
@@ -351,6 +357,14 @@
       
       sendMessageToGHL(successEvent);
       
+      // Also send message to parent window if opened from iframe
+      sendMessageToParent({
+        type: 'payment_completed',
+        success: true,
+        chargeId: chargeId,
+        data: chargeData
+      });
+      
       // Show success message
       document.getElementById('redirect-title').textContent = 'Payment Complete';
       document.getElementById('redirect-message').textContent = 'Success response sent to GoHighLevel.';
@@ -370,6 +384,13 @@
       
       console.log('❌ Sending error response to GHL:', errorEvent);
       sendMessageToGHL(errorEvent);
+      
+      // Also send message to parent window if opened from iframe
+      sendMessageToParent({
+        type: 'payment_completed',
+        success: false,
+        error: errorMessage
+      });
     }
 
     // Send close response to GoHighLevel
@@ -394,6 +415,25 @@
         }
       } catch (error) {
         console.warn('⚠️ Could not send message to parent:', error.message);
+      }
+    }
+
+    // Function to send messages to parent window (for iframe communication)
+    function sendMessageToParent(message) {
+      try {
+        if (window.opener) {
+          // If opened in a new window, send to opener
+          window.opener.postMessage(message, '*');
+          console.log('📤 Sent message to opener window:', message);
+        } else if (window.parent && window.parent !== window) {
+          // If in iframe, send to parent
+          window.parent.postMessage(message, '*');
+          console.log('📤 Sent message to parent window:', message);
+        } else {
+          console.log('⚠️ No parent window or opener available');
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not send message to parent/opener:', error.message);
       }
     }
 

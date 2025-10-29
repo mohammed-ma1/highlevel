@@ -14,6 +14,11 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // CORS is handled by Laravel's built-in CORS middleware
         // No additional CORS middleware needed for same-origin requests
+        
+        // Register payment policy middleware for iframe compatibility
+        $middleware->alias([
+            'payment.policy' => \App\Http\Middleware\PaymentPolicyMiddleware::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
