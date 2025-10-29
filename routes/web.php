@@ -130,24 +130,40 @@ Route::get('/charge/safari-redirect', function (Request $request) {
     \Log::info('Safari redirect: User found', ['userId' => $user->id, 'locationId' => $locationId]);
     
     // Get API keys from user - use the same logic as the main controller
-    $isLive = $user->lead_tap_mode === 'live';
-    $apiKey = $isLive ? $user->lead_live_api_key : $user->lead_test_api_key;
-    $publishableKey = $isLive ? $user->lead_live_publishable_key : $user->lead_test_publishable_key;
+    $apiKey = $user->lead_test_api_key ?? $user->lead_live_api_key;
+    $publishableKey = $user->lead_test_publishable_key ?? $user->lead_live_publishable_key;
+    $isLive = !empty($user->lead_live_api_key);
     
     \Log::info('Safari redirect: API keys', [
         'isLive' => $isLive,
         'hasApiKey' => !empty($apiKey),
         'hasPublishableKey' => !empty($publishableKey),
-        'apiKeyPrefix' => $apiKey ? substr($apiKey, 0, 20) . '...' : 'none'
+        'apiKeyPrefix' => $apiKey ? substr($apiKey, 0, 20) . '...' : 'none',
+        'userTapMode' => $user->lead_tap_mode,
+        'hasTestApiKey' => !empty($user->lead_test_api_key),
+        'hasLiveApiKey' => !empty($user->lead_live_api_key),
+        'hasTestPublishableKey' => !empty($user->lead_test_publishable_key),
+        'hasLivePublishableKey' => !empty($user->lead_live_publishable_key)
     ]);
     
-    if (!$apiKey || !$publishableKey) {
-        \Log::error('Safari redirect: API keys not configured', [
+    // Fallback: if no API key found, try secret keys
+    if (!$apiKey) {
+        $apiKey = $user->lead_test_secret_key ?? $user->lead_live_secret_key;
+        $isLive = !empty($user->lead_live_secret_key);
+        \Log::info('Safari redirect: Using secret key as fallback', ['isLive' => $isLive]);
+    }
+    
+    if (!$apiKey) {
+        \Log::error('Safari redirect: No API keys or secret keys configured', [
             'hasApiKey' => !empty($apiKey),
             'hasPublishableKey' => !empty($publishableKey),
+            'hasTestApiKey' => !empty($user->lead_test_api_key),
+            'hasLiveApiKey' => !empty($user->lead_live_api_key),
+            'hasTestSecretKey' => !empty($user->lead_test_secret_key),
+            'hasLiveSecretKey' => !empty($user->lead_live_secret_key),
             'isLive' => $isLive
         ]);
-        return view('payment.error', ['message' => 'API keys not configured for this location']);
+        return view('payment.error', ['message' => 'No API keys or secret keys configured for this location']);
     }
     
     // Override the redirect URLs to use production domain
