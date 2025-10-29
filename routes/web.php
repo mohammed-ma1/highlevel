@@ -103,6 +103,17 @@ Route::get('/charge/safari-redirect', function (Request $request) {
     $orderId = $request->get('orderId');
     $transactionId = $request->get('transactionId');
     $locationId = $request->get('locationId');
+    $customerData = $request->get('customer');
+    
+    // Parse customer data if provided
+    $customer = null;
+    if ($customerData) {
+        try {
+            $customer = json_decode($customerData, true);
+        } catch (\Exception $e) {
+            \Log::warning('Safari redirect: Failed to parse customer data', ['error' => $e->getMessage()]);
+        }
+    }
     
     // Find user by location ID
     $user = \App\Models\User::where('lead_location_id', $locationId)->first();
@@ -134,76 +145,71 @@ Route::get('/charge/safari-redirect', function (Request $request) {
         return view('payment.error', ['message' => 'API keys not configured for this location']);
     }
     
-    // Initialize Tap service
-    $tapService = new \App\Services\TapPaymentService($apiKey, $publishableKey, $isLive);
-    
     // Override the redirect URLs to use production domain
     $productionUrl = 'https://dashboard.mediasolution.io';
     
-    // Create charge with src_all - use the same method as the main controller
-    $chargeResponse = $tapService->createChargeWithAllPaymentMethods(
-        $amount,
-        $currency,
-        null, // customer
-        'Payment via GoHighLevel Integration',
-        $orderId,
-        $transactionId
-    );
+    // Create a custom payload with production URLs and customer data
+    $customPayload = [
+        'amount' => $amount,
+        'currency' => $currency,
+        'threeDSecure' => true,
+        'save_card' => false,
+        'customer_initiated' => true,
+        'description' => 'Payment via GoHighLevel Integration',
+        'statement_descriptor' => 'GHL Payment',
+        'source' => ['id' => 'src_all'],
+        'redirect' => ['url' => $productionUrl . '/charge/redirect'],
+        'post' => ['url' => $productionUrl . '/charge/webhook'],
+        'reference' => [
+            'order' => $orderId,
+            'transaction' => $transactionId
+        ],
+        'receipt' => ['email' => true, 'sms' => false],
+        'merchant' => ['id' => $locationId]
+    ];
     
-    // If charge creation failed, try with explicit redirect URLs
-    if (!$chargeResponse) {
-        \Log::info('Safari redirect: Retrying with production URLs');
+    // Add customer data if available
+    if ($customer && isset($customer['name']) && isset($customer['email'])) {
+        $customerName = $customer['name'];
+        $nameParts = explode(' ', $customerName, 2);
         
-        // Create a custom payload with production URLs
-        $customPayload = [
-            'amount' => $amount,
-            'currency' => $currency,
-            'threeDSecure' => true,
-            'save_card' => false,
-            'customer_initiated' => true,
-            'description' => 'Payment via GoHighLevel Integration',
-            'statement_descriptor' => 'GHL Payment',
-            'source' => ['id' => 'src_all'],
-            'redirect' => ['url' => $productionUrl . '/charge/redirect'],
-            'post' => ['url' => $productionUrl . '/charge/webhook'],
-            'reference' => [
-                'order' => $orderId,
-                'transaction' => $transactionId
-            ],
-            'receipt' => ['email' => true, 'sms' => false]
+        $customPayload['customer'] = [
+            'first_name' => $nameParts[0] ?? 'Customer',
+            'last_name' => $nameParts[1] ?? 'User',
+            'email' => $customer['email'] ?? 'customer@example.com',
+            'phone' => [
+                'country_code' => '965',
+                'number' => $customer['contact'] ?? '790000000'
+            ]
         ];
+    }
+    
+    \Log::info('Safari redirect: Creating charge with payload', ['payload' => $customPayload]);
+    
+    // Make direct API call with production URLs
+    $response = \Illuminate\Support\Facades\Http::withHeaders([
+        'Authorization' => 'Bearer ' . $apiKey,
+        'accept' => 'application/json',
+        'content-type' => 'application/json'
+    ])->withBody(json_encode($customPayload), 'application/json')
+      ->post('https://api.tap.company/v2/charges/');
+    
+    if ($response->successful()) {
+        $chargeResponse = $response->json();
+        \Log::info('Safari redirect: Charge created successfully', ['chargeId' => $chargeResponse['id'] ?? 'unknown']);
         
-        // Make direct API call with production URLs
-        $response = \Illuminate\Support\Facades\Http::withHeaders([
-            'Authorization' => 'Bearer ' . $apiKey,
-            'accept' => 'application/json',
-            'content-type' => 'application/json'
-        ])->withBody(json_encode($customPayload), 'application/json')
-          ->post('https://api.tap.company/v2/charges/');
-        
-        if ($response->successful()) {
-            $chargeResponse = $response->json();
-            \Log::info('Safari redirect: Charge created with production URLs', ['chargeId' => $chargeResponse['id'] ?? 'unknown']);
+        // Redirect to Tap checkout URL
+        if (isset($chargeResponse['transaction']['url'])) {
+            return redirect($chargeResponse['transaction']['url']);
         } else {
-            \Log::error('Safari redirect: Failed with production URLs', [
-                'status' => $response->status(),
-                'response' => $response->json()
-            ]);
+            \Log::error('Safari redirect: No checkout URL in response', ['response' => $chargeResponse]);
+            return view('payment.error', ['message' => 'No checkout URL received from Tap']);
         }
-    }
-    
-    if (!$chargeResponse) {
-        \Log::error('Safari redirect: Failed to create charge');
-        return view('payment.error', ['message' => 'Failed to create charge with Tap']);
-    }
-    
-    \Log::info('Safari redirect: Charge created successfully', ['chargeId' => $chargeResponse['id'] ?? 'unknown']);
-    
-    // Redirect to Tap checkout URL
-    if (isset($chargeResponse['transaction']['url'])) {
-        return redirect($chargeResponse['transaction']['url']);
     } else {
-        \Log::error('Safari redirect: No checkout URL in response', ['response' => $chargeResponse]);
-        return view('payment.error', ['message' => 'No checkout URL received from Tap']);
+        \Log::error('Safari redirect: Failed to create charge', [
+            'status' => $response->status(),
+            'response' => $response->json()
+        ]);
+        return view('payment.error', ['message' => 'Failed to create charge with Tap: ' . ($response->json()['errors'][0]['description'] ?? 'Unknown error')]);
     }
 })->name('charge.safari-redirect')->middleware('payment.policy');

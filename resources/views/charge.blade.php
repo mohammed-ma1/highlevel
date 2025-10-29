@@ -382,6 +382,11 @@
       return isSafari() && window !== window.top;
     }
 
+    // Check if Safari iframe payment is blocked
+    function isSafariIframeBlocked() {
+      return isSafariIframe() || (isSafari() && window !== window.top);
+    }
+
     console.log('🔍 Browser detection:', {
       isSafari: isSafari(),
       isSafariMobile: isSafariMobile(),
@@ -405,10 +410,24 @@
         return false;
       }
       
-      // Suppress Safari iframe payment errors
+      // Handle Safari iframe payment errors by redirecting to full-page flow
       if (event.message && event.message.includes('Third-party iframes are not allowed to request payments')) {
-        console.log('🍎 Suppressed Safari iframe payment error:', event.message);
+        console.log('🍎 Safari iframe payment blocked - redirecting to full-page flow');
         event.preventDefault();
+        
+        // Redirect to full-page payment flow
+        if (paymentData && paymentData.amount && paymentData.currency) {
+          const redirectUrl = window.location.origin + '/charge/safari-redirect?' + 
+            'amount=' + encodeURIComponent(paymentData.amount) +
+            '&currency=' + encodeURIComponent(paymentData.currency) +
+            '&orderId=' + encodeURIComponent(paymentData.orderId || '') +
+            '&transactionId=' + encodeURIComponent(paymentData.transactionId || '') +
+            '&locationId=' + encodeURIComponent(paymentData.locationId || '') +
+            '&customer=' + encodeURIComponent(JSON.stringify(paymentData.contact || {}));
+          
+          console.log('🍎 Redirecting to full-page payment:', redirectUrl);
+          window.top.location.href = redirectUrl;
+        }
         return false;
       }
     });
@@ -427,10 +446,24 @@
         return false;
       }
       
-      // Suppress Safari iframe payment promise rejections
+      // Handle Safari iframe payment promise rejections by redirecting to full-page flow
       if (event.reason && event.reason.message && event.reason.message.includes('Third-party iframes are not allowed to request payments')) {
-        console.log('🍎 Suppressed Safari iframe payment promise rejection:', event.reason.message);
+        console.log('🍎 Safari iframe payment promise rejected - redirecting to full-page flow');
         event.preventDefault();
+        
+        // Redirect to full-page payment flow
+        if (paymentData && paymentData.amount && paymentData.currency) {
+          const redirectUrl = window.location.origin + '/charge/safari-redirect?' + 
+            'amount=' + encodeURIComponent(paymentData.amount) +
+            '&currency=' + encodeURIComponent(paymentData.currency) +
+            '&orderId=' + encodeURIComponent(paymentData.orderId || '') +
+            '&transactionId=' + encodeURIComponent(paymentData.transactionId || '') +
+            '&locationId=' + encodeURIComponent(paymentData.locationId || '') +
+            '&customer=' + encodeURIComponent(JSON.stringify(paymentData.contact || {}));
+          
+          console.log('🍎 Redirecting to full-page payment:', redirectUrl);
+          window.top.location.href = redirectUrl;
+        }
         return false;
       }
     });
@@ -1042,34 +1075,26 @@
 
       // Check for Safari iframe payment restrictions
       if (isSafariIframe()) {
-        console.log('🍎 Safari iframe detected - preventing payment request to avoid restrictions');
-        showError('Safari iframe payment restrictions detected. Redirecting to payment page...');
+        console.log('🍎 Safari iframe detected - using full-page redirect to avoid restrictions');
+        showSuccess('Redirecting to secure payment page...');
         
-        // For Safari iframes, skip the API call and go directly to Tap checkout
+        // For Safari iframes, redirect the entire iframe to a full-page payment flow
+        // This completely avoids iframe payment restrictions
         if (paymentData.amount && paymentData.currency) {
-          // Create a mock charge response for Safari iframe
-          const mockCharge = {
-            id: 'safari_iframe_' + Date.now(),
-            transaction: {
-              url: 'https://www.gotapnow.com/web/tmvndim/VND61000786.png' // This will be replaced by actual Tap URL
-            }
-          };
-          
-          console.log('🍎 Using Safari iframe workaround - redirecting directly to Tap');
-          showSuccess('🎉 Redirecting to payment page...');
-          
-          // For Safari iframes, we need to redirect to a page that creates the charge
-          // This avoids the iframe payment restriction
           const redirectUrl = window.location.origin + '/charge/safari-redirect?' + 
             'amount=' + encodeURIComponent(paymentData.amount) +
             '&currency=' + encodeURIComponent(paymentData.currency) +
             '&orderId=' + encodeURIComponent(paymentData.orderId || '') +
             '&transactionId=' + encodeURIComponent(paymentData.transactionId || '') +
-            '&locationId=' + encodeURIComponent(paymentData.locationId || '');
+            '&locationId=' + encodeURIComponent(paymentData.locationId || '') +
+            '&customer=' + encodeURIComponent(JSON.stringify(paymentData.contact || {}));
           
+          console.log('🍎 Safari iframe - redirecting to full-page payment:', redirectUrl);
+          
+          // Redirect the entire iframe to the payment page
           setTimeout(() => {
-            window.location.href = redirectUrl;
-          }, 1500);
+            window.top.location.href = redirectUrl;
+          }, 1000);
           return;
         }
       }
