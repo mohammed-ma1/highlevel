@@ -270,12 +270,6 @@ class ClientIntegrationController extends Controller
             $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                         . '?locationId=' . urlencode($locationId);
                 
-          //  dd($providerUrl ,$accessToken);
-
-            // Log::info('Making provider API call', [
-            //     'access_token_length' => strlen($accessToken)
-            // ]);
-
               $providerPayload = [
             'name'        => 'Tap Integration',
             'description' => 'Supports Visa and MasterCard payments via Tap Card SDK, with secure token generation for each transaction. KNET payments redirect customers to the KNET checkout page. The resulting token or KNET source ID is compatible with the Charge API. Note: PayPal is not supported.',
@@ -1012,8 +1006,8 @@ class ClientIntegrationController extends Controller
      */
     public function verifyPayment(Request $request)
     {
-        try {
-            $data = $request->all();
+         try {
+             $data = $request->all();
             
             Log::info('Payment verification request received', [
                 'type' => $data['type'] ?? 'unknown',
