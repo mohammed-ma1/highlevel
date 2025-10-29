@@ -21,6 +21,21 @@ class TapPaymentService
     }
 
     /**
+     * Get production URL, fallback to localhost if APP_URL is localhost
+     */
+    private function getProductionUrl()
+    {
+        $appUrl = config('app.url');
+        
+        // If APP_URL is localhost, use production domain
+        if (str_contains($appUrl, 'localhost') || str_contains($appUrl, '127.0.0.1')) {
+            return 'https://dashboard.mediasolution.io';
+        }
+        
+        return $appUrl;
+    }
+
+    /**
      * Create a charge using Tap token
      */
     public function createCharge($token, $amount, $currency = 'JOD', $customer = null, $description = null)
@@ -85,10 +100,10 @@ class TapPaymentService
                     'id' => 'src_all' // This displays all available payment methods
                 ],
                 'redirect' => [
-                    'url' => config('app.url') . '/payment/redirect'
+                    'url' => $this->getProductionUrl() . '/charge/redirect'
                 ],
                 'post' => [
-                    'url' => config('app.url') . '/payment/webhook'
+                    'url' => $this->getProductionUrl() . '/charge/webhook'
                 ]
             ];
 
