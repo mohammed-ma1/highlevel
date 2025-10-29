@@ -417,7 +417,7 @@
         
         // Redirect to full-page payment flow
         if (paymentData && paymentData.amount && paymentData.currency) {
-          const redirectUrl = window.location.origin + '/charge/safari-redirect?' + 
+          const redirectUrl = window.location.origin + '/charge/safari?' + 
             'amount=' + encodeURIComponent(paymentData.amount) +
             '&currency=' + encodeURIComponent(paymentData.currency) +
             '&orderId=' + encodeURIComponent(paymentData.orderId || '') +
@@ -426,7 +426,12 @@
             '&customer=' + encodeURIComponent(JSON.stringify(paymentData.contact || {}));
           
           console.log('🍎 Redirecting to full-page payment:', redirectUrl);
-          window.top.location.href = redirectUrl;
+          try {
+            window.top.location.href = redirectUrl;
+          } catch (e) {
+            console.log('🍎 Cross-origin redirect blocked, using iframe redirect');
+            window.location.href = redirectUrl;
+          }
         }
         return false;
       }
@@ -453,7 +458,7 @@
         
         // Redirect to full-page payment flow
         if (paymentData && paymentData.amount && paymentData.currency) {
-          const redirectUrl = window.location.origin + '/charge/safari-redirect?' + 
+          const redirectUrl = window.location.origin + '/charge/safari?' + 
             'amount=' + encodeURIComponent(paymentData.amount) +
             '&currency=' + encodeURIComponent(paymentData.currency) +
             '&orderId=' + encodeURIComponent(paymentData.orderId || '') +
@@ -462,7 +467,12 @@
             '&customer=' + encodeURIComponent(JSON.stringify(paymentData.contact || {}));
           
           console.log('🍎 Redirecting to full-page payment:', redirectUrl);
-          window.top.location.href = redirectUrl;
+          try {
+            window.top.location.href = redirectUrl;
+          } catch (e) {
+            console.log('🍎 Cross-origin redirect blocked, using iframe redirect');
+            window.location.href = redirectUrl;
+          }
         }
         return false;
       }
@@ -1081,7 +1091,7 @@
         // For Safari iframes, redirect the entire iframe to a full-page payment flow
         // This completely avoids iframe payment restrictions
         if (paymentData.amount && paymentData.currency) {
-          const redirectUrl = window.location.origin + '/charge/safari-redirect?' + 
+          const redirectUrl = window.location.origin + '/charge/safari?' + 
             'amount=' + encodeURIComponent(paymentData.amount) +
             '&currency=' + encodeURIComponent(paymentData.currency) +
             '&orderId=' + encodeURIComponent(paymentData.orderId || '') +
@@ -1091,9 +1101,22 @@
           
           console.log('🍎 Safari iframe - redirecting to full-page payment:', redirectUrl);
           
-          // Redirect the entire iframe to the payment page
+          // For Safari iframes, we need to use a different approach due to cross-origin restrictions
+          // Instead of redirecting the top window, we'll redirect the current iframe
           setTimeout(() => {
+            try {
+              // Try to redirect the top window first
+              try {
             window.top.location.href = redirectUrl;
+          } catch (e) {
+            console.log('🍎 Cross-origin redirect blocked, using iframe redirect');
+            window.location.href = redirectUrl;
+          }
+            } catch (e) {
+              console.log('🍎 Cross-origin redirect blocked, using iframe redirect');
+              // If that fails due to cross-origin restrictions, redirect the iframe itself
+              window.location.href = redirectUrl;
+            }
           }, 1000);
           return;
         }

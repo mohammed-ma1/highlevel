@@ -94,6 +94,11 @@ Route::get('/charge/redirect', function (Request $request) {
     return view('payment.redirect', ['data' => $request->all()]);
 })->name('charge.redirect')->middleware('payment.policy');
 
+// Safari iframe intermediate page - shows user-friendly message before redirect
+Route::get('/charge/safari', function (Request $request) {
+    return view('payment.safari', ['data' => $request->all()]);
+})->name('charge.safari')->middleware('payment.policy');
+
 // Safari iframe workaround route - creates charge outside iframe context
 Route::get('/charge/safari-redirect', function (Request $request) {
     \Log::info('Safari redirect workaround', ['data' => $request->all()]);
