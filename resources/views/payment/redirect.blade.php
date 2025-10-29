@@ -305,7 +305,20 @@
         setTimeout(() => {
           if (window.opener) {
             // If opened in new window, close it
+            console.log('🔍 Closing payment window (opened from iframe)');
             window.close();
+          } else if (isSafariIframe()) {
+            // For Safari iframes, try to communicate with parent and then redirect
+            console.log('🍎 Safari iframe - sending success message to parent');
+            sendMessageToParent({
+              type: 'payment_completed',
+              success: true,
+              chargeId: chargeData?.charge?.id,
+              data: chargeData
+            });
+            
+            // Redirect to MediaSolution preview page
+            window.location.href = 'https://app.mediasolution.io/v2/preview/FHNVMDKeSCxgu8V07UUO';
           } else {
             // If in iframe, redirect to MediaSolution preview page
             window.location.href = 'https://app.mediasolution.io/v2/preview/FHNVMDKeSCxgu8V07UUO';
@@ -445,6 +458,30 @@
         window.close();
       }
     }
+
+    // Safari detection
+    function isSafari() {
+      const ua = navigator.userAgent.toLowerCase();
+      return ua.includes('safari') && !ua.includes('chrome') && !ua.includes('crios') && !ua.includes('fxios');
+    }
+
+    // Safari mobile detection
+    function isSafariMobile() {
+      const ua = navigator.userAgent.toLowerCase();
+      return ua.includes('safari') && ua.includes('mobile') && !ua.includes('chrome');
+    }
+
+    // Check if we're in Safari iframe
+    function isSafariIframe() {
+      return isSafari() && window !== window.top;
+    }
+
+    console.log('🔍 Safari detection:', {
+      isSafari: isSafari(),
+      isSafariMobile: isSafariMobile(),
+      isSafariIframe: isSafariIframe(),
+      userAgent: navigator.userAgent
+    });
 
     // Initialize when page loads
     document.addEventListener('DOMContentLoaded', async function() {

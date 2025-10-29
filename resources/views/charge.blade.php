@@ -365,6 +365,30 @@
       };
     })();
 
+    // Safari detection
+    function isSafari() {
+      const ua = navigator.userAgent.toLowerCase();
+      return ua.includes('safari') && !ua.includes('chrome') && !ua.includes('crios') && !ua.includes('fxios');
+    }
+
+    // Safari mobile detection
+    function isSafariMobile() {
+      const ua = navigator.userAgent.toLowerCase();
+      return ua.includes('safari') && ua.includes('mobile') && !ua.includes('chrome');
+    }
+
+    // Check if we're in Safari iframe
+    function isSafariIframe() {
+      return isSafari() && window !== window.top;
+    }
+
+    console.log('🔍 Browser detection:', {
+      isSafari: isSafari(),
+      isSafariMobile: isSafariMobile(),
+      isSafariIframe: isSafariIframe(),
+      userAgent: navigator.userAgent
+    });
+
     // Global error handler to suppress extension-related errors
     window.addEventListener('error', function(event) {
       if (event.filename && (
@@ -1110,59 +1134,120 @@
           showSuccess('🎉 Charge created successfully! Redirecting to payment page...');
           showResult(result.charge);
           
-          // Open Tap's checkout URL in a new window to avoid iframe restrictions
+          // Open Tap's checkout URL - Safari-specific handling
           if (result.charge.transaction?.url) {
-            console.log('🔗 Opening Tap checkout in new window:', result.charge.transaction.url);
+            console.log('🔗 Opening Tap checkout:', result.charge.transaction.url);
+            console.log('🔍 Safari context:', { isSafari: isSafari(), isSafariMobile: isSafariMobile(), isSafariIframe: isSafariIframe() });
             
-            // Open in new window instead of same window to avoid iframe payment restrictions
-            const paymentWindow = window.open(result.charge.transaction.url, '_blank', 'width=800,height=600,scrollbars=yes,resizable=yes');
-            
-            if (paymentWindow) {
-              // Listen for the payment completion by checking if window is closed
-              const checkPaymentStatus = setInterval(() => {
-                if (paymentWindow.closed) {
-                  clearInterval(checkPaymentStatus);
-                  console.log('🔍 Payment window closed, checking status...');
-                  
-                  // Send a message to parent window that payment window was closed
-                  if (window.parent && window.parent !== window) {
-                    window.parent.postMessage({
-                      type: 'payment_window_closed',
-                      chargeId: result.charge.id
-                    }, '*');
-                  }
-                  
-                  // Show a message to user
-                  showSuccess('Payment window closed. Please check your payment status.');
-                  showButton();
-                }
-              }, 1000);
-              
-              // Also listen for messages from the payment window
-              window.addEventListener('message', function(event) {
-                if (event.data && event.data.type === 'payment_completed') {
-                  clearInterval(checkPaymentStatus);
-                  console.log('✅ Payment completed message received:', event.data);
-                  
-                  if (event.data.success) {
-                    showSuccess('🎉 Payment completed successfully!');
-                    sendSuccessResponse(result.charge.id);
-                  } else {
-                    showError('Payment failed. Please try again.');
-                    sendErrorResponse(event.data.error || 'Payment failed');
-                  }
-                  
-                  showButton();
-                }
-              });
-            } else {
-              // Fallback: try to redirect in same window as last resort
-              console.log('⚠️ Popup blocked, trying fallback redirect in same window');
-              showError('Popup blocked. Redirecting in same window...');
+            if (isSafariIframe()) {
+              // For Safari iframes, always use same-window redirect to avoid restrictions
+              console.log('🍎 Safari iframe detected - using same window redirect');
+              showSuccess('Redirecting to payment page...');
               
               setTimeout(() => {
                 window.location.href = result.charge.transaction.url;
-              }, 2000);
+              }, 1500);
+            } else if (isSafariMobile()) {
+              // For Safari mobile, try new window first, fallback to same window
+              console.log('📱 Safari mobile detected - trying new window');
+              const paymentWindow = window.open(result.charge.transaction.url, '_blank', 'width=800,height=600,scrollbars=yes,resizable=yes');
+              
+              if (paymentWindow) {
+                // Listen for the payment completion
+                const checkPaymentStatus = setInterval(() => {
+                  if (paymentWindow.closed) {
+                    clearInterval(checkPaymentStatus);
+                    console.log('🔍 Payment window closed, checking status...');
+                    
+                    // Send a message to parent window that payment window was closed
+                    if (window.parent && window.parent !== window) {
+                      window.parent.postMessage({
+                        type: 'payment_window_closed',
+                        chargeId: result.charge.id
+                      }, '*');
+                    }
+                    
+                    showSuccess('Payment window closed. Please check your payment status.');
+                    showButton();
+                  }
+                }, 1000);
+                
+                // Listen for messages from the payment window
+                window.addEventListener('message', function(event) {
+                  if (event.data && event.data.type === 'payment_completed') {
+                    clearInterval(checkPaymentStatus);
+                    console.log('✅ Payment completed message received:', event.data);
+                    
+                    if (event.data.success) {
+                      showSuccess('🎉 Payment completed successfully!');
+                      sendSuccessResponse(result.charge.id);
+                    } else {
+                      showError('Payment failed. Please try again.');
+                      sendErrorResponse(event.data.error || 'Payment failed');
+                    }
+                    
+                    showButton();
+                  }
+                });
+              } else {
+                // Fallback for Safari mobile popup blocked
+                console.log('⚠️ Safari mobile popup blocked, using same window redirect');
+                showError('Popup blocked. Redirecting in same window...');
+                
+                setTimeout(() => {
+                  window.location.href = result.charge.transaction.url;
+                }, 2000);
+              }
+            } else {
+              // For other browsers or desktop Safari, use new window
+              console.log('🌐 Non-Safari or desktop Safari - using new window');
+              const paymentWindow = window.open(result.charge.transaction.url, '_blank', 'width=800,height=600,scrollbars=yes,resizable=yes');
+              
+              if (paymentWindow) {
+                // Listen for the payment completion
+                const checkPaymentStatus = setInterval(() => {
+                  if (paymentWindow.closed) {
+                    clearInterval(checkPaymentStatus);
+                    console.log('🔍 Payment window closed, checking status...');
+                    
+                    if (window.parent && window.parent !== window) {
+                      window.parent.postMessage({
+                        type: 'payment_window_closed',
+                        chargeId: result.charge.id
+                      }, '*');
+                    }
+                    
+                    showSuccess('Payment window closed. Please check your payment status.');
+                    showButton();
+                  }
+                }, 1000);
+                
+                // Listen for messages from the payment window
+                window.addEventListener('message', function(event) {
+                  if (event.data && event.data.type === 'payment_completed') {
+                    clearInterval(checkPaymentStatus);
+                    console.log('✅ Payment completed message received:', event.data);
+                    
+                    if (event.data.success) {
+                      showSuccess('🎉 Payment completed successfully!');
+                      sendSuccessResponse(result.charge.id);
+                    } else {
+                      showError('Payment failed. Please try again.');
+                      sendErrorResponse(event.data.error || 'Payment failed');
+                    }
+                    
+                    showButton();
+                  }
+                });
+              } else {
+                // Fallback: try to redirect in same window as last resort
+                console.log('⚠️ Popup blocked, trying fallback redirect in same window');
+                showError('Popup blocked. Redirecting in same window...');
+                
+                setTimeout(() => {
+                  window.location.href = result.charge.transaction.url;
+                }, 2000);
+              }
             }
           } else {
             showError('No checkout URL received from Tap');
