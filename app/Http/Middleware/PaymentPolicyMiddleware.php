@@ -24,8 +24,22 @@ class PaymentPolicyMiddleware
         // Add Permissions-Policy header (newer standard, better Safari support)
         $response->headers->set('Permissions-Policy', 'payment=*');
         
-        // Add Content-Security-Policy to allow iframe embedding from GoHighLevel
-        $response->headers->set('Content-Security-Policy', "frame-ancestors 'self' https://app.gohighlevel.com https://*.gohighlevel.com https://app.mediasolution.io https://*.mediasolution.io");
+        // Add additional Safari-specific payment policy headers
+        $response->headers->set('Feature-Policy', 'payment *; camera *; microphone *; geolocation *');
+        $response->headers->set('Permissions-Policy', 'payment=*, camera=*, microphone=*, geolocation=*');
+        
+        // Add Content-Security-Policy to allow iframe embedding and Tap resources
+        $response->headers->set('Content-Security-Policy', 
+            "frame-ancestors 'self' https://app.gohighlevel.com https://*.gohighlevel.com https://app.mediasolution.io https://*.mediasolution.io; " .
+            "img-src 'self' data: https: http: https://www.gotapnow.com https://*.gotapnow.com https://api.tap.company https://*.tap.company; " .
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https: http:; " .
+            "style-src 'self' 'unsafe-inline' https: http:; " .
+            "font-src 'self' data: https: http:; " .
+            "connect-src 'self' https: http:; " .
+            "object-src 'none'; " .
+            "base-uri 'self'; " .
+            "form-action 'self' https: http:"
+        );
         
         // Safari-specific headers for iframe compatibility
         $response->headers->set('X-Frame-Options', 'ALLOWALL');

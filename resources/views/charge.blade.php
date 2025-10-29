@@ -389,7 +389,7 @@
       userAgent: navigator.userAgent
     });
 
-    // Global error handler to suppress extension-related errors
+    // Global error handler to suppress extension-related errors and Safari iframe payment errors
     window.addEventListener('error', function(event) {
       if (event.filename && (
           event.filename.includes('chrome-extension://') ||
@@ -404,9 +404,16 @@
         event.preventDefault();
         return false;
       }
+      
+      // Suppress Safari iframe payment errors
+      if (event.message && event.message.includes('Third-party iframes are not allowed to request payments')) {
+        console.log('🍎 Suppressed Safari iframe payment error:', event.message);
+        event.preventDefault();
+        return false;
+      }
     });
 
-    // Suppress unhandled promise rejections from extensions
+    // Suppress unhandled promise rejections from extensions and Safari iframe payment errors
     window.addEventListener('unhandledrejection', function(event) {
       if (event.reason && event.reason.message && (
           event.reason.message.includes('Unable to parse event message') ||
@@ -416,6 +423,13 @@
           event.reason.message.includes('devtools') ||
           event.reason.message.includes('angular')
         )) {
+        event.preventDefault();
+        return false;
+      }
+      
+      // Suppress Safari iframe payment promise rejections
+      if (event.reason && event.reason.message && event.reason.message.includes('Third-party iframes are not allowed to request payments')) {
+        console.log('🍎 Suppressed Safari iframe payment promise rejection:', event.reason.message);
         event.preventDefault();
         return false;
       }
@@ -1024,6 +1038,40 @@
         console.log('🔍 isReady status:', isReady);
         showError('No payment data received from GoHighLevel. Please ensure the integration is properly configured.');
         return;
+      }
+
+      // Check for Safari iframe payment restrictions
+      if (isSafariIframe()) {
+        console.log('🍎 Safari iframe detected - preventing payment request to avoid restrictions');
+        showError('Safari iframe payment restrictions detected. Redirecting to payment page...');
+        
+        // For Safari iframes, skip the API call and go directly to Tap checkout
+        if (paymentData.amount && paymentData.currency) {
+          // Create a mock charge response for Safari iframe
+          const mockCharge = {
+            id: 'safari_iframe_' + Date.now(),
+            transaction: {
+              url: 'https://www.gotapnow.com/web/tmvndim/VND61000786.png' // This will be replaced by actual Tap URL
+            }
+          };
+          
+          console.log('🍎 Using Safari iframe workaround - redirecting directly to Tap');
+          showSuccess('🎉 Redirecting to payment page...');
+          
+          // For Safari iframes, we need to redirect to a page that creates the charge
+          // This avoids the iframe payment restriction
+          const redirectUrl = window.location.origin + '/charge/safari-redirect?' + 
+            'amount=' + encodeURIComponent(paymentData.amount) +
+            '&currency=' + encodeURIComponent(paymentData.currency) +
+            '&orderId=' + encodeURIComponent(paymentData.orderId || '') +
+            '&transactionId=' + encodeURIComponent(paymentData.transactionId || '') +
+            '&locationId=' + encodeURIComponent(paymentData.locationId || '');
+          
+          setTimeout(() => {
+            window.location.href = redirectUrl;
+          }, 1500);
+          return;
+        }
       }
 
       console.log('🚀 Starting charge creation with payment data:', paymentData);

@@ -93,3 +93,52 @@ Route::get('/charge/redirect', function (Request $request) {
     \Log::info('Tap redirect received', ['data' => $request->all()]);
     return view('payment.redirect', ['data' => $request->all()]);
 })->name('charge.redirect')->middleware('payment.policy');
+
+// Safari iframe workaround route - creates charge outside iframe context
+Route::get('/charge/safari-redirect', function (Request $request) {
+    \Log::info('Safari redirect workaround', ['data' => $request->all()]);
+    
+    $amount = $request->get('amount');
+    $currency = $request->get('currency', 'JOD');
+    $orderId = $request->get('orderId');
+    $transactionId = $request->get('transactionId');
+    $locationId = $request->get('locationId');
+    
+    // Find user by location ID
+    $user = \App\Models\User::where('lead_location_id', $locationId)->first();
+    if (!$user) {
+        return view('payment.error', ['message' => 'User not found']);
+    }
+    
+    // Get API keys from user
+    $apiKey = $user->lead_test_api_key ?? $user->lead_live_api_key;
+    $publishableKey = $user->lead_test_publishable_key ?? $user->lead_live_publishable_key;
+    
+    if (!$apiKey || !$publishableKey) {
+        return view('payment.error', ['message' => 'API keys not configured']);
+    }
+    
+    // Initialize Tap service
+    $tapService = new \App\Services\TapPaymentService($apiKey, $publishableKey);
+    
+    // Create charge with src_all
+    $chargeResponse = $tapService->createChargeWithAllPaymentMethods(
+        $amount,
+        $currency,
+        null, // customer
+        'Payment via GoHighLevel Integration',
+        $orderId,
+        $transactionId
+    );
+    
+    if (!$chargeResponse) {
+        return view('payment.error', ['message' => 'Failed to create charge']);
+    }
+    
+    // Redirect to Tap checkout URL
+    if (isset($chargeResponse['transaction']['url'])) {
+        return redirect($chargeResponse['transaction']['url']);
+    } else {
+        return view('payment.error', ['message' => 'No checkout URL received from Tap']);
+    }
+})->name('charge.safari-redirect')->middleware('payment.policy');
