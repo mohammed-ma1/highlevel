@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safari Iframe Fix Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .test-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px;
+            font-size: 16px;
+        }
+        .test-button:hover {
+            background: #0056b3;
+        }
+        .test-button.success {
+            background: #28a745;
+        }
+        .test-button.warning {
+            background: #ffc107;
+            color: #000;
+        }
+        .test-button.danger {
+            background: #dc3545;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        iframe {
+            width: 100%;
+            height: 600px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+        }
+        .instructions {
+            background: #e7f3ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Safari Iframe Payment Fix Test</h1>
+    
+    <div class="instructions">
+        <h3>📋 Test Instructions</h3>
+        <ol>
+            <li><strong>Test in Safari:</strong> Open this page in Safari and test the payment flow</li>
+            <li><strong>Test Popup Blocking:</strong> Enable popup blocking and test the fallback</li>
+            <li><strong>Test Other Browsers:</strong> Test in Chrome/Firefox to ensure normal flow works</li>
+            <li><strong>Check Console:</strong> Open browser console to see detailed logs</li>
+        </ol>
+    </div>
+
+    <div class="test-container">
+        <h2>🔍 Browser Detection Test</h2>
+        <button class="test-button" onclick="testBrowserDetection()">Detect Browser</button>
+        <div id="browser-status" class="status info">Click the button to detect your browser</div>
+    </div>
+
+    <div class="test-container">
+        <h2>🍎 Safari Popup Test</h2>
+        <button class="test-button" onclick="testPopup()">Test Popup Opening</button>
+        <button class="test-button warning" onclick="testPopupBlocked()">Test Popup Blocked</button>
+        <div id="popup-status" class="status info">Click the buttons to test popup functionality</div>
+    </div>
+
+    <div class="test-container">
+        <h2>💳 Payment Integration Test</h2>
+        <p>This iframe loads your actual payment integration:</p>
+        <iframe id="payment-iframe" src="https://dashboard.mediasolution.io/charge"></iframe>
+        <div id="payment-status" class="status info">Payment iframe loaded. Check console for detailed logs.</div>
+    </div>
+
+    <div class="test-container">
+        <h2>📊 Test Results</h2>
+        <div id="test-results">
+            <p>Run the tests above to see results here.</p>
+        </div>
+    </div>
+
+    <script>
+        // Browser detection test
+        function testBrowserDetection() {
+            const userAgent = navigator.userAgent;
+            const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent);
+            const isIOS = /iPad|iPhone|iPod/.test(userAgent);
+            const isMacSafari = /Macintosh/.test(userAgent) && /Safari/.test(userAgent) && !/Chrome/.test(userAgent);
+            
+            const browserInfo = {
+                userAgent: userAgent,
+                isSafari: isSafari || isIOS || isMacSafari,
+                isIOS: isIOS,
+                isMacSafari: isMacSafari,
+                browser: getBrowserName()
+            };
+            
+            document.getElementById('browser-status').innerHTML = `
+                <strong>Browser Detection Results:</strong><br>
+                Browser: ${browserInfo.browser}<br>
+                Is Safari: ${browserInfo.isSafari ? '✅ Yes' : '❌ No'}<br>
+                Is iOS: ${browserInfo.isIOS ? '✅ Yes' : '❌ No'}<br>
+                Is Mac Safari: ${browserInfo.isMacSafari ? '✅ Yes' : '❌ No'}<br>
+                User Agent: ${browserInfo.userAgent}
+            `;
+            
+            updateTestResults('Browser Detection', browserInfo.isSafari ? 'success' : 'info', 
+                `Browser detected as: ${browserInfo.browser} (Safari: ${browserInfo.isSafari})`);
+        }
+        
+        function getBrowserName() {
+            const userAgent = navigator.userAgent;
+            if (userAgent.includes('Chrome')) return 'Chrome';
+            if (userAgent.includes('Firefox')) return 'Firefox';
+            if (userAgent.includes('Safari') && !userAgent.includes('Chrome')) return 'Safari';
+            if (userAgent.includes('Edge')) return 'Edge';
+            return 'Unknown';
+        }
+        
+        // Popup test
+        function testPopup() {
+            const popup = window.open('https://www.google.com', 'test_popup', 'width=400,height=300');
+            
+            if (popup && !popup.closed) {
+                document.getElementById('popup-status').innerHTML = `
+                    <div class="status success">✅ Popup opened successfully!</div>
+                `;
+                updateTestResults('Popup Test', 'success', 'Popup opened successfully');
+                
+                // Close popup after 3 seconds
+                setTimeout(() => {
+                    popup.close();
+                }, 3000);
+            } else {
+                document.getElementById('popup-status').innerHTML = `
+                    <div class="status error">❌ Popup was blocked or failed to open</div>
+                `;
+                updateTestResults('Popup Test', 'error', 'Popup was blocked or failed to open');
+            }
+        }
+        
+        function testPopupBlocked() {
+            // Try to open popup with a name that might be blocked
+            const popup = window.open('https://www.google.com', 'blocked_popup', 'width=400,height=300');
+            
+            if (!popup || popup.closed) {
+                document.getElementById('popup-status').innerHTML = `
+                    <div class="status warning">⚠️ Popup blocked - This is expected behavior for testing fallback</div>
+                `;
+                updateTestResults('Popup Blocked Test', 'warning', 'Popup blocked - fallback should be triggered');
+            } else {
+                document.getElementById('popup-status').innerHTML = `
+                    <div class="status info">ℹ️ Popup opened - Enable popup blocking to test fallback</div>
+                `;
+                updateTestResults('Popup Blocked Test', 'info', 'Popup opened - enable blocking to test fallback');
+                popup.close();
+            }
+        }
+        
+        function updateTestResults(testName, status, message) {
+            const resultsDiv = document.getElementById('test-results');
+            const statusClass = status === 'success' ? 'success' : status === 'error' ? 'error' : 'info';
+            const icon = status === 'success' ? '✅' : status === 'error' ? '❌' : 'ℹ️';
+            
+            resultsDiv.innerHTML += `
+                <div class="status ${statusClass}">
+                    ${icon} <strong>${testName}:</strong> ${message}
+                </div>
+            `;
+        }
+        
+        // Listen for messages from iframe
+        window.addEventListener('message', function(event) {
+            console.log('Message received from iframe:', event.data);
+            
+            if (event.data && event.data.type) {
+                document.getElementById('payment-status').innerHTML = `
+                    <div class="status info">
+                        📨 Message from iframe: ${event.data.type}
+                        <br>Data: ${JSON.stringify(event.data, null, 2)}
+                    </div>
+                `;
+            }
+        });
+        
+        // Auto-run browser detection on load
+        window.addEventListener('load', function() {
+            testBrowserDetection();
+        });
+    </script>
+</body>
+</html>

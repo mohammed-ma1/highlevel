@@ -273,6 +273,37 @@
       margin-top: 20px;
     }
 
+    .manual-payment-container {
+      text-align: center;
+      margin-top: 20px;
+    }
+
+    .manual-payment-instructions {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 20px;
+      margin: 20px 0;
+      text-align: left;
+    }
+
+    .manual-payment-instructions p {
+      margin-bottom: 10px;
+      font-weight: 600;
+      color: #1f2937;
+    }
+
+    .manual-payment-instructions ol {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    .manual-payment-instructions li {
+      margin-bottom: 8px;
+      color: #6b7280;
+      line-height: 1.5;
+    }
+
 
     @media (max-width: 480px) {
       .payment-container {
@@ -1095,11 +1126,10 @@
               const popupOpened = openPaymentPopup(result.charge.transaction.url);
               
               if (!popupOpened) {
-                // Fallback to direct redirect if popup is blocked
-                console.log('⚠️ Popup blocked - falling back to direct redirect');
-                setTimeout(() => {
-                  window.location.href = result.charge.transaction.url;
-                }, 2000);
+                // Show manual payment option instead of direct redirect
+                console.log('⚠️ Popup blocked - showing manual payment option');
+                // The showManualPaymentButton function is already called in openPaymentPopup
+                return; // Don't proceed with direct redirect
               }
             } else {
               // Direct redirect for other browsers
@@ -1144,17 +1174,36 @@
     function openPaymentPopup(url) {
       console.log('🔗 Opening payment popup for Safari compatibility:', url);
       
-      const popupFeatures = 'width=800,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no';
+      // Try multiple popup approaches for better compatibility
+      const popupFeatures = 'width=800,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no,left=' + (screen.width/2 - 400) + ',top=' + (screen.height/2 - 300);
+      
+      // First attempt: Standard popup
       paymentPopup = window.open(url, 'tap_payment', popupFeatures);
       
-      if (!paymentPopup) {
-        console.error('❌ Failed to open popup - popup blocked');
-        showError('Popup blocked. Please allow popups for this site and try again.');
-        return false;
+      if (!paymentPopup || paymentPopup.closed || typeof paymentPopup.closed === 'undefined') {
+        console.warn('⚠️ First popup attempt failed, trying alternative method...');
+        
+        // Second attempt: Try with different features
+        paymentPopup = window.open(url, 'tap_payment', 'width=800,height=600,scrollbars=yes,resizable=yes');
+        
+        if (!paymentPopup || paymentPopup.closed || typeof paymentPopup.closed === 'undefined') {
+          console.error('❌ All popup attempts failed - popup blocked');
+          
+          // Show user-friendly message with instructions
+          showError('Popup blocked by browser. Please allow popups for this site or click the button below to open payment in a new tab.');
+          
+          // Show manual button as fallback
+          showManualPaymentButton(url);
+          return false;
+        }
       }
       
       // Focus the popup
-      paymentPopup.focus();
+      try {
+        paymentPopup.focus();
+      } catch (e) {
+        console.warn('⚠️ Could not focus popup:', e.message);
+      }
       
       // Monitor popup for completion
       const checkClosed = setInterval(() => {
@@ -1201,6 +1250,51 @@
       window.addEventListener('message', messageHandler);
       
       return true;
+    }
+
+    // Show manual payment button when popup is blocked
+    function showManualPaymentButton(url) {
+      const paymentBody = document.querySelector('.payment-body');
+      if (paymentBody) {
+        paymentBody.innerHTML = `
+          <div class="payment-amount">
+            <div class="amount-label">Amount to Pay</div>
+            <div class="amount-value" id="amount-display">${paymentData ? paymentData.amount + ' ' + paymentData.currency : '1.00 KWD'}</div>
+          </div>
+          
+          <div class="error-message" style="display: block;">
+            <i class="fas fa-exclamation-triangle"></i>
+            Popup blocked by browser. Please click the button below to complete payment.
+          </div>
+          
+          <div class="manual-payment-container">
+            <button id="manual-payment-btn" class="payment-button" onclick="window.open('${url}', '_blank')">
+              <i class="fas fa-external-link-alt"></i>
+              Open Payment in New Tab
+            </button>
+            
+            <div class="manual-payment-instructions">
+              <p><strong>Instructions:</strong></p>
+              <ol>
+                <li>Click the button above to open payment in a new tab</li>
+                <li>Complete your payment in the new tab</li>
+                <li>Return to this tab after payment</li>
+                <li>Click "Check Payment Status" below</li>
+              </ol>
+            </div>
+            
+            <button id="check-status-btn" class="payment-button" style="background: #10b981; margin-top: 10px;">
+              <i class="fas fa-sync-alt"></i>
+              Check Payment Status
+            </button>
+          </div>
+        `;
+        
+        // Add event listener for status check button
+        document.getElementById('check-status-btn').addEventListener('click', () => {
+          checkPaymentStatus();
+        });
+      }
     }
 
     // Check payment status after popup closes
