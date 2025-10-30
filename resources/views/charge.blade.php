@@ -277,61 +277,136 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: 400px;
-      padding: 40px 20px;
+      min-height: 500px;
+      padding: 60px 40px;
+      background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
     }
 
     .popup-payment-content {
       text-align: center;
-      max-width: 400px;
+      max-width: 500px;
       width: 100%;
+      background: white;
+      border-radius: 24px;
+      padding: 60px 40px;
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
+      border: 1px solid #e5e7eb;
     }
 
     .popup-payment-icon {
-      font-size: 48px;
+      font-size: 64px;
       color: #667eea;
-      margin-bottom: 20px;
+      margin-bottom: 32px;
+      display: block;
     }
 
     .popup-payment-title {
-      font-size: 24px;
+      font-size: 32px;
       font-weight: 700;
       color: #1f2937;
-      margin-bottom: 12px;
+      margin-bottom: 16px;
+      letter-spacing: -0.5px;
     }
 
     .popup-payment-description {
-      font-size: 16px;
+      font-size: 18px;
       color: #6b7280;
-      margin-bottom: 30px;
-      line-height: 1.5;
+      margin-bottom: 48px;
+      line-height: 1.6;
+      font-weight: 400;
     }
 
     .proceed-payment-button {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       color: white;
       border: none;
-      padding: 16px 32px;
-      border-radius: 12px;
-      font-size: 18px;
-      font-weight: 600;
+      padding: 24px 48px;
+      border-radius: 16px;
+      font-size: 20px;
+      font-weight: 700;
       cursor: pointer;
       transition: all 0.3s ease;
       display: inline-flex;
       align-items: center;
-      gap: 10px;
-      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+      justify-content: center;
+      gap: 12px;
+      box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+      min-width: 200px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .proceed-payment-button::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+      transition: left 0.5s;
+    }
+
+    .proceed-payment-button:hover::before {
+      left: 100%;
     }
 
     .proceed-payment-button:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+      transform: translateY(-3px);
+      box-shadow: 0 12px 35px rgba(102, 126, 234, 0.4);
     }
 
     .proceed-payment-button:active {
-      transform: translateY(0);
+      transform: translateY(-1px);
     }
 
+    .proceed-payment-button:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .proceed-payment-button i {
+      font-size: 22px;
+    }
+
+
+    @media (max-width: 768px) {
+      .popup-payment-container {
+        min-height: 100vh;
+        padding: 20px;
+        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+      }
+
+      .popup-payment-content {
+        padding: 40px 30px;
+        border-radius: 20px;
+        max-width: 100%;
+      }
+
+      .popup-payment-icon {
+        font-size: 56px;
+        margin-bottom: 24px;
+      }
+
+      .popup-payment-title {
+        font-size: 28px;
+        margin-bottom: 12px;
+      }
+
+      .popup-payment-description {
+        font-size: 16px;
+        margin-bottom: 40px;
+      }
+
+      .proceed-payment-button {
+        padding: 20px 40px;
+        font-size: 18px;
+        min-width: 180px;
+      }
+    }
 
     @media (max-width: 480px) {
       .payment-container {
@@ -353,6 +428,37 @@
       
       .amount-value {
         font-size: 28px;
+      }
+
+      .popup-payment-container {
+        padding: 15px;
+      }
+
+      .popup-payment-content {
+        padding: 30px 20px;
+        border-radius: 16px;
+      }
+
+      .popup-payment-icon {
+        font-size: 48px;
+        margin-bottom: 20px;
+      }
+
+      .popup-payment-title {
+        font-size: 24px;
+        margin-bottom: 10px;
+      }
+
+      .popup-payment-description {
+        font-size: 15px;
+        margin-bottom: 32px;
+      }
+
+      .proceed-payment-button {
+        padding: 18px 36px;
+        font-size: 16px;
+        min-width: 160px;
+        border-radius: 12px;
       }
     }
   </style> -->
@@ -1322,7 +1428,7 @@
                 <p class="popup-payment-description">Payment page opened in new tab. Complete your payment and we'll automatically detect when it's done.</p>
                 <button id="check-payment-status-btn" class="proceed-payment-button" onclick="checkPaymentStatus()">
                   <i class="fas fa-sync-alt"></i>
-                  Check Payment Status
+                  Check Status
                 </button>
               </div>
             </div>
@@ -1378,6 +1484,12 @@
                         </div>
                         <h2 class="popup-payment-title" style="color: #10b981;">Payment Successful!</h2>
                         <p class="popup-payment-description">Your payment has been processed successfully. Redirecting...</p>
+                        <div style="margin-top: 32px;">
+                          <div class="proceed-payment-button" style="background: #10b981; cursor: default;">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            Processing...
+                          </div>
+                        </div>
                       </div>
                     </div>
                   `;
@@ -1412,7 +1524,7 @@
                         </div>
                         <h2 class="popup-payment-title" style="color: #dc2626;">Payment Failed</h2>
                         <p class="popup-payment-description">Your payment could not be processed. Please try again.</p>
-                        <button id="retry-payment-btn" class="proceed-payment-button" onclick="location.reload()">
+                        <button id="retry-payment-btn" class="proceed-payment-button" onclick="location.reload()" style="background: #dc2626;">
                           <i class="fas fa-redo"></i>
                           Try Again
                         </button>
