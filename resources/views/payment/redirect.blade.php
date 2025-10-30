@@ -121,6 +121,16 @@
       font-weight: 500;
     }
 
+    .warning-badge {
+      background: #fffbeb;
+      border: 1px solid #fed7aa;
+      color: #d97706;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-weight: 500;
+    }
+
     .action-buttons {
       display: flex;
       gap: 12px;
@@ -214,6 +224,23 @@
   <script>
     let chargeData = null;
 
+    // Check if this page is opened in a popup
+    function isPopup() {
+      return window.opener && window.opener !== window;
+    }
+
+    // Send message to parent window if in popup
+    function sendMessageToParent(message) {
+      if (isPopup() && window.opener) {
+        try {
+          window.opener.postMessage(message, '*');
+          console.log('📤 Sent message to parent window:', message);
+        } catch (error) {
+          console.error('❌ Failed to send message to parent:', error);
+        }
+      }
+    }
+
     // Parse URL parameters
     function getUrlParams() {
       const params = new URLSearchParams(window.location.search);
@@ -294,39 +321,93 @@
       
       if (isSuccessful) {
         // Payment successful - auto-send success and redirect
-        // statusMessage.innerHTML = '<div class="success-badge"><i class="fas fa-check-circle"></i> Payment Successful!</div>';
-        // redirectTitle.textContent = 'Payment Complete';
-        // redirectMessage.textContent = 'Your payment has been processed successfully. Redirecting...';
+        statusMessage.innerHTML = '<div class="success-badge"><i class="fas fa-check-circle"></i> Payment Successful!</div>';
+        redirectTitle.textContent = 'Payment Complete';
+        redirectMessage.textContent = 'Your payment has been processed successfully. Redirecting...';
         
-        // Auto-send success response to GHL
-        sendSuccessToGHL();
-        
-        // Auto-redirect to MediaSolution preview page after 2 seconds
-        setTimeout(() => {
-          window.location.href = 'https://app.gohighlevel.com/v2/preview/QTXkjjLqoxPMLOSOEDfq';
-        }, 2000);
+        // Send success message to parent window if in popup
+        if (isPopup()) {
+          sendMessageToParent({
+            type: 'payment_completed',
+            success: true,
+            status: 'CAPTURED',
+            params: params
+          });
+          
+          // Close popup after a short delay
+          setTimeout(() => {
+            window.close();
+          }, 2000);
+        } else {
+          // Auto-send success response to GHL
+          sendSuccessToGHL();
+          
+          // Auto-redirect to MediaSolution preview page after 2 seconds
+          setTimeout(() => {
+            window.location.href = 'https://app.gohighlevel.com/v2/preview/QTXkjjLqoxPMLOSOEDfq';
+          }, 2000);
+        }
         
         // Hide action buttons since we're auto-processing
         actionButtons.style.display = 'none';
       } else if (isFailed) {
-
-        setTimeout(() => {
-          window.location.href = 'https://app.gohighlevel.com/v2/preview/FHNVMDKeSCxgu8V07UUO';
-        }, 2000);
         // Payment failed
-        // statusMessage.innerHTML = '<div class="error-badge"><i class="fas fa-times-circle"></i> Payment Failed</div>';
-        // redirectTitle.textContent = 'Payment Failed';
-        // redirectMessage.textContent = 'Your payment could not be processed. Please try again.';
-        // actionButtons.style.display = 'flex';
+        statusMessage.innerHTML = '<div class="error-badge"><i class="fas fa-times-circle"></i> Payment Failed</div>';
+        redirectTitle.textContent = 'Payment Failed';
+        redirectMessage.textContent = 'Your payment could not be processed. Please try again.';
         
-        // // Send error response to GoHighLevel
-        // const errorMessage = params.message || 'Payment failed. Please try again.';
-        sendErrorToGHL(errorMessage);
+        // Send error message to parent window if in popup
+        if (isPopup()) {
+          sendMessageToParent({
+            type: 'payment_completed',
+            success: false,
+            status: 'FAILED',
+            params: params
+          });
+          
+          // Close popup after a short delay
+          setTimeout(() => {
+            window.close();
+          }, 3000);
+        } else {
+          // Auto-redirect to failure page
+          setTimeout(() => {
+            window.location.href = 'https://app.gohighlevel.com/v2/preview/FHNVMDKeSCxgu8V07UUO';
+          }, 2000);
+          
+          // Send error response to GoHighLevel
+          const errorMessage = params.message || 'Payment failed. Please try again.';
+          sendErrorToGHL(errorMessage);
+        }
+        
+        actionButtons.style.display = 'flex';
       } else {
         // Unknown status - show both processed and raw status for debugging
-        setTimeout(() => {
-          window.location.href = 'https://app.gohighlevel.com/v2/preview/FHNVMDKeSCxgu8V07UUO';
-        }, 2000);
+        statusMessage.innerHTML = '<div class="warning-badge"><i class="fas fa-exclamation-triangle"></i> Payment Status Unknown</div>';
+        redirectTitle.textContent = 'Payment Status Unknown';
+        redirectMessage.textContent = 'Unable to determine payment status. Please check back later.';
+        
+        // Send unknown status message to parent window if in popup
+        if (isPopup()) {
+          sendMessageToParent({
+            type: 'payment_completed',
+            success: false,
+            status: 'UNKNOWN',
+            params: params
+          });
+          
+          // Close popup after a short delay
+          setTimeout(() => {
+            window.close();
+          }, 3000);
+        } else {
+          // Auto-redirect to failure page
+          setTimeout(() => {
+            window.location.href = 'https://app.gohighlevel.com/v2/preview/FHNVMDKeSCxgu8V07UUO';
+          }, 2000);
+        }
+        
+        actionButtons.style.display = 'flex';
       }
 
       statusMessage.style.display = 'block';

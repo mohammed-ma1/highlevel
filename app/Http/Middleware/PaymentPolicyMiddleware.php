@@ -15,6 +15,19 @@ class PaymentPolicyMiddleware
      */
     public function handle(Request $request, Closure $next): Response
     {
-        return $next($request);
+        $response = $next($request);
+        
+        // Add headers to allow iframe payment requests in Safari
+        $response->headers->set('X-Frame-Options', 'SAMEORIGIN');
+        $response->headers->set('Content-Security-Policy', "frame-ancestors 'self' https://app.gohighlevel.com https://*.gohighlevel.com https://app.mediasolution.io https://*.mediasolution.io");
+        
+        // Add Feature-Policy header to allow payment requests in iframe
+        $response->headers->set('Permissions-Policy', 'payment=*');
+        
+        // Add additional headers for Safari compatibility
+        $response->headers->set('X-Content-Type-Options', 'nosniff');
+        $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
+        
+        return $response;
     }
 }

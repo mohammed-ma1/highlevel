@@ -12,6 +12,10 @@ Route::get('/test', function () {
 Route::post('/charge/create-tap', [ClientIntegrationController::class, 'createTapCharge'])
     ->name('api.charge.create.tap');
 
+// Get last charge status for popup payment flow
+Route::get('/charge/last-status', [ClientIntegrationController::class, 'getLastChargeStatus'])
+    ->name('api.charge.last-status');
+
 // Payment query endpoint for GoHighLevel (API route - no CSRF protection)
 Route::post('/payment/query', [\App\Http\Controllers\PaymentQueryController::class, 'handleQuery'])
     ->name('api.payment.query');

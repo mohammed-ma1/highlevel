@@ -390,6 +390,8 @@
     // GoHighLevel iframe communication
     let paymentData = null;
     let isReady = false;
+    let isSafari = false;
+    let paymentPopup = null;
 
     // Validate GHL message structure according to documentation
     function isValidGHLMessage(data) {
@@ -1083,12 +1085,29 @@
           showSuccess('🎉 Charge created successfully! Redirecting to payment page...');
           showResult(result.charge);
           
-          // Open Tap's checkout URL in the same window
+          // Handle payment redirect based on browser
           if (result.charge.transaction?.url) {
             console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
-            setTimeout(() => {
-              window.location.href = result.charge.transaction.url;
-            }, 2000);
+            
+            if (isSafari) {
+              // Use popup for Safari to avoid iframe payment restrictions
+              console.log('🍎 Safari detected - using popup for payment');
+              const popupOpened = openPaymentPopup(result.charge.transaction.url);
+              
+              if (!popupOpened) {
+                // Fallback to direct redirect if popup is blocked
+                console.log('⚠️ Popup blocked - falling back to direct redirect');
+                setTimeout(() => {
+                  window.location.href = result.charge.transaction.url;
+                }, 2000);
+              }
+            } else {
+              // Direct redirect for other browsers
+              console.log('🌐 Non-Safari browser - using direct redirect');
+              setTimeout(() => {
+                window.location.href = result.charge.transaction.url;
+              }, 2000);
+            }
           } else {
             showError('No checkout URL received from Tap');
             showButton();
@@ -1111,9 +1130,153 @@
       }
     }
 
+    // Detect Safari browser
+    function detectSafari() {
+      const userAgent = navigator.userAgent;
+      const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent);
+      const isIOS = /iPad|iPhone|iPod/.test(userAgent);
+      const isMacSafari = /Macintosh/.test(userAgent) && /Safari/.test(userAgent) && !/Chrome/.test(userAgent);
+      
+      return isSafari || isIOS || isMacSafari;
+    }
+
+    // Open payment in popup for Safari compatibility
+    function openPaymentPopup(url) {
+      console.log('🔗 Opening payment popup for Safari compatibility:', url);
+      
+      const popupFeatures = 'width=800,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no';
+      paymentPopup = window.open(url, 'tap_payment', popupFeatures);
+      
+      if (!paymentPopup) {
+        console.error('❌ Failed to open popup - popup blocked');
+        showError('Popup blocked. Please allow popups for this site and try again.');
+        return false;
+      }
+      
+      // Focus the popup
+      paymentPopup.focus();
+      
+      // Monitor popup for completion
+      const checkClosed = setInterval(() => {
+        if (paymentPopup.closed) {
+          clearInterval(checkClosed);
+          console.log('🔍 Payment popup closed');
+          
+          // Check if payment was successful by querying the status
+          checkPaymentStatus();
+        }
+      }, 1000);
+      
+      // Listen for messages from popup
+      const messageHandler = (event) => {
+        if (event.data && event.data.type === 'payment_completed') {
+          console.log('📨 Received payment completion message from popup:', event.data);
+          
+          if (event.data.success) {
+            console.log('✅ Payment completed successfully via popup');
+            showSuccess('🎉 Payment completed successfully!');
+            sendSuccessResponse(event.data.params?.charge_id || 'popup_success');
+            
+            // Auto-close after success
+            setTimeout(() => {
+              if (window.parent && window.parent !== window) {
+                window.parent.postMessage(JSON.stringify({
+                  type: 'payment_completed',
+                  success: true,
+                  chargeId: event.data.params?.charge_id || 'popup_success'
+                }), '*');
+              }
+            }, 2000);
+          } else {
+            console.log('❌ Payment failed via popup');
+            showError('Payment was not completed. Please try again.');
+            sendErrorResponse('Payment was not completed');
+          }
+          
+          // Remove the message listener
+          window.removeEventListener('message', messageHandler);
+        }
+      };
+      
+      window.addEventListener('message', messageHandler);
+      
+      return true;
+    }
+
+    // Check payment status after popup closes
+    async function checkPaymentStatus() {
+      if (!paymentData) {
+        console.error('❌ No payment data available for status check');
+        return;
+      }
+      
+      try {
+        console.log('🔍 Checking payment status...');
+        
+        // Query the last charge status
+        const response = await fetch('/api/charge/last-status', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+          }
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          console.log('📊 Payment status:', result);
+          
+          if (result.success && result.charge) {
+            const status = result.charge.status;
+            
+            if (status === 'CAPTURED' || status === 'SUCCESS') {
+              console.log('✅ Payment successful');
+              showSuccess('🎉 Payment completed successfully!');
+              sendSuccessResponse(result.charge.id);
+              
+              // Auto-close after success
+              setTimeout(() => {
+                if (window.parent && window.parent !== window) {
+                  window.parent.postMessage(JSON.stringify({
+                    type: 'payment_completed',
+                    success: true,
+                    chargeId: result.charge.id
+                  }), '*');
+                }
+              }, 2000);
+            } else if (status === 'FAILED' || status === 'CANCELLED') {
+              console.log('❌ Payment failed');
+              showError('Payment was not completed. Please try again.');
+              sendErrorResponse('Payment was not completed');
+            } else {
+              console.log('⏳ Payment pending:', status);
+              showError('Payment is still processing. Please check back later.');
+            }
+          } else {
+            console.log('❌ No charge data found');
+            showError('Unable to verify payment status. Please try again.');
+          }
+        } else {
+          console.error('❌ Failed to check payment status');
+          showError('Unable to verify payment status. Please try again.');
+        }
+      } catch (error) {
+        console.error('❌ Error checking payment status:', error);
+        showError('Unable to verify payment status. Please try again.');
+      }
+    }
+
     // Initialize when page loads
     document.addEventListener('DOMContentLoaded', function() {
       console.log('🚀 Charge API Integration Loaded Successfully');
+      
+      // Detect Safari
+      isSafari = detectSafari();
+      console.log('🔍 Browser detection:', {
+        isSafari: isSafari,
+        userAgent: navigator.userAgent
+      });
+      
       console.log('🔍 Window context:', {
         isIframe: window !== window.top,
         parentExists: window.parent !== window,

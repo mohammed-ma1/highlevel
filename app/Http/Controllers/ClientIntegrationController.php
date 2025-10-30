@@ -785,6 +785,12 @@ class ClientIntegrationController extends Controller
             if ($response->successful()) {
                 $chargeData = $response->json();
                 
+                // Store charge ID in session for popup payment flow
+                if (isset($chargeData['id'])) {
+                    session(['last_charge_id' => $chargeData['id']]);
+                    session(['user_id' => $user->id]);
+                }
+                
                 return response()->json([
                     'success' => true,
                     'charge' => $chargeData,
@@ -1140,6 +1146,82 @@ class ClientIntegrationController extends Controller
                 'error' => $e->getMessage()
             ]);
             return false;
+        }
+    }
+
+    /**
+     * Get the last charge status for popup payment flow
+     */
+    public function getLastChargeStatus(Request $request)
+    {
+        try {
+            // Get the most recent charge from session or database
+            $lastChargeId = session('last_charge_id');
+            
+            if (!$lastChargeId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No recent charge found'
+                ], 404);
+            }
+
+            // Get user from session
+            $userId = session('user_id');
+            if (!$userId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not authenticated'
+                ], 401);
+            }
+
+            $user = User::find($userId);
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not found'
+                ], 404);
+            }
+
+            // Use the secret key based on the user's stored tap_mode
+            $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
+
+            if (!$secretKey) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No API key available'
+                ], 400);
+            }
+
+            // Call Tap API to get charge details
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $secretKey,
+                'accept' => 'application/json',
+            ])->get('https://api.tap.company/v2/charges/' . $lastChargeId);
+
+            if (!$response->successful()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to retrieve charge status',
+                    'error' => $response->json()
+                ], 400);
+            }
+
+            $chargeData = $response->json();
+            
+            return response()->json([
+                'success' => true,
+                'charge' => $chargeData
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error getting last charge status', [
+                'error' => $e->getMessage()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Internal server error'
+            ], 500);
         }
     }
 }
