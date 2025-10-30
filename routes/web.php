@@ -42,7 +42,9 @@ Route::post('/webhook', [ClientIntegrationController::class, 'webhook'])
 Route::post('/provider/connect-or-disconnect', [ClientIntegrationController::class, 'connectOrDisconnect'])
     ->name('provider.connect_or_disconnect');
 
-// Payment query endpoint moved to API routes to avoid CSRF issues
+// Payment query endpoint for GoHighLevel
+Route::post('/payment/query', [PaymentQueryController::class, 'handleQuery'])
+    ->name('payment.query');
 
 // Test route for payment query
 Route::get('/test-payment-query', function () {
