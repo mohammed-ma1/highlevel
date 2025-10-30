@@ -44,8 +44,7 @@ Route::post('/provider/connect-or-disconnect', [ClientIntegrationController::cla
 
 // Payment query endpoint for GoHighLevel (exempt from CSRF)
 Route::post('/payment/query', [PaymentQueryController::class, 'handleQuery'])
-    ->name('payment.query')
-    ->withoutMiddleware([\App\Http\Middleware\VerifyCsrfToken::class]);
+    ->name('payment.query');
 
 // Test route for payment query
 Route::get('/test-payment-query', function () {
