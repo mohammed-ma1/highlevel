@@ -294,9 +294,9 @@
       
       if (isSuccessful) {
         // Payment successful - auto-send success and redirect
-        statusMessage.innerHTML = '<div class="success-badge"><i class="fas fa-check-circle"></i> Payment Successful!</div>';
-        redirectTitle.textContent = 'Payment Complete';
-        redirectMessage.textContent = 'Your payment has been processed successfully. Redirecting...';
+        // statusMessage.innerHTML = '<div class="success-badge"><i class="fas fa-check-circle"></i> Payment Successful!</div>';
+        // redirectTitle.textContent = 'Payment Complete';
+        // redirectMessage.textContent = 'Your payment has been processed successfully. Redirecting...';
         
         // Auto-send success response to GHL
         sendSuccessToGHL();
