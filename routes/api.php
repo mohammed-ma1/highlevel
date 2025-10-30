@@ -11,3 +11,7 @@ Route::get('/test', function () {
 
 Route::post('/charge/create-tap', [ClientIntegrationController::class, 'createTapCharge'])
     ->name('api.charge.create.tap');
+
+// Payment query endpoint for GoHighLevel (API route - no CSRF protection)
+Route::post('/payment/query', [\App\Http\Controllers\PaymentQueryController::class, 'handleQuery'])
+    ->name('api.payment.query');
