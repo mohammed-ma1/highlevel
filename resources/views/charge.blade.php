@@ -1160,13 +1160,32 @@
           
           // Automatically open payment in new tab
           console.log('🔄 Popup blocked - automatically opening payment in new tab');
-          window.open(url, '_blank');
+          console.log('🔗 Opening URL:', url);
           
-          // Show status message and check payment status
-          showSuccess('Payment opened in new tab. Please complete your payment and return to this page.');
+          const newTab = window.open(url, '_blank');
           
-          // Start checking payment status periodically
-          startPaymentStatusCheck();
+          console.log('🔍 New tab result:', newTab);
+          console.log('🔍 New tab closed check:', newTab ? newTab.closed : 'N/A');
+          
+          if (newTab && !newTab.closed) {
+            console.log('✅ New tab opened successfully');
+            // Show status message and check payment status
+            showSuccess('Payment opened in new tab. Please complete your payment and return to this page.');
+            
+            // Show manual check button as fallback
+            showManualCheckButton();
+            
+            // Start checking payment status periodically
+            startPaymentStatusCheck();
+          } else {
+            console.error('❌ Failed to open new tab - trying alternative method');
+            console.log('🔍 Trying direct redirect as fallback');
+            // Try alternative method - direct redirect
+            setTimeout(() => {
+              console.log('🔄 Redirecting to:', url);
+              window.location.href = url;
+            }, 1000);
+          }
           return false;
         }
       }
@@ -1225,6 +1244,29 @@
       return true;
     }
 
+    // Show manual check button as fallback
+    function showManualCheckButton() {
+      const paymentBody = document.querySelector('.payment-body');
+      if (paymentBody) {
+        const existingButton = document.getElementById('manual-check-btn');
+        if (!existingButton) {
+          const buttonHtml = `
+            <div style="text-align: center; margin-top: 20px;">
+              <button id="manual-check-btn" class="payment-button" style="background: #10b981; margin-top: 10px;">
+                <i class="fas fa-sync-alt"></i>
+                Check Payment Status Manually
+              </button>
+            </div>
+          `;
+          paymentBody.insertAdjacentHTML('beforeend', buttonHtml);
+          
+          // Add event listener
+          document.getElementById('manual-check-btn').addEventListener('click', () => {
+            checkPaymentStatus();
+          });
+        }
+      }
+    }
 
     // Start periodic payment status checking
     function startPaymentStatusCheck() {
@@ -1233,6 +1275,7 @@
       // Check status every 5 seconds
       const statusCheckInterval = setInterval(async () => {
         try {
+          console.log('🔍 Checking payment status...');
           const response = await fetch('/api/charge/last-status', {
             method: 'GET',
             headers: {
@@ -1241,8 +1284,11 @@
             }
           });
           
+          console.log('📡 Status check response:', response.status, response.statusText);
+          
           if (response.ok) {
             const result = await response.json();
+            console.log('📊 Status check result:', result);
             
             if (result.success && result.charge) {
               const status = result.charge.status;
@@ -1270,7 +1316,12 @@
                 sendErrorResponse('Payment was not completed');
               }
               // Continue checking for other statuses
+            } else {
+              console.log('⚠️ No charge data found in response');
             }
+          } else {
+            console.log('⚠️ Status check failed:', response.status, response.statusText);
+            // Don't stop checking - API might be temporarily unavailable
           }
         } catch (error) {
           console.error('❌ Error checking payment status:', error);

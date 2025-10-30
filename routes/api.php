@@ -9,6 +9,16 @@ Route::get('/test', function () {
     return response()->json(['message' => 'API routes are working!']);
 });
 
+// Test route for charge status
+Route::get('/charge/test-status', function () {
+    return response()->json([
+        'success' => true,
+        'message' => 'Charge status endpoint is working',
+        'session_id' => session()->getId(),
+        'last_charge_id' => session('last_charge_id')
+    ]);
+});
+
 Route::post('/charge/create-tap', [ClientIntegrationController::class, 'createTapCharge'])
     ->name('api.charge.create.tap');
 

@@ -1155,8 +1155,15 @@ class ClientIntegrationController extends Controller
     public function getLastChargeStatus(Request $request)
     {
         try {
+            Log::info('getLastChargeStatus called', [
+                'session_id' => session()->getId(),
+                'all_session' => session()->all()
+            ]);
+            
             // Get the most recent charge from session or database
             $lastChargeId = session('last_charge_id');
+            
+            Log::info('Last charge ID from session', ['last_charge_id' => $lastChargeId]);
             
             if (!$lastChargeId) {
                 return response()->json([

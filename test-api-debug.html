@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Debug Test</title>
+</head>
+<body>
+    <h1>API Debug Test</h1>
+    
+    <button onclick="testAPI()">Test API Endpoints</button>
+    <button onclick="testChargeCreation()">Test Charge Creation</button>
+    <button onclick="testStatusCheck()">Test Status Check</button>
+    
+    <div id="results"></div>
+    
+    <script>
+        function log(message) {
+            console.log(message);
+            document.getElementById('results').innerHTML += '<p>' + message + '</p>';
+        }
+        
+        async function testAPI() {
+            log('Testing basic API...');
+            try {
+                const response = await fetch('/api/test');
+                const data = await response.json();
+                log('✅ Basic API working: ' + JSON.stringify(data));
+            } catch (error) {
+                log('❌ Basic API failed: ' + error.message);
+            }
+        }
+        
+        async function testChargeCreation() {
+            log('Testing charge creation...');
+            try {
+                const response = await fetch('/api/charge/create-tap', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                    },
+                    body: JSON.stringify({
+                        amount: 1,
+                        currency: 'KWD',
+                        customer_initiated: true,
+                        threeDSecure: true,
+                        save_card: false,
+                        description: 'Test Payment'
+                    })
+                });
+                
+                const data = await response.json();
+                log('📡 Charge creation response: ' + response.status + ' - ' + JSON.stringify(data));
+            } catch (error) {
+                log('❌ Charge creation failed: ' + error.message);
+            }
+        }
+        
+        async function testStatusCheck() {
+            log('Testing status check...');
+            try {
+                const response = await fetch('/api/charge/test-status');
+                const data = await response.json();
+                log('📡 Test status response: ' + response.status + ' - ' + JSON.stringify(data));
+            } catch (error) {
+                log('❌ Test status failed: ' + error.message);
+            }
+            
+            try {
+                const response = await fetch('/api/charge/last-status');
+                const data = await response.json();
+                log('📡 Last status response: ' + response.status + ' - ' + JSON.stringify(data));
+            } catch (error) {
+                log('❌ Last status failed: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>
