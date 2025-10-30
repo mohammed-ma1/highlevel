@@ -273,6 +273,36 @@
       margin-top: 20px;
     }
 
+    .manual-payment-container {
+      text-align: center;
+      margin-top: 20px;
+    }
+
+    .manual-payment-instructions {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 20px;
+      margin: 20px 0;
+      text-align: left;
+    }
+
+    .manual-payment-instructions p {
+      margin-bottom: 10px;
+      font-weight: 600;
+      color: #1f2937;
+    }
+
+    .manual-payment-instructions ol {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    .manual-payment-instructions li {
+      margin-bottom: 8px;
+      color: #6b7280;
+      line-height: 1.5;
+    }
 
 
     @media (max-width: 480px) {
@@ -1091,34 +1121,16 @@
             console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
             
             if (isSafari) {
-              // For Safari, use direct redirect to avoid iframe restrictions
-              console.log('🍎 Safari detected - using direct redirect to avoid iframe restrictions');
-              console.log('🔗 Payment URL for Safari:', result.charge.transaction.url);
+              // Use popup for Safari to avoid iframe payment restrictions
+              console.log('🍎 Safari detected - using popup for payment');
+              const popupOpened = openPaymentPopup(result.charge.transaction.url);
               
-              // Show message to user
-              showSuccess('Redirecting to payment page...');
-              
-              // Also show a clickable link as backup for Safari
-              showSafariPaymentLink(result.charge.transaction.url);
-              
-              // For Safari, try to break out of iframe first
-              try {
-                // Try to redirect parent window if in iframe
-                if (window.parent && window.parent !== window) {
-                  console.log('🔄 Safari: Attempting to redirect parent window');
-                  window.parent.location.href = result.charge.transaction.url;
-                } else {
-                  console.log('🔄 Safari: Direct redirect in same window');
-                  window.location.href = result.charge.transaction.url;
-                }
-              } catch (e) {
-                console.log('🔄 Safari: Parent redirect failed, using direct redirect');
-                setTimeout(() => {
-                  window.location.href = result.charge.transaction.url;
-                }, 1000);
+              if (!popupOpened) {
+                // Show manual payment option instead of direct redirect
+                console.log('⚠️ Popup blocked - showing manual payment option');
+                // The showManualPaymentButton function is already called in openPaymentPopup
+                return; // Don't proceed with direct redirect
               }
-              
-              return; // Don't proceed with other methods
             } else {
               // Direct redirect for other browsers
               console.log('🌐 Non-Safari browser - using direct redirect');
@@ -1155,17 +1167,7 @@
       const isIOS = /iPad|iPhone|iPod/.test(userAgent);
       const isMacSafari = /Macintosh/.test(userAgent) && /Safari/.test(userAgent) && !/Chrome/.test(userAgent);
       
-      const safariDetected = isSafari || isIOS || isMacSafari;
-      
-      console.log('🔍 Safari detection details:', {
-        userAgent: userAgent,
-        isSafari: isSafari,
-        isIOS: isIOS,
-        isMacSafari: isMacSafari,
-        finalResult: safariDetected
-      });
-      
-      return safariDetected;
+      return isSafari || isIOS || isMacSafari;
     }
 
     // Open payment in popup for Safari compatibility
@@ -1187,60 +1189,11 @@
         if (!paymentPopup || paymentPopup.closed || typeof paymentPopup.closed === 'undefined') {
           console.error('❌ All popup attempts failed - popup blocked');
           
-          // For Safari, immediately try new tab approach
-          console.log('🔄 Popup blocked - automatically opening payment in new tab for Safari');
-          console.log('🔗 Opening URL:', url);
+          // Show user-friendly message with instructions
+          showError('Popup blocked by browser. Please allow popups for this site or click the button below to open payment in a new tab.');
           
-          // Try multiple approaches for Safari
-          let newTab = null;
-          
-          // First attempt: Standard new tab
-          try {
-            newTab = window.open(url, '_blank');
-            console.log('🔍 First new tab attempt:', newTab);
-          } catch (e) {
-            console.error('❌ First new tab attempt failed:', e);
-          }
-          
-          // Second attempt: Try with different parameters
-          if (!newTab || newTab.closed) {
-            try {
-              newTab = window.open(url, '_blank', 'noopener,noreferrer');
-              console.log('🔍 Second new tab attempt:', newTab);
-            } catch (e) {
-              console.error('❌ Second new tab attempt failed:', e);
-            }
-          }
-          
-          // Third attempt: Try with location.replace
-          if (!newTab || newTab.closed) {
-            try {
-              console.log('🔄 Trying location.replace as fallback');
-              window.location.replace(url);
-              return false;
-            } catch (e) {
-              console.error('❌ Location replace failed:', e);
-            }
-          }
-          
-          if (newTab && !newTab.closed) {
-            console.log('✅ New tab opened successfully for Safari');
-            // Show status message and check payment status
-            showSuccess('Payment opened in new tab. Please complete your payment and return to this page.');
-            
-            // Show manual check button as fallback
-            showManualCheckButton();
-            
-            // Start checking payment status periodically
-            startPaymentStatusCheck();
-          } else {
-            console.error('❌ All new tab attempts failed - using direct redirect');
-            // Final fallback - direct redirect
-            setTimeout(() => {
-              console.log('🔄 Final fallback - direct redirect to:', url);
-              window.location.href = url;
-            }, 500);
-          }
+          // Show manual button as fallback
+          showManualPaymentButton(url);
           return false;
         }
       }
@@ -1299,122 +1252,49 @@
       return true;
     }
 
-    // Show manual check button as fallback
-    function showManualCheckButton() {
+    // Show manual payment button when popup is blocked
+    function showManualPaymentButton(url) {
       const paymentBody = document.querySelector('.payment-body');
       if (paymentBody) {
-        const existingButton = document.getElementById('manual-check-btn');
-        if (!existingButton) {
-          const buttonHtml = `
-            <div style="text-align: center; margin-top: 20px;">
-              <button id="manual-check-btn" class="payment-button" style="background: #10b981; margin-top: 10px;">
-                <i class="fas fa-sync-alt"></i>
-                Check Payment Status Manually
-              </button>
-            </div>
-          `;
-          paymentBody.insertAdjacentHTML('beforeend', buttonHtml);
+        paymentBody.innerHTML = `
+          <div class="payment-amount">
+            <div class="amount-label">Amount to Pay</div>
+            <div class="amount-value" id="amount-display">${paymentData ? paymentData.amount + ' ' + paymentData.currency : '1.00 KWD'}</div>
+          </div>
           
-          // Add event listener
-          document.getElementById('manual-check-btn').addEventListener('click', () => {
-            checkPaymentStatus();
-          });
-        }
-      }
-    }
-
-    // Show Safari payment link as backup
-    function showSafariPaymentLink(url) {
-      const paymentBody = document.querySelector('.payment-body');
-      if (paymentBody) {
-        const existingLink = document.getElementById('safari-payment-link');
-        if (!existingLink) {
-          const linkHtml = `
-            <div style="text-align: center; margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 10px; border: 2px solid #007bff;">
-              <p style="margin-bottom: 15px; font-weight: 600; color: #333;">
-                <i class="fas fa-exclamation-triangle" style="color: #ffc107;"></i>
-                Safari Payment Link
-              </p>
-              <p style="margin-bottom: 15px; color: #666; font-size: 14px;">
-                If the page doesn't redirect automatically, click the link below:
-              </p>
-              <a href="${url}" target="_blank" id="safari-payment-link" 
-                 style="display: inline-block; background: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: 600;">
-                <i class="fas fa-external-link-alt"></i>
-                Open Payment Page
-              </a>
-            </div>
-          `;
-          paymentBody.insertAdjacentHTML('beforeend', linkHtml);
-        }
-      }
-    }
-
-    // Start periodic payment status checking
-    function startPaymentStatusCheck() {
-      console.log('🔄 Starting periodic payment status check...');
-      
-      // Check status every 5 seconds
-      const statusCheckInterval = setInterval(async () => {
-        try {
-          console.log('🔍 Checking payment status...');
-          const response = await fetch('/api/charge/last-status', {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
-            }
-          });
+          <div class="error-message" style="display: block;">
+            <i class="fas fa-exclamation-triangle"></i>
+            Popup blocked by browser. Please click the button below to complete payment.
+          </div>
           
-          console.log('📡 Status check response:', response.status, response.statusText);
-          
-          if (response.ok) {
-            const result = await response.json();
-            console.log('📊 Status check result:', result);
+          <div class="manual-payment-container">
+            <button id="manual-payment-btn" class="payment-button" onclick="window.open('${url}', '_blank')">
+              <i class="fas fa-external-link-alt"></i>
+              Open Payment in New Tab
+            </button>
             
-            if (result.success && result.charge) {
-              const status = result.charge.status;
-              
-              if (status === 'CAPTURED' || status === 'SUCCESS') {
-                console.log('✅ Payment completed successfully!');
-                clearInterval(statusCheckInterval);
-                showSuccess('🎉 Payment completed successfully!');
-                sendSuccessResponse(result.charge.id);
-                
-                // Auto-close after success
-                setTimeout(() => {
-                  if (window.parent && window.parent !== window) {
-                    window.parent.postMessage(JSON.stringify({
-                      type: 'payment_completed',
-                      success: true,
-                      chargeId: result.charge.id
-                    }), '*');
-                  }
-                }, 2000);
-              } else if (status === 'FAILED' || status === 'CANCELLED') {
-                console.log('❌ Payment failed');
-                clearInterval(statusCheckInterval);
-                showError('Payment was not completed. Please try again.');
-                sendErrorResponse('Payment was not completed');
-              }
-              // Continue checking for other statuses
-            } else {
-              console.log('⚠️ No charge data found in response');
-            }
-          } else {
-            console.log('⚠️ Status check failed:', response.status, response.statusText);
-            // Don't stop checking - API might be temporarily unavailable
-          }
-        } catch (error) {
-          console.error('❌ Error checking payment status:', error);
-        }
-      }, 5000); // Check every 5 seconds
-      
-      // Stop checking after 10 minutes (120 checks)
-      setTimeout(() => {
-        clearInterval(statusCheckInterval);
-        console.log('⏰ Payment status check timeout - stopping checks');
-      }, 600000); // 10 minutes
+            <div class="manual-payment-instructions">
+              <p><strong>Instructions:</strong></p>
+              <ol>
+                <li>Click the button above to open payment in a new tab</li>
+                <li>Complete your payment in the new tab</li>
+                <li>Return to this tab after payment</li>
+                <li>Click "Check Payment Status" below</li>
+              </ol>
+            </div>
+            
+            <button id="check-status-btn" class="payment-button" style="background: #10b981; margin-top: 10px;">
+              <i class="fas fa-sync-alt"></i>
+              Check Payment Status
+            </button>
+          </div>
+        `;
+        
+        // Add event listener for status check button
+        document.getElementById('check-status-btn').addEventListener('click', () => {
+          checkPaymentStatus();
+        });
+      }
     }
 
     // Check payment status after popup closes

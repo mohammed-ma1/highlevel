@@ -33,11 +33,11 @@ $response->headers->set('X-Content-Type-Options', 'nosniff');
 $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
 ```
 
-### 2. Safari Detection and Automatic New Tab Flow
+### 2. Safari Detection and Popup Flow
 
 **File: `resources/views/charge.blade.php`**
 
-Implemented browser detection and automatic new tab payment flow:
+Implemented browser detection and popup-based payment flow:
 
 ```javascript
 // Detect Safari browser
@@ -52,17 +52,11 @@ function detectSafari() {
 
 // Open payment in popup for Safari compatibility
 function openPaymentPopup(url) {
-  // Try popup first
+  const popupFeatures = 'width=800,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no';
   paymentPopup = window.open(url, 'tap_payment', popupFeatures);
   
-  if (!paymentPopup || paymentPopup.closed) {
-    // Popup blocked - automatically open in new tab
-    console.log('🔄 Popup blocked - automatically opening payment in new tab');
-    window.open(url, '_blank');
-    
-    // Show status message and start checking payment status
-    showSuccess('Payment opened in new tab. Please complete your payment and return to this page.');
-    startPaymentStatusCheck();
+  if (!paymentPopup) {
+    showError('Popup blocked. Please allow popups for this site and try again.');
     return false;
   }
   
@@ -76,29 +70,6 @@ function openPaymentPopup(url) {
   
   return true;
 }
-
-// Start periodic payment status checking
-function startPaymentStatusCheck() {
-  const statusCheckInterval = setInterval(async () => {
-    // Check payment status every 5 seconds
-    const response = await fetch('/api/charge/last-status');
-    const result = await response.json();
-    
-    if (result.success && result.charge) {
-      const status = result.charge.status;
-      
-      if (status === 'CAPTURED' || status === 'SUCCESS') {
-        clearInterval(statusCheckInterval);
-        showSuccess('🎉 Payment completed successfully!');
-        sendSuccessResponse(result.charge.id);
-      } else if (status === 'FAILED' || status === 'CANCELLED') {
-        clearInterval(statusCheckInterval);
-        showError('Payment was not completed. Please try again.');
-        sendErrorResponse('Payment was not completed');
-      }
-    }
-  }, 5000);
-}
 ```
 
 ### 3. Payment Flow Logic
@@ -107,10 +78,10 @@ The system now handles payment differently based on browser:
 
 **For Safari:**
 1. Detect Safari browser
-2. Try to open payment URL in popup window
-3. If popup blocked → **Automatically open payment in new tab**
-4. Start periodic status checking (every 5 seconds)
-5. Handle success/failure based on status updates
+2. Open payment URL in popup window
+3. Monitor popup for completion
+4. Listen for messages from popup
+5. Handle success/failure based on popup communication
 
 **For Other Browsers:**
 1. Use direct redirect to payment URL
