@@ -273,36 +273,6 @@
       margin-top: 20px;
     }
 
-    .manual-payment-container {
-      text-align: center;
-      margin-top: 20px;
-    }
-
-    .manual-payment-instructions {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      padding: 20px;
-      margin: 20px 0;
-      text-align: left;
-    }
-
-    .manual-payment-instructions p {
-      margin-bottom: 10px;
-      font-weight: 600;
-      color: #1f2937;
-    }
-
-    .manual-payment-instructions ol {
-      margin: 0;
-      padding-left: 20px;
-    }
-
-    .manual-payment-instructions li {
-      margin-bottom: 8px;
-      color: #6b7280;
-      line-height: 1.5;
-    }
 
 
     @media (max-width: 480px) {
@@ -1126,9 +1096,8 @@
               const popupOpened = openPaymentPopup(result.charge.transaction.url);
               
               if (!popupOpened) {
-                // Show manual payment option instead of direct redirect
-                console.log('⚠️ Popup blocked - showing manual payment option');
-                // The showManualPaymentButton function is already called in openPaymentPopup
+                // Popup blocked - payment already opened in new tab automatically
+                console.log('⚠️ Popup blocked - payment opened in new tab automatically');
                 return; // Don't proceed with direct redirect
               }
             } else {
@@ -1189,11 +1158,15 @@
         if (!paymentPopup || paymentPopup.closed || typeof paymentPopup.closed === 'undefined') {
           console.error('❌ All popup attempts failed - popup blocked');
           
-          // Show user-friendly message with instructions
-          showError('Popup blocked by browser. Please allow popups for this site or click the button below to open payment in a new tab.');
+          // Automatically open payment in new tab
+          console.log('🔄 Popup blocked - automatically opening payment in new tab');
+          window.open(url, '_blank');
           
-          // Show manual button as fallback
-          showManualPaymentButton(url);
+          // Show status message and check payment status
+          showSuccess('Payment opened in new tab. Please complete your payment and return to this page.');
+          
+          // Start checking payment status periodically
+          startPaymentStatusCheck();
           return false;
         }
       }
@@ -1252,49 +1225,63 @@
       return true;
     }
 
-    // Show manual payment button when popup is blocked
-    function showManualPaymentButton(url) {
-      const paymentBody = document.querySelector('.payment-body');
-      if (paymentBody) {
-        paymentBody.innerHTML = `
-          <div class="payment-amount">
-            <div class="amount-label">Amount to Pay</div>
-            <div class="amount-value" id="amount-display">${paymentData ? paymentData.amount + ' ' + paymentData.currency : '1.00 KWD'}</div>
-          </div>
+
+    // Start periodic payment status checking
+    function startPaymentStatusCheck() {
+      console.log('🔄 Starting periodic payment status check...');
+      
+      // Check status every 5 seconds
+      const statusCheckInterval = setInterval(async () => {
+        try {
+          const response = await fetch('/api/charge/last-status', {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+            }
+          });
           
-          <div class="error-message" style="display: block;">
-            <i class="fas fa-exclamation-triangle"></i>
-            Popup blocked by browser. Please click the button below to complete payment.
-          </div>
-          
-          <div class="manual-payment-container">
-            <button id="manual-payment-btn" class="payment-button" onclick="window.open('${url}', '_blank')">
-              <i class="fas fa-external-link-alt"></i>
-              Open Payment in New Tab
-            </button>
+          if (response.ok) {
+            const result = await response.json();
             
-            <div class="manual-payment-instructions">
-              <p><strong>Instructions:</strong></p>
-              <ol>
-                <li>Click the button above to open payment in a new tab</li>
-                <li>Complete your payment in the new tab</li>
-                <li>Return to this tab after payment</li>
-                <li>Click "Check Payment Status" below</li>
-              </ol>
-            </div>
-            
-            <button id="check-status-btn" class="payment-button" style="background: #10b981; margin-top: 10px;">
-              <i class="fas fa-sync-alt"></i>
-              Check Payment Status
-            </button>
-          </div>
-        `;
-        
-        // Add event listener for status check button
-        document.getElementById('check-status-btn').addEventListener('click', () => {
-          checkPaymentStatus();
-        });
-      }
+            if (result.success && result.charge) {
+              const status = result.charge.status;
+              
+              if (status === 'CAPTURED' || status === 'SUCCESS') {
+                console.log('✅ Payment completed successfully!');
+                clearInterval(statusCheckInterval);
+                showSuccess('🎉 Payment completed successfully!');
+                sendSuccessResponse(result.charge.id);
+                
+                // Auto-close after success
+                setTimeout(() => {
+                  if (window.parent && window.parent !== window) {
+                    window.parent.postMessage(JSON.stringify({
+                      type: 'payment_completed',
+                      success: true,
+                      chargeId: result.charge.id
+                    }), '*');
+                  }
+                }, 2000);
+              } else if (status === 'FAILED' || status === 'CANCELLED') {
+                console.log('❌ Payment failed');
+                clearInterval(statusCheckInterval);
+                showError('Payment was not completed. Please try again.');
+                sendErrorResponse('Payment was not completed');
+              }
+              // Continue checking for other statuses
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error checking payment status:', error);
+        }
+      }, 5000); // Check every 5 seconds
+      
+      // Stop checking after 10 minutes (120 checks)
+      setTimeout(() => {
+        clearInterval(statusCheckInterval);
+        console.log('⏰ Payment status check timeout - stopping checks');
+      }, 600000); // 10 minutes
     }
 
     // Check payment status after popup closes
