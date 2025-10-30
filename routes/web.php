@@ -42,9 +42,10 @@ Route::post('/webhook', [ClientIntegrationController::class, 'webhook'])
 Route::post('/provider/connect-or-disconnect', [ClientIntegrationController::class, 'connectOrDisconnect'])
     ->name('provider.connect_or_disconnect');
 
-// Payment query endpoint for GoHighLevel
+// Payment query endpoint for GoHighLevel (exempt from CSRF)
 Route::post('/payment/query', [PaymentQueryController::class, 'handleQuery'])
-    ->name('payment.query');
+    ->name('payment.query')
+    ->withoutMiddleware([\App\Http\Middleware\VerifyCsrfToken::class]);
 
 // Test route for payment query
 Route::get('/test-payment-query', function () {
