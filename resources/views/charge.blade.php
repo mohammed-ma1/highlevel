@@ -273,27 +273,6 @@
       margin-top: 20px;
     }
 
-    .initial-spinner-container {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      z-index: 9999;
-    }
-
-    .initial-spinner {
-      width: 80px;
-      height: 80px;
-      border: 6px solid rgba(255, 255, 255, 0.3);
-      border-top: 6px solid white;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
 
     @media (max-width: 480px) {
       .payment-container {
@@ -320,15 +299,10 @@
   </style>
 </head>
 <body>
-  <div class="payment-container" id="payment-container" style="display: none;">
+  <div class="payment-container" id="payment-container">
     <div class="payment-body" id="payment-body">
-      <!-- Initially hidden - will be populated when GHL data is received -->
+      <!-- Payment form will be populated when GHL data is received -->
     </div>
-  </div>
-
-  <!-- Initial spinner - shown while waiting for GHL data -->
-  <div id="initial-spinner" class="initial-spinner-container">
-    <div class="initial-spinner"></div>
   </div>
 
   <script>
@@ -763,11 +737,11 @@
         console.log('👤 Customer info received:', data.contact);
       }
       
-      // Keep showing spinner and automatically create charge
+      // Automatically create charge
       setTimeout(() => {
         console.log('🚀 Auto-creating charge...');
         createCharge();
-      }, 1000);
+      }, 0);
     }
 
     // Update payment form for setup (Add Card on File) flow
@@ -911,8 +885,7 @@
     }
 
     function showButton() {
-      // Hide initial spinner and show payment container
-      document.getElementById('initial-spinner').style.display = 'none';
+      // Show payment container
       document.getElementById('payment-container').style.display = 'block';
       
       // Keep the clean UI but add a retry button
@@ -1147,12 +1120,8 @@
         topExists: window.top !== window
       });
       
-      // Send ready event after a short delay
-      setTimeout(() => {
-        sendReadyEvent();
-        
-        // Check for payment data after 3 seconds
-      }, 1000);
+      // Send ready event immediately
+      sendReadyEvent();
 
       // Wire the button to create charge (if it exists)
       const createChargeBtn = document.getElementById('create-charge-btn');
