@@ -1091,17 +1091,34 @@
             console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
             
             if (isSafari) {
-              // Use popup for Safari to avoid iframe payment restrictions
-              console.log('🍎 Safari detected - using popup for payment');
+              // For Safari, use direct redirect to avoid iframe restrictions
+              console.log('🍎 Safari detected - using direct redirect to avoid iframe restrictions');
               console.log('🔗 Payment URL for Safari:', result.charge.transaction.url);
               
-              const popupOpened = openPaymentPopup(result.charge.transaction.url);
+              // Show message to user
+              showSuccess('Redirecting to payment page...');
               
-              if (!popupOpened) {
-                // Popup blocked - payment already opened in new tab automatically
-                console.log('⚠️ Popup blocked - payment opened in new tab automatically');
-                return; // Don't proceed with direct redirect
+              // Also show a clickable link as backup for Safari
+              showSafariPaymentLink(result.charge.transaction.url);
+              
+              // For Safari, try to break out of iframe first
+              try {
+                // Try to redirect parent window if in iframe
+                if (window.parent && window.parent !== window) {
+                  console.log('🔄 Safari: Attempting to redirect parent window');
+                  window.parent.location.href = result.charge.transaction.url;
+                } else {
+                  console.log('🔄 Safari: Direct redirect in same window');
+                  window.location.href = result.charge.transaction.url;
+                }
+              } catch (e) {
+                console.log('🔄 Safari: Parent redirect failed, using direct redirect');
+                setTimeout(() => {
+                  window.location.href = result.charge.transaction.url;
+                }, 1000);
               }
+              
+              return; // Don't proceed with other methods
             } else {
               // Direct redirect for other browsers
               console.log('🌐 Non-Safari browser - using direct redirect');
@@ -1302,6 +1319,33 @@
           document.getElementById('manual-check-btn').addEventListener('click', () => {
             checkPaymentStatus();
           });
+        }
+      }
+    }
+
+    // Show Safari payment link as backup
+    function showSafariPaymentLink(url) {
+      const paymentBody = document.querySelector('.payment-body');
+      if (paymentBody) {
+        const existingLink = document.getElementById('safari-payment-link');
+        if (!existingLink) {
+          const linkHtml = `
+            <div style="text-align: center; margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 10px; border: 2px solid #007bff;">
+              <p style="margin-bottom: 15px; font-weight: 600; color: #333;">
+                <i class="fas fa-exclamation-triangle" style="color: #ffc107;"></i>
+                Safari Payment Link
+              </p>
+              <p style="margin-bottom: 15px; color: #666; font-size: 14px;">
+                If the page doesn't redirect automatically, click the link below:
+              </p>
+              <a href="${url}" target="_blank" id="safari-payment-link" 
+                 style="display: inline-block; background: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: 600;">
+                <i class="fas fa-external-link-alt"></i>
+                Open Payment Page
+              </a>
+            </div>
+          `;
+          paymentBody.insertAdjacentHTML('beforeend', linkHtml);
         }
       }
     }
