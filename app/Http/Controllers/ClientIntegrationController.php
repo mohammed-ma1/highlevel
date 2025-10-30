@@ -1008,7 +1008,7 @@ class ClientIntegrationController extends Controller
     {
          try {
              $data = $request->all();
-            
+            dd($data);
             Log::info('Payment verification request received', [
                 'type' => $data['type'] ?? 'unknown',
                 'transactionId' => $data['transactionId'] ?? 'unknown',
