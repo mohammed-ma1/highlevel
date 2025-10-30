@@ -302,13 +302,17 @@
         sendSuccessToGHL();
         
         // Auto-redirect to MediaSolution preview page after 2 seconds
-        // setTimeout(() => {
-        //   window.location.href = 'https://app.mediasolution.io/v2/preview/FHNVMDKeSCxgu8V07UUO';
-        // }, 2000);
+        setTimeout(() => {
+          window.location.href = 'https://app.gohighlevel.com/v2/preview/QTXkjjLqoxPMLOSOEDfq';
+        }, 2000);
         
         // Hide action buttons since we're auto-processing
         actionButtons.style.display = 'none';
       } else if (isFailed) {
+
+        setTimeout(() => {
+          window.location.href = 'https://app.gohighlevel.com/v2/preview/FHNVMDKeSCxgu8V07UUO';
+        }, 2000);
         // Payment failed
         // statusMessage.innerHTML = '<div class="error-badge"><i class="fas fa-times-circle"></i> Payment Failed</div>';
         // redirectTitle.textContent = 'Payment Failed';
@@ -320,15 +324,9 @@
         sendErrorToGHL(errorMessage);
       } else {
         // Unknown status - show both processed and raw status for debugging
-        statusMessage.innerHTML = `<div class="error-badge"><i class="fas fa-exclamation-triangle"></i> Unknown Payment Status</div>
-          <div style="margin-top: 10px; font-size: 12px; color: #666;">
-            Processed Status: ${params.status || 'N/A'}<br>
-            Raw Status: ${params.raw_status || 'N/A'}<br>
-            Is Successful: ${params.is_successful || 'N/A'}
-          </div>`;
-        redirectTitle.textContent = 'Payment Status Unknown';
-        redirectMessage.textContent = 'We could not determine the payment status. Please contact support.';
-        actionButtons.style.display = 'flex';
+        setTimeout(() => {
+          window.location.href = 'https://app.gohighlevel.com/v2/preview/FHNVMDKeSCxgu8V07UUO';
+        }, 2000);
       }
 
       statusMessage.style.display = 'block';
