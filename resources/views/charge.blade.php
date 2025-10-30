@@ -273,35 +273,63 @@
       margin-top: 20px;
     }
 
-    .manual-payment-container {
+    .popup-payment-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 400px;
+      padding: 40px 20px;
+    }
+
+    .popup-payment-content {
       text-align: center;
-      margin-top: 20px;
+      max-width: 400px;
+      width: 100%;
     }
 
-    .manual-payment-instructions {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      padding: 20px;
-      margin: 20px 0;
-      text-align: left;
+    .popup-payment-icon {
+      font-size: 48px;
+      color: #667eea;
+      margin-bottom: 20px;
     }
 
-    .manual-payment-instructions p {
-      margin-bottom: 10px;
-      font-weight: 600;
+    .popup-payment-title {
+      font-size: 24px;
+      font-weight: 700;
       color: #1f2937;
+      margin-bottom: 12px;
     }
 
-    .manual-payment-instructions ol {
-      margin: 0;
-      padding-left: 20px;
-    }
-
-    .manual-payment-instructions li {
-      margin-bottom: 8px;
+    .popup-payment-description {
+      font-size: 16px;
       color: #6b7280;
+      margin-bottom: 30px;
       line-height: 1.5;
+    }
+
+    .proceed-payment-button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 16px 32px;
+      border-radius: 12px;
+      font-size: 18px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    }
+
+    .proceed-payment-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+    }
+
+    .proceed-payment-button:active {
+      transform: translateY(0);
     }
 
 
@@ -1187,12 +1215,9 @@
         paymentPopup = window.open(url, 'tap_payment', 'width=800,height=600,scrollbars=yes,resizable=yes');
         
         if (!paymentPopup || paymentPopup.closed || typeof paymentPopup.closed === 'undefined') {
-          console.error('❌ All popup attempts failed - popup blocked');
+          console.log('⚠️ Popup blocked - showing clean payment interface');
           
-          // Show user-friendly message with instructions
-          showError('Popup blocked by browser. Please allow popups for this site or click the button below to open payment in a new tab.');
-          
-          // Show manual button as fallback
+          // Show clean popup with proceed button
           showManualPaymentButton(url);
           return false;
         }
@@ -1252,49 +1277,189 @@
       return true;
     }
 
-    // Show manual payment button when popup is blocked
+    // Show clean popup with proceed button
     function showManualPaymentButton(url) {
       const paymentBody = document.querySelector('.payment-body');
       if (paymentBody) {
         paymentBody.innerHTML = `
-          <div class="payment-amount">
-            <div class="amount-label">Amount to Pay</div>
-            <div class="amount-value" id="amount-display">${paymentData ? paymentData.amount + ' ' + paymentData.currency : '1.00 KWD'}</div>
-          </div>
-          
-          <div class="error-message" style="display: block;">
-            <i class="fas fa-exclamation-triangle"></i>
-            Popup blocked by browser. Please click the button below to complete payment.
-          </div>
-          
-          <div class="manual-payment-container">
-            <button id="manual-payment-btn" class="payment-button" onclick="window.open('${url}', '_blank')">
-              <i class="fas fa-external-link-alt"></i>
-              Open Payment in New Tab
-            </button>
-            
-            <div class="manual-payment-instructions">
-              <p><strong>Instructions:</strong></p>
-              <ol>
-                <li>Click the button above to open payment in a new tab</li>
-                <li>Complete your payment in the new tab</li>
-                <li>Return to this tab after payment</li>
-                <li>Click "Check Payment Status" below</li>
-              </ol>
+          <div class="popup-payment-container">
+            <div class="popup-payment-content">
+              <div class="popup-payment-icon">
+                <i class="fas fa-credit-card"></i>
+              </div>
+              <h2 class="popup-payment-title">Complete Your Payment</h2>
+              <p class="popup-payment-description">Click the button below to proceed with your payment</p>
+              <button id="proceed-payment-btn" class="proceed-payment-button" onclick="openPaymentInNewTab('${url}')">
+                <i class="fas fa-arrow-right"></i>
+                Proceed
+              </button>
             </div>
-            
-            <button id="check-status-btn" class="payment-button" style="background: #10b981; margin-top: 10px;">
-              <i class="fas fa-sync-alt"></i>
-              Check Payment Status
-            </button>
           </div>
         `;
-        
-        // Add event listener for status check button
-        document.getElementById('check-status-btn').addEventListener('click', () => {
-          checkPaymentStatus();
-        });
       }
+    }
+
+    // Open payment in new tab and start monitoring
+    function openPaymentInNewTab(url) {
+      console.log('🔗 Opening payment in new tab:', url);
+      
+      // Open in new tab
+      const newTab = window.open(url, '_blank');
+      
+      if (newTab) {
+        console.log('✅ New tab opened successfully');
+        
+        // Update UI to show monitoring state
+        const paymentBody = document.querySelector('.payment-body');
+        if (paymentBody) {
+          paymentBody.innerHTML = `
+            <div class="popup-payment-container">
+              <div class="popup-payment-content">
+                <div class="popup-payment-icon" style="color: #3b82f6;">
+                  <i class="fas fa-external-link-alt"></i>
+                </div>
+                <h2 class="popup-payment-title">Payment Opened</h2>
+                <p class="popup-payment-description">Payment page opened in new tab. Complete your payment and we'll automatically detect when it's done.</p>
+                <button id="check-payment-status-btn" class="proceed-payment-button" onclick="checkPaymentStatus()">
+                  <i class="fas fa-sync-alt"></i>
+                  Check Payment Status
+                </button>
+              </div>
+            </div>
+          `;
+        }
+        
+        // Start automatic status checking
+        startAutomaticStatusCheck();
+      } else {
+        console.error('❌ Failed to open new tab');
+        showError('Failed to open payment page. Please check your browser settings and try again.');
+      }
+    }
+
+    // Start automatic status checking
+    function startAutomaticStatusCheck() {
+      console.log('🔄 Starting automatic payment status monitoring...');
+      
+      let checkCount = 0;
+      const maxChecks = 60; // Check for 5 minutes (60 * 5 seconds)
+      
+      const statusCheckInterval = setInterval(async () => {
+        checkCount++;
+        console.log(`🔍 Automatic status check #${checkCount}`);
+        
+        try {
+          const response = await fetch('/api/charge/last-status', {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+            }
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            
+            if (result.success && result.charge) {
+              const status = result.charge.status;
+              
+              if (status === 'CAPTURED' || status === 'SUCCESS') {
+                console.log('✅ Payment completed successfully!');
+                clearInterval(statusCheckInterval);
+                
+                // Update UI to show success
+                const paymentBody = document.querySelector('.payment-body');
+                if (paymentBody) {
+                  paymentBody.innerHTML = `
+                    <div class="popup-payment-container">
+                      <div class="popup-payment-content">
+                        <div class="popup-payment-icon" style="color: #10b981;">
+                          <i class="fas fa-check-circle"></i>
+                        </div>
+                        <h2 class="popup-payment-title" style="color: #10b981;">Payment Successful!</h2>
+                        <p class="popup-payment-description">Your payment has been processed successfully. Redirecting...</p>
+                      </div>
+                    </div>
+                  `;
+                }
+                
+                sendSuccessResponse(result.charge.id);
+                
+                // Auto-redirect after success
+                setTimeout(() => {
+                  if (window.parent && window.parent !== window) {
+                    window.parent.postMessage(JSON.stringify({
+                      type: 'payment_completed',
+                      success: true,
+                      chargeId: result.charge.id
+                    }), '*');
+                  }
+                }, 2000);
+                
+                return;
+              } else if (status === 'FAILED' || status === 'CANCELLED') {
+                console.log('❌ Payment failed');
+                clearInterval(statusCheckInterval);
+                
+                // Update UI to show failure
+                const paymentBody = document.querySelector('.payment-body');
+                if (paymentBody) {
+                  paymentBody.innerHTML = `
+                    <div class="popup-payment-container">
+                      <div class="popup-payment-content">
+                        <div class="popup-payment-icon" style="color: #dc2626;">
+                          <i class="fas fa-times-circle"></i>
+                        </div>
+                        <h2 class="popup-payment-title" style="color: #dc2626;">Payment Failed</h2>
+                        <p class="popup-payment-description">Your payment could not be processed. Please try again.</p>
+                        <button id="retry-payment-btn" class="proceed-payment-button" onclick="location.reload()">
+                          <i class="fas fa-redo"></i>
+                          Try Again
+                        </button>
+                      </div>
+                    </div>
+                  `;
+                }
+                
+                sendErrorResponse('Payment was not completed');
+                return;
+              }
+            }
+          }
+          
+          // Stop checking after max attempts
+          if (checkCount >= maxChecks) {
+            console.log('⏰ Automatic status check timeout');
+            clearInterval(statusCheckInterval);
+            
+            // Update UI to show timeout
+            const paymentBody = document.querySelector('.payment-body');
+            if (paymentBody) {
+              paymentBody.innerHTML = `
+                <div class="popup-payment-container">
+                  <div class="popup-payment-content">
+                    <div class="popup-payment-icon" style="color: #f59e0b;">
+                      <i class="fas fa-clock"></i>
+                    </div>
+                    <h2 class="popup-payment-title" style="color: #f59e0b;">Still Processing</h2>
+                    <p class="popup-payment-description">Payment is taking longer than expected. You can check manually or try again.</p>
+                    <button id="check-payment-status-btn" class="proceed-payment-button" onclick="checkPaymentStatus()">
+                      <i class="fas fa-sync-alt"></i>
+                      Check Status Manually
+                    </button>
+                    <button id="retry-payment-btn" class="proceed-payment-button" onclick="location.reload()" style="background: #6b7280; margin-top: 10px;">
+                      <i class="fas fa-redo"></i>
+                      Try Again
+                    </button>
+                  </div>
+                </div>
+              `;
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error in automatic status check:', error);
+        }
+      }, 5000); // Check every 5 seconds
     }
 
     // Check payment status after popup closes
@@ -1306,6 +1471,13 @@
       
       try {
         console.log('🔍 Checking payment status...');
+        
+        // Show loading state
+        const proceedBtn = document.getElementById('proceed-payment-btn');
+        if (proceedBtn) {
+          proceedBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
+          proceedBtn.disabled = true;
+        }
         
         // Query the last charge status
         const response = await fetch('/api/charge/last-status', {
@@ -1325,10 +1497,26 @@
             
             if (status === 'CAPTURED' || status === 'SUCCESS') {
               console.log('✅ Payment successful');
-              showSuccess('🎉 Payment completed successfully!');
+              
+              // Update UI to show success
+              const paymentBody = document.querySelector('.payment-body');
+              if (paymentBody) {
+                paymentBody.innerHTML = `
+                  <div class="popup-payment-container">
+                    <div class="popup-payment-content">
+                      <div class="popup-payment-icon" style="color: #10b981;">
+                        <i class="fas fa-check-circle"></i>
+                      </div>
+                      <h2 class="popup-payment-title" style="color: #10b981;">Payment Successful!</h2>
+                      <p class="popup-payment-description">Your payment has been processed successfully. Redirecting...</p>
+                    </div>
+                  </div>
+                `;
+              }
+              
               sendSuccessResponse(result.charge.id);
               
-              // Auto-close after success
+              // Auto-redirect after success
               setTimeout(() => {
                 if (window.parent && window.parent !== window) {
                   window.parent.postMessage(JSON.stringify({
@@ -1340,23 +1528,144 @@
               }, 2000);
             } else if (status === 'FAILED' || status === 'CANCELLED') {
               console.log('❌ Payment failed');
-              showError('Payment was not completed. Please try again.');
+              
+              // Update UI to show failure
+              const paymentBody = document.querySelector('.payment-body');
+              if (paymentBody) {
+                paymentBody.innerHTML = `
+                  <div class="popup-payment-container">
+                    <div class="popup-payment-content">
+                      <div class="popup-payment-icon" style="color: #dc2626;">
+                        <i class="fas fa-times-circle"></i>
+                      </div>
+                      <h2 class="popup-payment-title" style="color: #dc2626;">Payment Failed</h2>
+                      <p class="popup-payment-description">Your payment could not be processed. Please try again.</p>
+                      <button id="retry-payment-btn" class="proceed-payment-button" onclick="location.reload()">
+                        <i class="fas fa-redo"></i>
+                        Try Again
+                      </button>
+                    </div>
+                  </div>
+                `;
+              }
+              
               sendErrorResponse('Payment was not completed');
             } else {
               console.log('⏳ Payment pending:', status);
-              showError('Payment is still processing. Please check back later.');
+              
+              // Reset button for retry
+              if (proceedBtn) {
+                proceedBtn.innerHTML = '<i class="fas fa-arrow-right"></i> Proceed';
+                proceedBtn.disabled = false;
+              }
+              
+              // Show pending message
+              const paymentBody = document.querySelector('.payment-body');
+              if (paymentBody) {
+                paymentBody.innerHTML = `
+                  <div class="popup-payment-container">
+                    <div class="popup-payment-content">
+                      <div class="popup-payment-icon" style="color: #f59e0b;">
+                        <i class="fas fa-clock"></i>
+                      </div>
+                      <h2 class="popup-payment-title" style="color: #f59e0b;">Payment Processing</h2>
+                      <p class="popup-payment-description">Your payment is still being processed. Please wait a moment and check again.</p>
+                      <button id="check-again-btn" class="proceed-payment-button" onclick="checkPaymentStatus()">
+                        <i class="fas fa-sync-alt"></i>
+                        Check Again
+                      </button>
+                    </div>
+                  </div>
+                `;
+              }
             }
           } else {
             console.log('❌ No charge data found');
-            showError('Unable to verify payment status. Please try again.');
+            
+            // Reset button for retry
+            if (proceedBtn) {
+              proceedBtn.innerHTML = '<i class="fas fa-arrow-right"></i> Proceed';
+              proceedBtn.disabled = false;
+            }
+            
+            // Show error message
+            const paymentBody = document.querySelector('.payment-body');
+            if (paymentBody) {
+              paymentBody.innerHTML = `
+                <div class="popup-payment-container">
+                  <div class="popup-payment-content">
+                    <div class="popup-payment-icon" style="color: #dc2626;">
+                      <i class="fas fa-exclamation-triangle"></i>
+                    </div>
+                    <h2 class="popup-payment-title" style="color: #dc2626;">Unable to Verify</h2>
+                    <p class="popup-payment-description">Unable to verify payment status. Please try again.</p>
+                    <button id="retry-payment-btn" class="proceed-payment-button" onclick="location.reload()">
+                      <i class="fas fa-redo"></i>
+                      Try Again
+                    </button>
+                  </div>
+                </div>
+              `;
+            }
           }
         } else {
           console.error('❌ Failed to check payment status');
-          showError('Unable to verify payment status. Please try again.');
+          
+          // Reset button for retry
+          if (proceedBtn) {
+            proceedBtn.innerHTML = '<i class="fas fa-arrow-right"></i> Proceed';
+            proceedBtn.disabled = false;
+          }
+          
+          // Show error message
+          const paymentBody = document.querySelector('.payment-body');
+          if (paymentBody) {
+            paymentBody.innerHTML = `
+              <div class="popup-payment-container">
+                <div class="popup-payment-content">
+                  <div class="popup-payment-icon" style="color: #dc2626;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                  </div>
+                  <h2 class="popup-payment-title" style="color: #dc2626;">Connection Error</h2>
+                  <p class="popup-payment-description">Unable to verify payment status. Please check your connection and try again.</p>
+                  <button id="retry-payment-btn" class="proceed-payment-button" onclick="location.reload()">
+                    <i class="fas fa-redo"></i>
+                    Try Again
+                  </button>
+                </div>
+              </div>
+            `;
+          }
         }
       } catch (error) {
         console.error('❌ Error checking payment status:', error);
-        showError('Unable to verify payment status. Please try again.');
+        
+        // Reset button for retry
+        const proceedBtn = document.getElementById('proceed-payment-btn');
+        if (proceedBtn) {
+          proceedBtn.innerHTML = '<i class="fas fa-arrow-right"></i> Proceed';
+          proceedBtn.disabled = false;
+        }
+        
+        // Show error message
+        const paymentBody = document.querySelector('.payment-body');
+        if (paymentBody) {
+          paymentBody.innerHTML = `
+            <div class="popup-payment-container">
+              <div class="popup-payment-content">
+                <div class="popup-payment-icon" style="color: #dc2626;">
+                  <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <h2 class="popup-payment-title" style="color: #dc2626;">Error</h2>
+                <p class="popup-payment-description">An error occurred while checking payment status. Please try again.</p>
+                <button id="retry-payment-btn" class="proceed-payment-button" onclick="location.reload()">
+                  <i class="fas fa-redo"></i>
+                  Try Again
+                </button>
+              </div>
+            </div>
+          `;
+        }
       }
     }
 
