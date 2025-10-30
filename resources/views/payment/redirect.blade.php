@@ -302,21 +302,21 @@
         sendSuccessToGHL();
         
         // Auto-redirect to MediaSolution preview page after 2 seconds
-        setTimeout(() => {
-          window.location.href = 'https://app.mediasolution.io/v2/preview/FHNVMDKeSCxgu8V07UUO';
-        }, 2000);
+        // setTimeout(() => {
+        //   window.location.href = 'https://app.mediasolution.io/v2/preview/FHNVMDKeSCxgu8V07UUO';
+        // }, 2000);
         
         // Hide action buttons since we're auto-processing
         actionButtons.style.display = 'none';
       } else if (isFailed) {
         // Payment failed
-        statusMessage.innerHTML = '<div class="error-badge"><i class="fas fa-times-circle"></i> Payment Failed</div>';
-        redirectTitle.textContent = 'Payment Failed';
-        redirectMessage.textContent = 'Your payment could not be processed. Please try again.';
-        actionButtons.style.display = 'flex';
+        // statusMessage.innerHTML = '<div class="error-badge"><i class="fas fa-times-circle"></i> Payment Failed</div>';
+        // redirectTitle.textContent = 'Payment Failed';
+        // redirectMessage.textContent = 'Your payment could not be processed. Please try again.';
+        // actionButtons.style.display = 'flex';
         
-        // Send error response to GoHighLevel
-        const errorMessage = params.message || 'Payment failed. Please try again.';
+        // // Send error response to GoHighLevel
+        // const errorMessage = params.message || 'Payment failed. Please try again.';
         sendErrorToGHL(errorMessage);
       } else {
         // Unknown status - show both processed and raw status for debugging
