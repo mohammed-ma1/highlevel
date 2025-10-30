@@ -1093,6 +1093,8 @@
             if (isSafari) {
               // Use popup for Safari to avoid iframe payment restrictions
               console.log('🍎 Safari detected - using popup for payment');
+              console.log('🔗 Payment URL for Safari:', result.charge.transaction.url);
+              
               const popupOpened = openPaymentPopup(result.charge.transaction.url);
               
               if (!popupOpened) {
@@ -1136,7 +1138,17 @@
       const isIOS = /iPad|iPhone|iPod/.test(userAgent);
       const isMacSafari = /Macintosh/.test(userAgent) && /Safari/.test(userAgent) && !/Chrome/.test(userAgent);
       
-      return isSafari || isIOS || isMacSafari;
+      const safariDetected = isSafari || isIOS || isMacSafari;
+      
+      console.log('🔍 Safari detection details:', {
+        userAgent: userAgent,
+        isSafari: isSafari,
+        isIOS: isIOS,
+        isMacSafari: isMacSafari,
+        finalResult: safariDetected
+      });
+      
+      return safariDetected;
     }
 
     // Open payment in popup for Safari compatibility
@@ -1158,17 +1170,44 @@
         if (!paymentPopup || paymentPopup.closed || typeof paymentPopup.closed === 'undefined') {
           console.error('❌ All popup attempts failed - popup blocked');
           
-          // Automatically open payment in new tab
-          console.log('🔄 Popup blocked - automatically opening payment in new tab');
+          // For Safari, immediately try new tab approach
+          console.log('🔄 Popup blocked - automatically opening payment in new tab for Safari');
           console.log('🔗 Opening URL:', url);
           
-          const newTab = window.open(url, '_blank');
+          // Try multiple approaches for Safari
+          let newTab = null;
           
-          console.log('🔍 New tab result:', newTab);
-          console.log('🔍 New tab closed check:', newTab ? newTab.closed : 'N/A');
+          // First attempt: Standard new tab
+          try {
+            newTab = window.open(url, '_blank');
+            console.log('🔍 First new tab attempt:', newTab);
+          } catch (e) {
+            console.error('❌ First new tab attempt failed:', e);
+          }
+          
+          // Second attempt: Try with different parameters
+          if (!newTab || newTab.closed) {
+            try {
+              newTab = window.open(url, '_blank', 'noopener,noreferrer');
+              console.log('🔍 Second new tab attempt:', newTab);
+            } catch (e) {
+              console.error('❌ Second new tab attempt failed:', e);
+            }
+          }
+          
+          // Third attempt: Try with location.replace
+          if (!newTab || newTab.closed) {
+            try {
+              console.log('🔄 Trying location.replace as fallback');
+              window.location.replace(url);
+              return false;
+            } catch (e) {
+              console.error('❌ Location replace failed:', e);
+            }
+          }
           
           if (newTab && !newTab.closed) {
-            console.log('✅ New tab opened successfully');
+            console.log('✅ New tab opened successfully for Safari');
             // Show status message and check payment status
             showSuccess('Payment opened in new tab. Please complete your payment and return to this page.');
             
@@ -1178,13 +1217,12 @@
             // Start checking payment status periodically
             startPaymentStatusCheck();
           } else {
-            console.error('❌ Failed to open new tab - trying alternative method');
-            console.log('🔍 Trying direct redirect as fallback');
-            // Try alternative method - direct redirect
+            console.error('❌ All new tab attempts failed - using direct redirect');
+            // Final fallback - direct redirect
             setTimeout(() => {
-              console.log('🔄 Redirecting to:', url);
+              console.log('🔄 Final fallback - direct redirect to:', url);
               window.location.href = url;
-            }, 1000);
+            }, 500);
           }
           return false;
         }
