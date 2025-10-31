@@ -1388,8 +1388,7 @@
       const paymentBody = document.querySelector('.payment-body');
       if (paymentBody) {
         paymentBody.innerHTML = `
-          <div class="popup-payment-container">
-            <div class="popup-payment-content">
+  
               <div class="popup-payment-icon">
                 <i class="fas fa-credit-card"></i>
               </div>
@@ -1399,8 +1398,7 @@
                 <i class="fas fa-arrow-right"></i>
                 Proceed
               </button>
-            </div>
-          </div>
+        
         `;
       }
     }
@@ -1410,7 +1408,7 @@
       console.log('🔗 Opening payment in new tab:', url);
       
       // Open in new tab
-      const newTab = window.open(url, '_blank');
+      const newTab = window.open(url, '');
       
       if (newTab) {
         console.log('✅ New tab opened successfully');
