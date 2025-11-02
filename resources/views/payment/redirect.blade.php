@@ -13,214 +13,11 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
 
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-
-    .redirect-container {
-      background: white;
-      border-radius: 20px;
-      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
-      max-width: 480px;
-      width: 100%;
-      overflow: hidden;
-      position: relative;
-      text-align: center;
-      padding: 40px 30px;
-    }
-
-    .loading-spinner {
-      width: 40px;
-      height: 40px;
-      border: 4px solid #f3f3f3;
-      border-top: 4px solid #667eea;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin: 0 auto 20px;
-    }
-
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-
-    .redirect-title {
-      font-size: 24px;
-      font-weight: 700;
-      color: #1f2937;
-      margin-bottom: 12px;
-    }
-
-    .redirect-message {
-      font-size: 16px;
-      color: #6b7280;
-      margin-bottom: 30px;
-      line-height: 1.5;
-    }
-
-    .payment-status {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 30px;
-    }
-
-    .status-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 0;
-      border-bottom: 1px solid #e5e7eb;
-    }
-
-    .status-item:last-child {
-      border-bottom: none;
-    }
-
-    .status-label {
-      font-weight: 500;
-      color: #374151;
-    }
-
-    .status-value {
-      color: #6b7280;
-      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-      font-size: 14px;
-    }
-
-    .success-badge {
-      background: #f0fdf4;
-      border: 1px solid #bbf7d0;
-      color: #16a34a;
-      padding: 12px 16px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      font-weight: 500;
-    }
-
-    .error-badge {
-      background: #fef2f2;
-      border: 1px solid #fecaca;
-      color: #dc2626;
-      padding: 12px 16px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      font-weight: 500;
-    }
-
-    .warning-badge {
-      background: #fffbeb;
-      border: 1px solid #fed7aa;
-      color: #d97706;
-      padding: 12px 16px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      font-weight: 500;
-    }
-
-    .action-buttons {
-      display: flex;
-      gap: 12px;
-      justify-content: center;
-    }
-
-    .btn {
-      padding: 12px 24px;
-      border-radius: 8px;
-      font-weight: 600;
-      text-decoration: none;
-      transition: all 0.3s ease;
-      border: none;
-      cursor: pointer;
-    }
-
-    .btn-primary {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-    }
-
-    .btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
-    }
-
-    .btn-secondary {
-      background: #f3f4f6;
-      color: #374151;
-      border: 1px solid #d1d5db;
-    }
-
-    .btn-secondary:hover {
-      background: #e5e7eb;
-    }
-
-    @media (max-width: 480px) {
-      .redirect-container {
-        margin: 10px;
-        padding: 30px 20px;
-      }
-      
-      .redirect-title {
-        font-size: 20px;
-      }
-      
-      .action-buttons {
-        flex-direction: column;
-      }
-    }
   </style>
 </head>
 <body>
-  <div class="redirect-container">
-    <div class="loading-spinner" id="loading-spinner"></div>
-    
-    <h1 class="redirect-title" id="redirect-title">Processing Payment...</h1>
-    <p class="redirect-message" id="redirect-message">Please wait while we process your payment.</p>
-
-    <div class="payment-status" id="payment-status" style="display: none;">
-      <div class="status-item">
-        <span class="status-label">Charge ID:</span>
-        <span class="status-value" id="charge-id">-</span>
-      </div>
-      <div class="status-item">
-        <span class="status-label">Status:</span>
-        <span class="status-value" id="charge-status">-</span>
-      </div>
-      <div class="status-item">
-        <span class="status-label">Amount:</span>
-        <span class="status-value" id="charge-amount">-</span>
-      </div>
-      <div class="status-item">
-        <span class="status-label">Currency:</span>
-        <span class="status-value" id="charge-currency">-</span>
-      </div>
-    </div>
-
-    <div id="status-message" style="display: none;"></div>
-
-    <div class="action-buttons" id="action-buttons" style="display: none;">
-      <button class="btn btn-primary" onclick="sendSuccessToGHL()">
-        <i class="fas fa-check"></i> Complete Payment
-      </button>
-      <button class="btn btn-secondary" onclick="goBack()">
-        <i class="fas fa-arrow-left"></i> Go Back
-      </button>
-    </div>
-  </div>
-
+  
   <script>
     let chargeData = null;
 
@@ -321,35 +118,13 @@
       
       if (isSuccessful) {
         // Payment successful - auto-send success and redirect
-        statusMessage.innerHTML = '<div class="success-badge"><i class="fas fa-check-circle"></i> Payment Successful!</div>';
-        redirectTitle.textContent = 'Payment Complete';
-        redirectMessage.textContent = 'Your payment has been processed successfully. Redirecting...';
-        
-        // Send success message to parent window if in popup
-        if (isPopup()) {
-          sendMessageToParent({
-            type: 'payment_completed',
-            success: true,
-            status: 'CAPTURED',
-            params: params
-          });
-          
-          // Close popup after a short delay
-          setTimeout(() => {
-            window.close();
-          }, 2000);
-        } else {
-          // Auto-send success response to GHL
-          sendSuccessToGHL();
+        // Auto-send success response to GHL
+        sendSuccessToGHL();
           
           // Auto-redirect to MediaSolution preview page after 2 seconds
           setTimeout(() => {
             window.location.href = 'https://app.mediasolution.io/v2/preview/hjlbiZ2niIjjWetPSvT5';
           }, 2000);
-        }
-        
-        // Hide action buttons since we're auto-processing
-        actionButtons.style.display = 'none';
       } 
 
       statusMessage.style.display = 'block';
