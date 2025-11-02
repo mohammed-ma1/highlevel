@@ -3,14 +3,8 @@
   
   GoHighLevel Payment Integration with Tap Payments
   
-  Debugging Features:
-  - Check iframe context: window.testGHLIntegration.checkContext()
-  - Test payment simulation: window.testGHLIntegration.simulatePayment()
-  - Test complete flow: window.testGHLIntegration.testFlow()
-  
   The console will now show:
   - Only non-extension messages (filters out Angular DevTools noise)
-  - Iframe context information
   - Clear GHL message validation
   - Ready event confirmation
 --}}
@@ -558,29 +552,6 @@
       }
     });
 
-    // Add debugging function to check if we're in an iframe
-    function checkIframeContext() {
-      console.log('🔍 Iframe Context Check:');
-      console.log('- In iframe:', window !== window.top);
-      console.log('- Current origin:', window.location.origin);
-      console.log('- Current URL:', window.location.href);
-      
-      try {
-        console.log('- Parent origin:', window.parent.location?.origin || 'Cannot access parent origin');
-        console.log('- Parent URL:', window.parent.location?.href || 'Cannot access parent URL');
-      } catch (e) {
-        console.log('ℹ️ Parent access blocked (cross-origin) - This is NORMAL and EXPECTED:', e.message);
-        console.log('ℹ️ Cross-origin restrictions are a browser security feature, not an error');
-      }
-      
-      // Check if we can communicate with parent
-      try {
-        window.parent.postMessage({ type: 'test_communication' }, '*');
-        console.log('✅ Can send messages to parent');
-      } catch (e) {
-        console.log('❌ Cannot send messages to parent:', e.message);
-      }
-    }
 
     // Send ready event to GoHighLevel parent window (per GHL documentation)
     function sendReadyEvent() {
@@ -898,13 +869,13 @@
       customer: {
         // id: 'cus_xxxxx',               // If you have a Tap customer ID
         name: [
-          { lang: Locale.EN, first: 'Test', last: 'User' }
+          { lang: Locale.EN, first: '', last: '' }
         ],
-        nameOnCard: 'Test User',
+        nameOnCard: '',
         editable: true,
         contact: {
-          email: 'test@example.com',
-          phone: { countryCode: '962', number: '790000000' }
+          email: '',
+          phone: { countryCode: '962', number: '' }
         }
       },
       // Show only the brands you're enabled for in your Tap account
@@ -1006,9 +977,8 @@
     // Initialize Tap Card when page loads
     initializeTapCard();
 
-    // Check iframe context and send ready event after a short delay
+    // Send ready event after a short delay
     setTimeout(() => {
-      checkIframeContext();
       sendReadyEvent();
       
       // Set a timeout to check if GHL sent payment data
@@ -1021,22 +991,12 @@
           console.log('  3. API keys not configured in GHL');
           console.log('  4. Integration not activated in GHL');
           console.log('  5. Testing in wrong GHL environment');
-          console.log('');
-          console.log('🧪 To test your iframe, run: window.testGHLIntegration.testGHLFlow()');
         }
       }, 5000);
     }, 1000);
 
     // Add a console message to help with debugging
     console.log('🚀 Tap Payment Integration Loaded Successfully');
-    console.log('📋 Available test functions:');
-    console.log('  - window.testGHLIntegration.testCompleteFlow() - Test complete payment flow with backend verification');
-    console.log('  - window.testGHLIntegration.testGHLFlow() - Test exact GHL documentation flow');
-    console.log('  - window.testGHLIntegration.simulatePayment() - Test with mock GHL payment data');
-    console.log('  - window.testGHLIntegration.simulateSetup() - Test with mock GHL setup data (add card)');
-    console.log('  - window.testGHLIntegration.testFlow() - Test basic payment flow');
-    console.log('  - window.testGHLIntegration.checkContext() - Check iframe context');
-    console.log('');
     console.log('🔍 DEBUGGING GHL INTEGRATION:');
     console.log('  - If you see "✅ GHL Payment data received" = GHL is working correctly');
     console.log('  - If you only see Tap SDK messages = GHL is not sending payment data');
@@ -1047,199 +1007,6 @@
     console.log('ℹ️ Communication with GHL works via postMessage, not direct property access');
     console.log('ℹ️ Extension errors (Angular DevTools, etc.) are now suppressed for cleaner console');
     console.log('ℹ️ Only GHL-related messages will be shown in the console');
-
-    // Debug function to simulate GHL payment data (for testing - matches GHL docs exactly)
-    function simulateGHLPaymentData() {
-      const testData = {
-        type: 'payment_initiate_props',
-        publishableKey: 'pk_test_YhUjg9PNT8oDlKJ1aE2fMRz7',
-        amount: 25.50,
-        currency: 'JOD',
-        mode: 'payment',
-        productDetails: {
-          productId: 'prod_test_123',
-          priceId: 'price_test_456'
-        },
-        contact: {
-          id: 'cus_test_789',
-          name: 'John Doe',
-          email: 'john.doe@example.com',
-          contact: '+962790000000'
-        },
-        orderId: 'order_test_101112',
-        transactionId: 'txn_test_131415',
-        subscriptionId: 'sub_test_161718',
-        locationId: 'loc_test_161718'
-      };
-      
-      console.log('🧪 Simulating GHL payment data for testing:', testData);
-      updatePaymentForm(testData);
-    }
-
-    // Add function to test the complete payment flow
-    function testPaymentFlow() {
-      console.log('🧪 Testing complete payment flow...');
-      
-      // Simulate receiving GHL data
-      simulateGHLPaymentData();
-      
-      // Wait a bit then simulate successful payment
-      setTimeout(() => {
-        console.log('🧪 Simulating successful payment tokenization...');
-        const mockTokenData = {
-          id: 'tok_test_123456789',
-          object: 'token',
-          created: Date.now(),
-          used: false,
-          type: 'card'
-        };
-        
-        console.log('✅ Mock token received:', mockTokenData);
-        showSuccess('🎉 Test payment tokenized successfully! Token: ' + mockTokenData.id);
-        showResult(mockTokenData);
-        
-        // Send success response to GHL
-        sendSuccessResponse(mockTokenData.id);
-      }, 3000);
-    }
-
-    // Debug function to simulate GHL setup data (for testing - matches GHL docs exactly)
-    function simulateGHLSetupData() {
-      const testData = {
-        type: 'setup_initiate_props',
-        publishableKey: 'pk_test_YhUjg9PNT8oDlKJ1aE2fMRz7',
-        currency: 'JOD',
-        mode: 'setup',
-        contact: {
-          id: 'cus_test_789'
-        },
-        locationId: 'loc_test_161718'
-      };
-      
-      console.log('🧪 Simulating GHL setup data for testing:', testData);
-      updatePaymentFormForSetup(testData);
-    }
-
-    // Test function to simulate the exact GHL flow from the documentation
-    function testGHLDocumentationFlow() {
-      console.log('🧪 Testing GHL Documentation Flow...');
-      console.log('📋 Step 1: Iframe sends ready event (already done)');
-      console.log('📋 Step 2: Simulating GHL sending payment data...');
-      
-      // Simulate the exact data structure from GHL documentation
-      const ghlPaymentData = {
-        type: 'payment_initiate_props',
-        publishableKey: 'pk_test_YhUjg9PNT8oDlKJ1aE2fMRz7',
-        amount: 25.50,
-        currency: 'JOD',
-        mode: 'payment',
-        productDetails: {
-          productId: 'prod_123456',
-          priceId: 'price_789012'
-        },
-        contact: {
-          id: 'cus_345678',
-          name: 'John Doe',
-          email: 'john.doe@example.com',
-          contact: '+962790000000'
-        },
-        orderId: 'order_901234',
-        transactionId: 'txn_567890',
-        subscriptionId: 'sub_123456',
-        locationId: 'loc_789012'
-      };
-      
-      console.log('📤 Simulating GHL sending this data:', ghlPaymentData);
-      
-      // Simulate receiving the message
-      setTimeout(() => {
-        console.log('📥 Processing GHL payment data...');
-        updatePaymentForm(ghlPaymentData);
-      }, 1000);
-    }
-
-    // Test function to simulate the complete payment flow including backend verification
-    function testCompletePaymentFlow() {
-      console.log('🧪 Testing Complete Payment Flow...');
-      console.log('📋 Step 1: Simulate GHL payment data');
-      
-      // Simulate GHL payment data
-      const ghlPaymentData = {
-        type: 'payment_initiate_props',
-        publishableKey: 'pk_test_YhUjg9PNT8oDlKJ1aE2fMRz7',
-        amount: 25.50,
-        currency: 'JOD',
-        mode: 'payment',
-        contact: {
-          id: 'cus_345678',
-          name: 'John Doe',
-          email: 'john.doe@example.com'
-        },
-        orderId: 'order_901234',
-        transactionId: 'txn_567890',
-        locationId: 'loc_789012'
-      };
-      
-      updatePaymentForm(ghlPaymentData);
-      
-      // Simulate successful payment after 3 seconds
-      setTimeout(() => {
-        console.log('📋 Step 2: Simulating successful payment...');
-        const mockTokenData = {
-          id: 'tok_test_123456789',
-          object: 'token',
-          created: Date.now(),
-          used: false,
-          type: 'card'
-        };
-        
-        console.log('✅ Mock token received:', mockTokenData);
-        showSuccess('🎉 Test payment tokenized successfully! Token: ' + mockTokenData.id);
-        showResult(mockTokenData);
-        
-        // Send success response to GHL
-        sendSuccessResponse(mockTokenData.id);
-        
-        // Simulate backend verification
-        setTimeout(() => {
-          console.log('📋 Step 3: Simulating backend verification...');
-          console.log('🔗 GHL would call: POST /payment/query');
-          console.log('📤 With payload:', {
-            type: 'verify',
-            transactionId: 'txn_567890',
-            apiKey: 'test_api_key',
-            chargeId: 'tok_test_123456789',
-            subscriptionId: 'sub_123456'
-          });
-          console.log('✅ Backend would respond: { success: true }');
-          console.log('🎉 User would be redirected to success page');
-        }, 2000);
-        
-      }, 3000);
-    }
-
-    // Make test functions available globally for debugging
-    window.testGHLIntegration = {
-      simulatePayment: simulateGHLPaymentData,
-      simulateSetup: simulateGHLSetupData,
-      testFlow: testPaymentFlow,
-      testGHLFlow: testGHLDocumentationFlow,
-      testCompleteFlow: testCompletePaymentFlow,
-      checkContext: checkIframeContext
-    };
-
-    // Also make functions available on parent window for cross-frame access
-    try {
-      if (window.parent && window.parent !== window) {
-        window.parent.testGHLIntegration = window.testGHLIntegration;
-        console.log('✅ Test functions also available on parent window as window.testGHLIntegration');
-      }
-    } catch (e) {
-      console.log('ℹ️ Cannot access parent window (cross-origin restriction)');
-    }
-
-    // Uncomment the line below to test with simulated data
-    // setTimeout(simulateGHLPaymentData, 2000);
 
     // Update amount display if we have payment data
     if (paymentData && paymentData.amount && paymentData.currency) {
