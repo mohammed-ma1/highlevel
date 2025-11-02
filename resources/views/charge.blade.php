@@ -1378,57 +1378,14 @@
         `;
       }
       
-      // Monitor for payment completion by checking popup window
-      const checkClosed = setInterval(() => {
-        if (paymentPopup && paymentPopup.closed) {
-          clearInterval(checkClosed);
-          console.log('🔍 Payment window closed');
-          
-          // Check payment status automatically
-          setTimeout(async () => {
-            try {
-              const response = await fetch('/api/charge/last-status', {
-                method: 'GET',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
-                }
-              });
-              
-              if (response.ok) {
-                const result = await response.json();
-                if (result.success && result.charge) {
-                  const status = result.charge.status;
-                  if (status === 'CAPTURED' || status === 'SUCCESS') {
-                    sendSuccessResponse(result.charge.id);
-                    if (window.parent && window.parent !== window) {
-                      window.parent.postMessage(JSON.stringify({
-                        type: 'payment_completed',
-                        success: true,
-                        chargeId: result.charge.id
-                      }), '*');
-                    }
-                  }
-                }
-              }
-            } catch (error) {
-              console.error('❌ Error checking payment status:', error);
-            }
-          }, 2000);
-        }
-      }, 1000);
-      
       // Store URL for button click
       window.openPaymentUrl = url;
       
-      // Update button to open popup window
+      // Update button to open in same page
       const proceedBtn = document.getElementById('proceed-payment-btn');
       if (proceedBtn) {
         proceedBtn.onclick = function() {
-          paymentPopup = window.open(url, 'tap_payment', 'width=800,height=600,scrollbars=yes,resizable=yes');
-          if (paymentPopup) {
-            paymentPopup.focus();
-          }
+          window.location.href = url;
         };
       }
     }
