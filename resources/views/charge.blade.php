@@ -1373,25 +1373,7 @@
             
             <!-- Payment Methods -->
             <div class="payment-methods-logos">
-              <div class="payment-logo-item">
-                <span class="tap-logo">T</span>
-                <span class="tap-text">tap</span>
-              </div>
-              <div class="payment-logo-separator"></div>
-              <div class="payment-logo-item">
-                <span class="visa-logo">VISA</span>
-              </div>
-              <div class="payment-logo-item">
-                <div class="mastercard-logo"></div>
-              </div>
-              <div class="payment-logo-item">
-                <span class="amex-logo">AMEX</span>
-              </div>
-              <div class="payment-logo-item">
-                <span class="knet-logo">K</span>
-              </div>
-              <div class="payment-logo-text">and more</div>
-            </div>
+            <img src="{{ asset('https://images.leadconnectorhq.com/image/f_webp/q_80/r_1200/u_https://assets.cdn.filesafe.space/xAN9Y8iZDOugbNvKBKad/media/6901e4a9a412c65d60fb7f4b.png') }}" alt="Tap" class="payment-logo">
           </div>
         `;
       }
