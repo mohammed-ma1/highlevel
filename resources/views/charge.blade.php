@@ -22,16 +22,12 @@
 
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: white;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
       padding: 20px;
-    }
-
-    body.show-popup {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     }
 
     .payment-container {
@@ -929,14 +925,11 @@
         console.log('👤 Customer info received:', data.contact);
       }
       
-      // Hide payment container and body background initially - only show popup for Safari
+      // Hide payment container initially - only show popup for Safari
       const paymentContainer = document.querySelector('.payment-container');
       if (paymentContainer) {
         paymentContainer.style.display = 'none';
       }
-      
-      // Hide purple background initially
-      document.body.classList.remove('show-popup');
       
       // Automatically create charge
       setTimeout(() => {
@@ -1061,35 +1054,30 @@
     function showButton() {
       // Show payment container for error cases (only Safari)
       if (isSafari) {
-        // Show purple background for Safari error cases
-        document.body.classList.add('show-popup');
         const paymentContainer = document.getElementById('payment-container');
         if (paymentContainer) {
           paymentContainer.style.display = 'block';
         }
         
-      const paymentBody = document.querySelector('.payment-body');
+        const paymentBody = document.querySelector('.payment-body');
         if (paymentBody) {
-      paymentBody.innerHTML = `
+          paymentBody.innerHTML = `
             <div class="popup-payment-content">
               <div class="error-message" id="error-message" style="display: block; margin-bottom: 20px;"></div>
               <button id="retry-btn" type="button" class="proceed-payment-button">
                 <span class="button-text">Retry Payment</span>
-          </button>
-        </div>
-      `;
-
-      // Add retry button event listener
+              </button>
+            </div>
+          `;
+          
+          // Add retry button event listener
           const retryBtn = document.getElementById('retry-btn');
           if (retryBtn) {
             retryBtn.addEventListener('click', () => {
-        createCharge();
-      });
+              createCharge();
+            });
           }
         }
-      } else {
-        // For non-Safari, don't show anything - just keep background white
-        document.body.classList.remove('show-popup');
       }
     }
 
@@ -1255,24 +1243,18 @@
               // Use popup ONLY for Safari (desktop and mobile) to avoid iframe payment restrictions
               console.log('🍎 Safari detected (desktop/mobile) - showing proceed payment popup');
               console.log('📱 User Agent:', navigator.userAgent);
-              
-              // Show purple background and popup container
-              document.body.classList.add('show-popup');
               const paymentContainer = document.querySelector('.payment-container');
               if (paymentContainer) {
                 paymentContainer.style.display = 'block';
               }
               showProceedPaymentPopup(result.charge.transaction.url);
             } else {
-              // Direct redirect for all other browsers - NO POPUP, NO PURPLE BACKGROUND
-              console.log('🌐 Non-Safari browser detected - using direct redirect (NO POPUP, NO BACKGROUND)');
+              // Direct redirect for all other browsers - NO POPUP
+              console.log('🌐 Non-Safari browser detected - using direct redirect (NO POPUP)');
               console.log('🌐 User Agent:', navigator.userAgent);
-              
-              // Keep background white, just redirect immediately
-              document.body.classList.remove('show-popup');
               setTimeout(() => {
                 window.location.href = result.charge.transaction.url;
-              }, 300);
+              }, 500);
             }
           } else {
             showError('No checkout URL received from Tap');
@@ -1296,65 +1278,39 @@
       }
     }
 
-    // Detect Safari browser (desktop and mobile) - EXCLUDE Chrome on iOS
+    // Detect Safari browser (desktop and mobile)
     function detectSafari() {
       const userAgent = navigator.userAgent;
       
-      // IMPORTANT: Check for Chrome on iOS FIRST (CriOS = Chrome iOS)
-      // Chrome on iOS has "CriOS" in user agent
-      if (/CriOS/.test(userAgent)) {
-        console.log('🔍 Detected Chrome on iOS - NOT Safari');
-        return false; // Chrome on iOS - NOT Safari
-      }
-      
-      // Check for Chrome on desktop
+      // Check for Chrome first (Chrome on iOS reports as Safari but has Chrome in userAgent)
       if (/Chrome/.test(userAgent) && !/Chromium/.test(userAgent)) {
-        console.log('🔍 Detected Chrome (desktop) - NOT Safari');
-        return false; // Chrome browser (desktop)
+        // Chrome browser (desktop or mobile)
+        return false;
       }
       
       // Check for Firefox
       if (/Firefox/.test(userAgent)) {
-        console.log('🔍 Detected Firefox - NOT Safari');
-          return false;
+        return false;
       }
       
       // Check for Edge
       if (/Edg/.test(userAgent) || /Edge/.test(userAgent)) {
-        console.log('🔍 Detected Edge - NOT Safari');
         return false;
       }
       
       // Check for Opera
       if (/Opera/.test(userAgent) || /OPR/.test(userAgent)) {
-        console.log('🔍 Detected Opera - NOT Safari');
         return false;
       }
       
-      // Check for Samsung Internet
-      if (/SamsungBrowser/.test(userAgent)) {
-        console.log('🔍 Detected Samsung Browser - NOT Safari');
-        return false;
-      }
-      
-      // iOS devices - only if it's actually Safari (not Chrome/Firefox/etc)
+      // iOS devices (iPhone, iPad, iPod) - all use Safari
       const isIOS = /iPad|iPhone|iPod/.test(userAgent);
       if (isIOS) {
-        // Additional check: iPad on iOS 13+ might report as Mac
+        // Additional check: iPad on iOS 13+ might report as Mac, so check for touch
         if (/Macintosh/.test(userAgent) && 'ontouchend' in document) {
-          // Check if it's not Chrome/Firefox by looking for CriOS or FxIOS
-          if (!/CriOS|FxIOS/.test(userAgent)) {
-            console.log('🔍 Detected iPad Safari (iOS 13+)');
-            return true; // iPad running iOS 13+ with Safari
-          }
-          return false; // iPad with Chrome/Firefox
+          return true; // iPad running iOS 13+
         }
-        // For iOS < 13, check that it's not Chrome/Firefox
-        if (!/CriOS|FxIOS/.test(userAgent)) {
-          console.log('🔍 Detected iOS Safari');
-          return true; // iPhone/iPod/iPad with Safari
-        }
-        return false; // iOS with Chrome/Firefox
+        return true; // iPhone/iPod/iPad (iOS < 13)
       }
       
       // macOS Safari (desktop) - must have Safari but not Chrome
@@ -1363,7 +1319,6 @@
       const noChrome = !/Chrome/.test(userAgent) && !/Chromium/.test(userAgent);
       
       if (isMac && hasSafari && noChrome) {
-        console.log('🔍 Detected macOS Safari');
         return true; // macOS Safari
       }
       
@@ -1372,27 +1327,22 @@
         // Make sure it's not Chrome by checking vendor
         const isChrome = /Google Inc/.test(navigator.vendor);
         if (!isChrome) {
-          console.log('🔍 Detected Safari (legacy detection)');
           return true;
         }
       }
       
-      console.log('🔍 Browser is NOT Safari');
       return false;
     }
 
     // Show proceed payment popup for Safari only
     function showProceedPaymentPopup(url) {
-      // Final safety check - ensure this is Safari (with detailed logging)
+      // Final safety check - ensure this is Safari
       const finalSafariCheck = detectSafari();
       if (!finalSafariCheck) {
         console.error('❌ Security: showProceedPaymentPopup called but not Safari! Redirecting instead.');
-        console.error('❌ User Agent:', navigator.userAgent);
-        // Hide purple background if shown
-        document.body.classList.remove('show-popup');
         setTimeout(() => {
           window.location.href = url;
-        }, 300);
+        }, 500);
         return;
       }
       
@@ -1400,24 +1350,20 @@
       console.log('🔍 Final Safari verification:', {
         userAgent: navigator.userAgent,
         platform: navigator.platform,
-        vendor: navigator.vendor,
         isMobile: /iPhone|iPad|iPod/.test(navigator.userAgent) || ('ontouchend' in document)
       });
       
-      // Ensure purple background is shown for popup
-      document.body.classList.add('show-popup');
-      
-                const paymentBody = document.querySelector('.payment-body');
+      const paymentBody = document.querySelector('.payment-body');
       const paymentContainer = document.querySelector('.payment-container');
       
       if (paymentBody && paymentContainer) {
         // Show popup content directly without any card before
-                  paymentBody.innerHTML = `
-                      <div class="popup-payment-content">
+        paymentBody.innerHTML = `
+          <div class="popup-payment-content">
             <!-- Loading Spinner -->
             <div class="loading-spinner-container">
               <div class="payment-loading-spinner"></div>
-                        </div>
+            </div>
             
             <!-- Proceed Payment Button -->
             <button id="proceed-payment-btn" class="proceed-payment-button">
@@ -1430,24 +1376,24 @@
               <div class="payment-logo-item">
                 <span class="tap-logo">T</span>
                 <span class="tap-text">tap</span>
-                        </div>
+              </div>
               <div class="payment-logo-separator"></div>
               <div class="payment-logo-item">
                 <span class="visa-logo">VISA</span>
-                      </div>
+              </div>
               <div class="payment-logo-item">
                 <div class="mastercard-logo"></div>
-                    </div>
+              </div>
               <div class="payment-logo-item">
                 <span class="amex-logo">AMEX</span>
-                    </div>
+              </div>
               <div class="payment-logo-item">
                 <span class="knet-logo">K</span>
               </div>
               <div class="payment-logo-text">and more</div>
-                  </div>
-                </div>
-              `;
+            </div>
+          </div>
+        `;
       }
       
       // Monitor for payment completion by checking popup window
@@ -1459,27 +1405,27 @@
           // Check payment status automatically
           setTimeout(async () => {
             try {
-        const response = await fetch('/api/charge/last-status', {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
-          }
-        });
-        
-        if (response.ok) {
-          const result = await response.json();
-          if (result.success && result.charge) {
-            const status = result.charge.status;
-            if (status === 'CAPTURED' || status === 'SUCCESS') {
-              sendSuccessResponse(result.charge.id);
-                if (window.parent && window.parent !== window) {
-                  window.parent.postMessage(JSON.stringify({
-                    type: 'payment_completed',
-                    success: true,
-                    chargeId: result.charge.id
-                  }), '*');
+              const response = await fetch('/api/charge/last-status', {
+                method: 'GET',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
                 }
+              });
+              
+              if (response.ok) {
+                const result = await response.json();
+                if (result.success && result.charge) {
+                  const status = result.charge.status;
+                  if (status === 'CAPTURED' || status === 'SUCCESS') {
+                    sendSuccessResponse(result.charge.id);
+                    if (window.parent && window.parent !== window) {
+                      window.parent.postMessage(JSON.stringify({
+                        type: 'payment_completed',
+                        success: true,
+                        chargeId: result.charge.id
+                      }), '*');
+                    }
                   }
                 }
               }
@@ -1494,8 +1440,8 @@
       window.openPaymentUrl = url;
       
       // Update button to open popup window
-        const proceedBtn = document.getElementById('proceed-payment-btn');
-        if (proceedBtn) {
+      const proceedBtn = document.getElementById('proceed-payment-btn');
+      if (proceedBtn) {
         proceedBtn.onclick = function() {
           paymentPopup = window.open(url, 'tap_payment', 'width=800,height=600,scrollbars=yes,resizable=yes');
           if (paymentPopup) {
