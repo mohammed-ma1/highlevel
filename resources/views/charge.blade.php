@@ -31,12 +31,9 @@
     }
 
     .payment-container {
-      background: white;
-      border-radius: 20px;
-      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
-      max-width: 480px;
+      background: transparent;
+      max-width: 100%;
       width: 100%;
-      overflow: hidden;
       position: relative;
     }
 
@@ -76,7 +73,11 @@
     }
 
     .payment-body {
-      padding: 40px 30px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
     }
 
     .payment-amount {
@@ -250,37 +251,6 @@
       line-height: 1.5;
     }
 
-    .processing-container {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 200px;
-      margin: 40px 0;
-    }
-
-    .processing-spinner {
-      width: 60px;
-      height: 60px;
-      border: 4px solid #f3f3f3;
-      border-top: 4px solid #667eea;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-
-    .retry-container {
-      display: flex;
-      justify-content: center;
-      margin-top: 20px;
-    }
-
-    .popup-payment-container {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 500px;
-      padding: 60px 40px;
-      background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-    }
 
     .popup-payment-content {
       text-align: center;
@@ -291,120 +261,186 @@
       padding: 60px 40px;
       box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
       border: 1px solid #e5e7eb;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
     }
 
-    .popup-payment-icon {
-      font-size: 64px;
-      color: #667eea;
-      margin-bottom: 32px;
-      display: block;
+    .loading-spinner-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 20px;
     }
 
-    .popup-payment-title {
-      font-size: 32px;
-      font-weight: 700;
-      color: #1f2937;
-      margin-bottom: 16px;
-      letter-spacing: -0.5px;
-    }
-
-    .popup-payment-description {
-      font-size: 18px;
-      color: #6b7280;
-      margin-bottom: 48px;
-      line-height: 1.6;
-      font-weight: 400;
+    .payment-loading-spinner {
+      width: 50px;
+      height: 50px;
+      border: 4px solid #e5e7eb;
+      border-top: 4px solid #4b5563;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
     }
 
     .proceed-payment-button {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: #1A2B70;
       color: white;
       border: none;
-      padding: 24px 48px;
-      border-radius: 16px;
-      font-size: 20px;
-      font-weight: 700;
+      padding: 16px 32px;
+      border-radius: 8px;
+      font-size: 18px;
+      font-weight: 600;
       cursor: pointer;
       transition: all 0.3s ease;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       gap: 12px;
-      box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
-      min-width: 200px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      min-width: 280px;
       position: relative;
-      overflow: hidden;
-    }
-
-    .proceed-payment-button::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: -100%;
-      width: 100%;
-      height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-      transition: left 0.5s;
-    }
-
-    .proceed-payment-button:hover::before {
-      left: 100%;
     }
 
     .proceed-payment-button:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 12px 35px rgba(102, 126, 234, 0.4);
+      background: #152460;
     }
 
     .proceed-payment-button:active {
-      transform: translateY(-1px);
+      transform: translateY(1px);
     }
 
-    .proceed-payment-button:disabled {
-      opacity: 0.7;
-      cursor: not-allowed;
-      transform: none;
+    .button-arrow {
+      font-size: 20px;
+      font-weight: 400;
     }
 
-    .proceed-payment-button i {
-      font-size: 22px;
+    .button-text {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    .payment-methods-logos {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 12px 20px;
+      border: 1px solid #e5e7eb;
+      border-radius: 20px;
+      background: #fafafa;
+    }
+
+    .payment-logo-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .payment-logo-separator {
+      width: 1px;
+      height: 20px;
+      background: #d1d5db;
+    }
+
+    .tap-logo {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #1A2B70;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .tap-text {
+      font-size: 14px;
+      color: #4b5563;
+      font-weight: 500;
+    }
+
+    .visa-logo {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1a1f71;
+      letter-spacing: 0.5px;
+    }
+
+    .mastercard-logo {
+      width: 32px;
+      height: 20px;
+      background: linear-gradient(135deg, #eb001b 0%, #f79e1b 100%);
+      border-radius: 4px;
+      position: relative;
+    }
+
+    .mastercard-logo::before {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #eb001b;
+      top: 2px;
+      left: 6px;
+    }
+
+    .mastercard-logo::after {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #f79e1b;
+      top: 2px;
+      right: 6px;
+    }
+
+    .amex-logo {
+      font-size: 12px;
+      font-weight: 700;
+      color: #006fcf;
+      letter-spacing: 0.5px;
+    }
+
+    .knet-logo {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      background: #0066cc;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .payment-logo-text {
+      font-size: 12px;
+      color: #6b7280;
+      margin-left: 4px;
     }
 
 
     @media (max-width: 768px) {
-      .popup-payment-container {
-        min-height: 100vh;
-        padding: 20px;
-        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-      }
-
       .popup-payment-content {
         padding: 40px 30px;
         border-radius: 20px;
         max-width: 100%;
       }
 
-      .popup-payment-icon {
-        font-size: 56px;
-        margin-bottom: 24px;
-      }
-
-      .popup-payment-title {
-        font-size: 28px;
-        margin-bottom: 12px;
-      }
-
-      .popup-payment-description {
-        font-size: 16px;
-        margin-bottom: 40px;
-      }
-
       .proceed-payment-button {
-        padding: 20px 40px;
-        font-size: 18px;
-        min-width: 180px;
+        padding: 14px 28px;
+        font-size: 16px;
+        min-width: 240px;
+      }
+
+      .payment-methods-logos {
+        padding: 10px 16px;
+        gap: 10px;
       }
     }
 
@@ -430,41 +466,26 @@
         font-size: 28px;
       }
 
-      .popup-payment-container {
-        padding: 15px;
-      }
-
       .popup-payment-content {
         padding: 30px 20px;
         border-radius: 16px;
       }
 
-      .popup-payment-icon {
-        font-size: 48px;
-        margin-bottom: 20px;
-      }
-
-      .popup-payment-title {
-        font-size: 24px;
-        margin-bottom: 10px;
-      }
-
-      .popup-payment-description {
-        font-size: 15px;
-        margin-bottom: 32px;
-      }
-
       .proceed-payment-button {
-        padding: 18px 36px;
-        font-size: 16px;
-        min-width: 160px;
-        border-radius: 12px;
+        padding: 14px 24px;
+        font-size: 15px;
+        min-width: 220px;
+      }
+
+      .payment-methods-logos {
+        padding: 8px 12px;
+        gap: 8px;
       }
     }
   </style>
 </head>
 <body>
-  <div class="payment-container" id="payment-container">
+  <div class="payment-container" id="payment-container" style="display: none;">
     <div class="payment-body" id="payment-body">
       <!-- Payment form will be populated when GHL data is received -->
     </div>
@@ -904,6 +925,12 @@
         console.log('👤 Customer info received:', data.contact);
       }
       
+      // Hide payment container initially - only show popup for Safari
+      const paymentContainer = document.querySelector('.payment-container');
+      if (paymentContainer) {
+        paymentContainer.style.display = 'none';
+      }
+      
       // Automatically create charge
       setTimeout(() => {
         console.log('🚀 Auto-creating charge...');
@@ -1024,63 +1051,34 @@
       if (createChargeBtn) createChargeBtn.disabled = false;
     }
 
-    function showProcessingState() {
-      // Hide all payment UI elements
-      document.getElementById('create-charge-btn').style.display = 'none';
-      document.getElementById('payment-form').style.display = 'none';
-      document.getElementById('waiting-state').style.display = 'none';
-      
-      // Hide the entire payment body and show only spinner
-      const paymentBody = document.querySelector('.payment-body');
-      paymentBody.innerHTML = `
-        <div class="payment-amount">
-          <div class="amount-label">Amount to Pay</div>
-          <div class="amount-value" id="amount-display">${paymentData ? paymentData.amount + ' ' + paymentData.currency : '1.00 JOD'}</div>
-        </div>
-        
-        <div class="processing-container">
-          <div class="processing-spinner"></div>
-        </div>
-      `;
-    }
-
-    function hideProcessingState() {
-      const processingDiv = document.getElementById('processing-message');
-      if (processingDiv) {
-        processingDiv.remove();
-      }
-    }
-
     function showButton() {
-      // Show payment container
-      document.getElementById('payment-container').style.display = 'block';
-      
-      // Keep the clean UI but add a retry button
-      const paymentBody = document.querySelector('.payment-body');
-      paymentBody.innerHTML = `
-        <div class="payment-amount">
-          <div class="amount-label">Amount to Pay</div>
-          <div class="amount-value" id="amount-display">${paymentData ? paymentData.amount + ' ' + paymentData.currency : '1.00 JOD'}</div>
-        </div>
-
-        <div class="error-message" id="error-message"></div>
-        <div class="success-message" id="success-message"></div>
-
-        <div class="processing-container">
-          <div class="processing-spinner"></div>
-        </div>
-
-        <div class="retry-container">
-          <button id="retry-btn" type="button" class="payment-button">
-            <span>Retry Payment</span>
-          </button>
-        </div>
-      `;
-
-      // Add retry button event listener
-      document.getElementById('retry-btn').addEventListener('click', () => {
-        createCharge();
-      });
+      // Show payment container for error cases (only Safari)
+      if (isSafari) {
+        const paymentContainer = document.getElementById('payment-container');
+        if (paymentContainer) {
+          paymentContainer.style.display = 'block';
+        }
+        
+        const paymentBody = document.querySelector('.payment-body');
+        if (paymentBody) {
+          paymentBody.innerHTML = `
+            <div class="popup-payment-content">
+              <div class="error-message" id="error-message" style="display: block; margin-bottom: 20px;"></div>
+              <button id="retry-btn" type="button" class="proceed-payment-button">
+                <span class="button-text">Retry Payment</span>
+              </button>
+            </div>
+          `;
+          
+          // Add retry button event listener
+          const retryBtn = document.getElementById('retry-btn');
+          if (retryBtn) {
+            retryBtn.addEventListener('click', () => {
+              createCharge();
+            });
+          }
+        }
+      }
     }
 
     function showError(message) {
@@ -1118,19 +1116,6 @@
       }
     }
 
-    function showResult(data) {
-      const resultSection = document.getElementById('result-section');
-      const resultContent = document.getElementById('charge-result');
-      
-      if (resultContent) {
-        resultContent.textContent = 'Charge Response:\n' + JSON.stringify(data, null, 2);
-      }
-      
-      if (resultSection) {
-        resultSection.style.display = 'block';
-        resultSection.scrollIntoView({ behavior: 'smooth' });
-      }
-    }
 
     // Create charge using the new Charge API
     async function createCharge() {
@@ -1247,30 +1232,29 @@
 
         if (tapResponse.ok && result.success && result.charge) {
           console.log('✅ Tap charge created successfully:', result.charge);
-          showSuccess('🎉 Charge created successfully! Redirecting to payment page...');
-          showResult(result.charge);
           
           // Handle payment redirect based on browser
           if (result.charge.transaction?.url) {
             console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
             
-            if (isSafari) {
-              // Use popup for Safari to avoid iframe payment restrictions
-              console.log('🍎 Safari detected - using popup for payment');
-              const popupOpened = openPaymentPopup(result.charge.transaction.url);
-              
-              if (!popupOpened) {
-                // Show manual payment option instead of direct redirect
-                console.log('⚠️ Popup blocked - showing manual payment option');
-                // The showManualPaymentButton function is already called in openPaymentPopup
-                return; // Don't proceed with direct redirect
+            // Double-check Safari detection before showing popup
+            const currentSafariCheck = detectSafari();
+            if (currentSafariCheck) {
+              // Use popup ONLY for Safari (desktop and mobile) to avoid iframe payment restrictions
+              console.log('🍎 Safari detected (desktop/mobile) - showing proceed payment popup');
+              console.log('📱 User Agent:', navigator.userAgent);
+              const paymentContainer = document.querySelector('.payment-container');
+              if (paymentContainer) {
+                paymentContainer.style.display = 'block';
               }
+              showProceedPaymentPopup(result.charge.transaction.url);
             } else {
-              // Direct redirect for other browsers
-              console.log('🌐 Non-Safari browser - using direct redirect');
+              // Direct redirect for all other browsers - NO POPUP
+              console.log('🌐 Non-Safari browser detected - using direct redirect (NO POPUP)');
+              console.log('🌐 User Agent:', navigator.userAgent);
               setTimeout(() => {
                 window.location.href = result.charge.transaction.url;
-              }, 2000);
+              }, 500);
             }
           } else {
             showError('No checkout URL received from Tap');
@@ -1294,488 +1278,176 @@
       }
     }
 
-    // Detect Safari browser
+    // Detect Safari browser (desktop and mobile)
     function detectSafari() {
       const userAgent = navigator.userAgent;
-      const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent);
+      
+      // Check for Chrome first (Chrome on iOS reports as Safari but has Chrome in userAgent)
+      if (/Chrome/.test(userAgent) && !/Chromium/.test(userAgent)) {
+        // Chrome browser (desktop or mobile)
+        return false;
+      }
+      
+      // Check for Firefox
+      if (/Firefox/.test(userAgent)) {
+        return false;
+      }
+      
+      // Check for Edge
+      if (/Edg/.test(userAgent) || /Edge/.test(userAgent)) {
+        return false;
+      }
+      
+      // Check for Opera
+      if (/Opera/.test(userAgent) || /OPR/.test(userAgent)) {
+        return false;
+      }
+      
+      // iOS devices (iPhone, iPad, iPod) - all use Safari
       const isIOS = /iPad|iPhone|iPod/.test(userAgent);
-      const isMacSafari = /Macintosh/.test(userAgent) && /Safari/.test(userAgent) && !/Chrome/.test(userAgent);
+      if (isIOS) {
+        // Additional check: iPad on iOS 13+ might report as Mac, so check for touch
+        if (/Macintosh/.test(userAgent) && 'ontouchend' in document) {
+          return true; // iPad running iOS 13+
+        }
+        return true; // iPhone/iPod/iPad (iOS < 13)
+      }
       
-      return isSafari || isIOS || isMacSafari;
-    }
-
-    // Open payment in popup for Safari compatibility
-    function openPaymentPopup(url) {
-      console.log('🔗 Opening payment popup for Safari compatibility:', url);
+      // macOS Safari (desktop) - must have Safari but not Chrome
+      const isMac = /Macintosh/.test(userAgent);
+      const hasSafari = /Safari/.test(userAgent);
+      const noChrome = !/Chrome/.test(userAgent) && !/Chromium/.test(userAgent);
       
-      // Try multiple popup approaches for better compatibility
-      const popupFeatures = 'width=800,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no,left=' + (screen.width/2 - 400) + ',top=' + (screen.height/2 - 300);
+      if (isMac && hasSafari && noChrome) {
+        return true; // macOS Safari
+      }
       
-      // First attempt: Standard popup
-      paymentPopup = window.open(url, 'tap_payment', popupFeatures);
-      
-      if (!paymentPopup || paymentPopup.closed || typeof paymentPopup.closed === 'undefined') {
-        console.warn('⚠️ First popup attempt failed, trying alternative method...');
-        
-        // Second attempt: Try with different features
-        paymentPopup = window.open(url, 'tap_payment', 'width=800,height=600,scrollbars=yes,resizable=yes');
-        
-        if (!paymentPopup || paymentPopup.closed || typeof paymentPopup.closed === 'undefined') {
-          console.log('⚠️ Popup blocked - showing clean payment interface');
-          
-          // Show clean popup with proceed button
-          showManualPaymentButton(url);
-          return false;
+      // Additional Safari detection for older versions or edge cases
+      if (/^((?!chrome|android).)*safari/i.test(userAgent)) {
+        // Make sure it's not Chrome by checking vendor
+        const isChrome = /Google Inc/.test(navigator.vendor);
+        if (!isChrome) {
+          return true;
         }
       }
       
-      // Focus the popup
-      try {
-        paymentPopup.focus();
-      } catch (e) {
-        console.warn('⚠️ Could not focus popup:', e.message);
-      }
-      
-      // Monitor popup for completion
-      const checkClosed = setInterval(() => {
-        if (paymentPopup.closed) {
-          clearInterval(checkClosed);
-          console.log('🔍 Payment popup closed');
-          
-          // Check if payment was successful by querying the status
-          checkPaymentStatus();
-        }
-      }, 1000);
-      
-      // Listen for messages from popup
-      const messageHandler = (event) => {
-        if (event.data && event.data.type === 'payment_completed') {
-          console.log('📨 Received payment completion message from popup:', event.data);
-          
-          if (event.data.success) {
-            console.log('✅ Payment completed successfully via popup');
-            showSuccess('🎉 Payment completed successfully!');
-            sendSuccessResponse(event.data.params?.charge_id || 'popup_success');
-            
-            // Auto-close after success
-            setTimeout(() => {
-              if (window.parent && window.parent !== window) {
-                window.parent.postMessage(JSON.stringify({
-                  type: 'payment_completed',
-                  success: true,
-                  chargeId: event.data.params?.charge_id || 'popup_success'
-                }), '*');
-              }
-            }, 2000);
-          } else {
-            console.log('❌ Payment failed via popup');
-            showError('Payment was not completed. Please try again.');
-            sendErrorResponse('Payment was not completed');
-          }
-          
-          // Remove the message listener
-          window.removeEventListener('message', messageHandler);
-        }
-      };
-      
-      window.addEventListener('message', messageHandler);
-      
-      return true;
+      return false;
     }
 
-    // Show clean popup with proceed button
-    function showManualPaymentButton(url) {
-      const paymentBody = document.querySelector('.payment-body');
-      if (paymentBody) {
-        paymentBody.innerHTML = `
-  
-              <div class="popup-payment-icon">
-                <i class="fas fa-credit-card"></i>
-              </div>
-              <h2 class="popup-payment-title">Complete Your Payment</h2>
-              <p class="popup-payment-description">Click the button below to proceed with your payment</p>
-              <button id="proceed-payment-btn" class="proceed-payment-button" onclick="openPaymentInNewTab('${url}')">
-                <i class="fas fa-arrow-right"></i>
-                Proceed
-              </button>
-        
-        `;
-      }
-    }
-
-    // Open payment in new tab and start monitoring
-    function openPaymentInNewTab(url) {
-      console.log('🔗 Opening payment in new tab:', url);
-      
-      // Open in new tab
-      const newTab = window.open(url, '');
-      
-      if (newTab) {
-        console.log('✅ New tab opened successfully');
-        
-        // Update UI to show monitoring state
-        const paymentBody = document.querySelector('.payment-body');
-        if (paymentBody) {
-          paymentBody.innerHTML = `
-            <div class="popup-payment-container">
-              <div class="popup-payment-content">
-                <div class="popup-payment-icon" style="color: #3b82f6;">
-                  <i class="fas fa-external-link-alt"></i>
-                </div>
-                <h2 class="popup-payment-title">Payment Opened</h2>
-                <p class="popup-payment-description">Payment page opened in new tab. Complete your payment and we'll automatically detect when it's done.</p>
-                <button id="check-payment-status-btn" class="proceed-payment-button" onclick="checkPaymentStatus()">
-                  <i class="fas fa-sync-alt"></i>
-                  Check Status
-                </button>
-              </div>
-            </div>
-          `;
-        }
-        
-        // Start automatic status checking
-        startAutomaticStatusCheck();
-      } else {
-        console.error('❌ Failed to open new tab');
-        showError('Failed to open payment page. Please check your browser settings and try again.');
-      }
-    }
-
-    // Start automatic status checking
-    function startAutomaticStatusCheck() {
-      console.log('🔄 Starting automatic payment status monitoring...');
-      
-      let checkCount = 0;
-      const maxChecks = 60; // Check for 5 minutes (60 * 5 seconds)
-      
-      const statusCheckInterval = setInterval(async () => {
-        checkCount++;
-        console.log(`🔍 Automatic status check #${checkCount}`);
-        
-        try {
-          const response = await fetch('/api/charge/last-status', {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
-            }
-          });
-          
-          if (response.ok) {
-            const result = await response.json();
-            
-            if (result.success && result.charge) {
-              const status = result.charge.status;
-              
-              if (status === 'CAPTURED' || status === 'SUCCESS') {
-                console.log('✅ Payment completed successfully!');
-                clearInterval(statusCheckInterval);
-                
-                // Update UI to show success
-                const paymentBody = document.querySelector('.payment-body');
-                if (paymentBody) {
-                  paymentBody.innerHTML = `
-                    <div class="popup-payment-container">
-                      <div class="popup-payment-content">
-                        <div class="popup-payment-icon" style="color: #10b981;">
-                          <i class="fas fa-check-circle"></i>
-                        </div>
-                        <h2 class="popup-payment-title" style="color: #10b981;">Payment Successful!</h2>
-                        <p class="popup-payment-description">Your payment has been processed successfully. Redirecting...</p>
-                        <div style="margin-top: 32px;">
-                          <div class="proceed-payment-button" style="background: #10b981; cursor: default;">
-                            <i class="fas fa-spinner fa-spin"></i>
-                            Processing...
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  `;
-                }
-                
-                sendSuccessResponse(result.charge.id);
-                
-                // Auto-redirect after success
-                setTimeout(() => {
-                  if (window.parent && window.parent !== window) {
-                    window.parent.postMessage(JSON.stringify({
-                      type: 'payment_completed',
-                      success: true,
-                      chargeId: result.charge.id
-                    }), '*');
-                  }
-                }, 2000);
-                
-                return;
-              } else if (status === 'FAILED' || status === 'CANCELLED') {
-                console.log('❌ Payment failed');
-                clearInterval(statusCheckInterval);
-                
-                // Update UI to show failure
-                const paymentBody = document.querySelector('.payment-body');
-                if (paymentBody) {
-                  paymentBody.innerHTML = `
-                    <div class="popup-payment-container">
-                      <div class="popup-payment-content">
-                        <div class="popup-payment-icon" style="color: #dc2626;">
-                          <i class="fas fa-times-circle"></i>
-                        </div>
-                        <h2 class="popup-payment-title" style="color: #dc2626;">Payment Failed</h2>
-                        <p class="popup-payment-description">Your payment could not be processed. Please try again.</p>
-                        <button id="retry-payment-btn" class="proceed-payment-button" onclick="location.reload()" style="background: #dc2626;">
-                          <i class="fas fa-redo"></i>
-                          Try Again
-                        </button>
-                      </div>
-                    </div>
-                  `;
-                }
-                
-                sendErrorResponse('Payment was not completed');
-                return;
-              }
-            }
-          }
-          
-          // Stop checking after max attempts
-          if (checkCount >= maxChecks) {
-            console.log('⏰ Automatic status check timeout');
-            clearInterval(statusCheckInterval);
-            
-            // Update UI to show timeout
-            const paymentBody = document.querySelector('.payment-body');
-            if (paymentBody) {
-              paymentBody.innerHTML = `
-                <div class="popup-payment-container">
-                  <div class="popup-payment-content">
-                    <div class="popup-payment-icon" style="color: #f59e0b;">
-                      <i class="fas fa-clock"></i>
-                    </div>
-                    <h2 class="popup-payment-title" style="color: #f59e0b;">Still Processing</h2>
-                    <p class="popup-payment-description">Payment is taking longer than expected. You can check manually or try again.</p>
-                    <button id="check-payment-status-btn" class="proceed-payment-button" onclick="checkPaymentStatus()">
-                      <i class="fas fa-sync-alt"></i>
-                      Check Status Manually
-                    </button>
-                    <button id="retry-payment-btn" class="proceed-payment-button" onclick="location.reload()" style="background: #6b7280; margin-top: 10px;">
-                      <i class="fas fa-redo"></i>
-                      Try Again
-                    </button>
-                  </div>
-                </div>
-              `;
-            }
-          }
-        } catch (error) {
-          console.error('❌ Error in automatic status check:', error);
-        }
-      }, 5000); // Check every 5 seconds
-    }
-
-    // Check payment status after popup closes
-    async function checkPaymentStatus() {
-      if (!paymentData) {
-        console.error('❌ No payment data available for status check');
+    // Show proceed payment popup for Safari only
+    function showProceedPaymentPopup(url) {
+      // Final safety check - ensure this is Safari
+      const finalSafariCheck = detectSafari();
+      if (!finalSafariCheck) {
+        console.error('❌ Security: showProceedPaymentPopup called but not Safari! Redirecting instead.');
+        setTimeout(() => {
+          window.location.href = url;
+        }, 500);
         return;
       }
       
-      try {
-        console.log('🔍 Checking payment status...');
-        
-        // Show loading state
-        const proceedBtn = document.getElementById('proceed-payment-btn');
-        if (proceedBtn) {
-          proceedBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
-          proceedBtn.disabled = true;
-        }
-        
-        // Query the last charge status
-        const response = await fetch('/api/charge/last-status', {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
-          }
-        });
-        
-        if (response.ok) {
-          const result = await response.json();
-          console.log('📊 Payment status:', result);
-          
-          if (result.success && result.charge) {
-            const status = result.charge.status;
-            
-            if (status === 'CAPTURED' || status === 'SUCCESS') {
-              console.log('✅ Payment successful');
-              
-              // Update UI to show success
-              const paymentBody = document.querySelector('.payment-body');
-              if (paymentBody) {
-                paymentBody.innerHTML = `
-                  <div class="popup-payment-container">
-                    <div class="popup-payment-content">
-                      <div class="popup-payment-icon" style="color: #10b981;">
-                        <i class="fas fa-check-circle"></i>
-                      </div>
-                      <h2 class="popup-payment-title" style="color: #10b981;">Payment Successful!</h2>
-                      <p class="popup-payment-description">Your payment has been processed successfully. Redirecting...</p>
-                    </div>
-                  </div>
-                `;
-              }
-              
-              sendSuccessResponse(result.charge.id);
-              
-              // Auto-redirect after success
-              setTimeout(() => {
-                if (window.parent && window.parent !== window) {
-                  window.parent.postMessage(JSON.stringify({
-                    type: 'payment_completed',
-                    success: true,
-                    chargeId: result.charge.id
-                  }), '*');
-                }
-              }, 2000);
-            } else if (status === 'FAILED' || status === 'CANCELLED') {
-              console.log('❌ Payment failed');
-              
-              // Update UI to show failure
-              const paymentBody = document.querySelector('.payment-body');
-              if (paymentBody) {
-                paymentBody.innerHTML = `
-                  <div class="popup-payment-container">
-                    <div class="popup-payment-content">
-                      <div class="popup-payment-icon" style="color: #dc2626;">
-                        <i class="fas fa-times-circle"></i>
-                      </div>
-                      <h2 class="popup-payment-title" style="color: #dc2626;">Payment Failed</h2>
-                      <p class="popup-payment-description">Your payment could not be processed. Please try again.</p>
-                      <button id="retry-payment-btn" class="proceed-payment-button" onclick="location.reload()">
-                        <i class="fas fa-redo"></i>
-                        Try Again
-                      </button>
-                    </div>
-                  </div>
-                `;
-              }
-              
-              sendErrorResponse('Payment was not completed');
-            } else {
-              console.log('⏳ Payment pending:', status);
-              
-              // Reset button for retry
-              if (proceedBtn) {
-                proceedBtn.innerHTML = '<i class="fas fa-arrow-right"></i> Proceed';
-                proceedBtn.disabled = false;
-              }
-              
-              // Show pending message
-              const paymentBody = document.querySelector('.payment-body');
-              if (paymentBody) {
-                paymentBody.innerHTML = `
-                  <div class="popup-payment-container">
-                    <div class="popup-payment-content">
-                      <div class="popup-payment-icon" style="color: #f59e0b;">
-                        <i class="fas fa-clock"></i>
-                      </div>
-                      <h2 class="popup-payment-title" style="color: #f59e0b;">Payment Processing</h2>
-                      <p class="popup-payment-description">Your payment is still being processed. Please wait a moment and check again.</p>
-                      <button id="check-again-btn" class="proceed-payment-button" onclick="checkPaymentStatus()">
-                        <i class="fas fa-sync-alt"></i>
-                        Check Again
-                      </button>
-                    </div>
-                  </div>
-                `;
-              }
-            }
-          } else {
-            console.log('❌ No charge data found');
-            
-            // Reset button for retry
-            if (proceedBtn) {
-              proceedBtn.innerHTML = '<i class="fas fa-arrow-right"></i> Proceed';
-              proceedBtn.disabled = false;
-            }
-            
-            // Show error message
-            const paymentBody = document.querySelector('.payment-body');
-            if (paymentBody) {
-              paymentBody.innerHTML = `
-                <div class="popup-payment-container">
-                  <div class="popup-payment-content">
-                    <div class="popup-payment-icon" style="color: #dc2626;">
-                      <i class="fas fa-exclamation-triangle"></i>
-                    </div>
-                    <h2 class="popup-payment-title" style="color: #dc2626;">Unable to Verify</h2>
-                    <p class="popup-payment-description">Unable to verify payment status. Please try again.</p>
-                    <button id="retry-payment-btn" class="proceed-payment-button" onclick="location.reload()">
-                      <i class="fas fa-redo"></i>
-                      Try Again
-                    </button>
-                  </div>
-                </div>
-              `;
-            }
-          }
-        } else {
-          console.error('❌ Failed to check payment status');
-          
-          // Reset button for retry
-          if (proceedBtn) {
-            proceedBtn.innerHTML = '<i class="fas fa-arrow-right"></i> Proceed';
-            proceedBtn.disabled = false;
-          }
-          
-          // Show error message
-          const paymentBody = document.querySelector('.payment-body');
-          if (paymentBody) {
-            paymentBody.innerHTML = `
-              <div class="popup-payment-container">
-                <div class="popup-payment-content">
-                  <div class="popup-payment-icon" style="color: #dc2626;">
-                    <i class="fas fa-exclamation-triangle"></i>
-                  </div>
-                  <h2 class="popup-payment-title" style="color: #dc2626;">Connection Error</h2>
-                  <p class="popup-payment-description">Unable to verify payment status. Please check your connection and try again.</p>
-                  <button id="retry-payment-btn" class="proceed-payment-button" onclick="location.reload()">
-                    <i class="fas fa-redo"></i>
-                    Try Again
-                  </button>
-                </div>
-              </div>
-            `;
-          }
-        }
-      } catch (error) {
-        console.error('❌ Error checking payment status:', error);
-        
-        // Reset button for retry
-        const proceedBtn = document.getElementById('proceed-payment-btn');
-        if (proceedBtn) {
-          proceedBtn.innerHTML = '<i class="fas fa-arrow-right"></i> Proceed';
-          proceedBtn.disabled = false;
-        }
-        
-        // Show error message
-        const paymentBody = document.querySelector('.payment-body');
-        if (paymentBody) {
-          paymentBody.innerHTML = `
-            <div class="popup-payment-container">
-              <div class="popup-payment-content">
-                <div class="popup-payment-icon" style="color: #dc2626;">
-                  <i class="fas fa-exclamation-triangle"></i>
-                </div>
-                <h2 class="popup-payment-title" style="color: #dc2626;">Error</h2>
-                <p class="popup-payment-description">An error occurred while checking payment status. Please try again.</p>
-                <button id="retry-payment-btn" class="proceed-payment-button" onclick="location.reload()">
-                  <i class="fas fa-redo"></i>
-                  Try Again
-                </button>
-              </div>
+      console.log('🔗 Showing proceed payment popup for Safari:', url);
+      console.log('🔍 Final Safari verification:', {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        isMobile: /iPhone|iPad|iPod/.test(navigator.userAgent) || ('ontouchend' in document)
+      });
+      
+      const paymentBody = document.querySelector('.payment-body');
+      const paymentContainer = document.querySelector('.payment-container');
+      
+      if (paymentBody && paymentContainer) {
+        // Show popup content directly without any card before
+        paymentBody.innerHTML = `
+          <div class="popup-payment-content">
+            <!-- Loading Spinner -->
+            <div class="loading-spinner-container">
+              <div class="payment-loading-spinner"></div>
             </div>
-          `;
+            
+            <!-- Proceed Payment Button -->
+            <button id="proceed-payment-btn" class="proceed-payment-button">
+              <span class="button-arrow">→</span>
+              <span class="button-text">الذهاب لصفحة الدفع</span>
+            </button>
+            
+            <!-- Payment Methods -->
+            <div class="payment-methods-logos">
+              <div class="payment-logo-item">
+                <span class="tap-logo">T</span>
+                <span class="tap-text">tap</span>
+              </div>
+              <div class="payment-logo-separator"></div>
+              <div class="payment-logo-item">
+                <span class="visa-logo">VISA</span>
+              </div>
+              <div class="payment-logo-item">
+                <div class="mastercard-logo"></div>
+              </div>
+              <div class="payment-logo-item">
+                <span class="amex-logo">AMEX</span>
+              </div>
+              <div class="payment-logo-item">
+                <span class="knet-logo">K</span>
+              </div>
+              <div class="payment-logo-text">and more</div>
+            </div>
+          </div>
+        `;
+      }
+      
+      // Monitor for payment completion by checking popup window
+      const checkClosed = setInterval(() => {
+        if (paymentPopup && paymentPopup.closed) {
+          clearInterval(checkClosed);
+          console.log('🔍 Payment window closed');
+          
+          // Check payment status automatically
+          setTimeout(async () => {
+            try {
+              const response = await fetch('/api/charge/last-status', {
+                method: 'GET',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                }
+              });
+              
+              if (response.ok) {
+                const result = await response.json();
+                if (result.success && result.charge) {
+                  const status = result.charge.status;
+                  if (status === 'CAPTURED' || status === 'SUCCESS') {
+                    sendSuccessResponse(result.charge.id);
+                    if (window.parent && window.parent !== window) {
+                      window.parent.postMessage(JSON.stringify({
+                        type: 'payment_completed',
+                        success: true,
+                        chargeId: result.charge.id
+                      }), '*');
+                    }
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('❌ Error checking payment status:', error);
+            }
+          }, 2000);
         }
+      }, 1000);
+      
+      // Store URL for button click
+      window.openPaymentUrl = url;
+      
+      // Update button to open popup window
+      const proceedBtn = document.getElementById('proceed-payment-btn');
+      if (proceedBtn) {
+        proceedBtn.onclick = function() {
+          paymentPopup = window.open(url, 'tap_payment', 'width=800,height=600,scrollbars=yes,resizable=yes');
+          if (paymentPopup) {
+            paymentPopup.focus();
+          }
+        };
       }
     }
 
@@ -1783,12 +1455,21 @@
     document.addEventListener('DOMContentLoaded', function() {
       console.log('🚀 Charge API Integration Loaded Successfully');
       
-      // Detect Safari
+      // Detect Safari (desktop and mobile)
       isSafari = detectSafari();
       console.log('🔍 Browser detection:', {
         isSafari: isSafari,
-        userAgent: navigator.userAgent
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        vendor: navigator.vendor,
+        hasTouch: 'ontouchend' in document
       });
+      
+      if (isSafari) {
+        console.log('✅ Safari detected - Popup will be shown for payment');
+      } else {
+        console.log('✅ Non-Safari browser detected - Direct redirect will be used');
+      }
       
       console.log('🔍 Window context:', {
         isIframe: window !== window.top,
