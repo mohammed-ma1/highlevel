@@ -265,6 +265,7 @@
       flex-direction: column;
       align-items: center;
       gap: 32px;
+      box-sizing: border-box;
     }
 
     .loading-spinner-container {
@@ -298,7 +299,10 @@
       justify-content: center;
       gap: 12px;
       min-width: 280px;
+      width: 100%;
+      max-width: 400px;
       position: relative;
+      box-sizing: border-box;
     }
 
     .proceed-payment-button:hover {
@@ -328,6 +332,15 @@
       border: 1px solid #e5e7eb;
       border-radius: 20px;
       background: #fafafa;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+
+    .payment-methods-logos img.payment-logo {
+      max-width: 100%;
+      height: auto;
+      display: block;
     }
 
     .payment-logo-item {
@@ -426,60 +439,195 @@
 
 
     @media (max-width: 768px) {
+      body {
+        padding: 15px;
+      }
+
       .popup-payment-content {
         padding: 40px 30px;
         border-radius: 20px;
         max-width: 100%;
+        gap: 28px;
+      }
+
+      .loading-spinner-container {
+        margin-bottom: 16px;
+      }
+
+      .payment-loading-spinner {
+        width: 45px;
+        height: 45px;
+        border-width: 3px;
       }
 
       .proceed-payment-button {
         padding: 14px 28px;
         font-size: 16px;
-        min-width: 240px;
+        min-width: auto;
+        width: 100%;
+        max-width: 350px;
+        gap: 10px;
+      }
+
+      .button-arrow {
+        font-size: 18px;
       }
 
       .payment-methods-logos {
         padding: 10px 16px;
         gap: 10px;
       }
+
+      .tap-logo {
+        width: 22px;
+        height: 22px;
+        font-size: 13px;
+      }
+
+      .tap-text {
+        font-size: 13px;
+      }
+
+      .visa-logo {
+        font-size: 13px;
+      }
+
+      .mastercard-logo {
+        width: 28px;
+        height: 18px;
+      }
+
+      .amex-logo {
+        font-size: 11px;
+      }
+
+      .knet-logo {
+        width: 22px;
+        height: 22px;
+        font-size: 13px;
+      }
+
+      .payment-logo-text {
+        font-size: 11px;
+      }
     }
 
     @media (max-width: 480px) {
-      .payment-container {
-        margin: 10px;
-        border-radius: 16px;
+      body {
+        padding: 10px;
       }
-      
-      .payment-header {
-        padding: 30px 20px;
+
+      .payment-container {
+        margin: 0;
       }
       
       .payment-body {
-        padding: 30px 20px;
-      }
-      
-      .payment-header h1 {
-        font-size: 24px;
-      }
-      
-      .amount-value {
-        font-size: 28px;
+        padding: 10px;
+        min-height: calc(100vh - 20px);
       }
 
       .popup-payment-content {
         padding: 30px 20px;
         border-radius: 16px;
+        gap: 24px;
+        max-width: 100%;
+      }
+
+      .loading-spinner-container {
+        margin-bottom: 12px;
+      }
+
+      .payment-loading-spinner {
+        width: 40px;
+        height: 40px;
+        border-width: 3px;
       }
 
       .proceed-payment-button {
-        padding: 14px 24px;
+        padding: 14px 20px;
         font-size: 15px;
-        min-width: 220px;
+        min-width: auto;
+        width: 100%;
+        max-width: 100%;
+        gap: 8px;
+      }
+
+      .button-arrow {
+        font-size: 16px;
+      }
+
+      .button-text {
+        font-size: 15px;
       }
 
       .payment-methods-logos {
         padding: 8px 12px;
         gap: 8px;
+        border-radius: 16px;
+      }
+
+      .tap-logo {
+        width: 20px;
+        height: 20px;
+        font-size: 12px;
+      }
+
+      .tap-text {
+        font-size: 12px;
+      }
+
+      .visa-logo {
+        font-size: 12px;
+      }
+
+      .mastercard-logo {
+        width: 26px;
+        height: 16px;
+      }
+
+      .mastercard-logo::before,
+      .mastercard-logo::after {
+        width: 14px;
+        height: 14px;
+      }
+
+      .amex-logo {
+        font-size: 10px;
+      }
+
+      .knet-logo {
+        width: 20px;
+        height: 20px;
+        font-size: 12px;
+      }
+
+      .payment-logo-text {
+        font-size: 10px;
+      }
+
+      .payment-logo-separator {
+        height: 18px;
+      }
+    }
+
+    @media (max-width: 360px) {
+      .popup-payment-content {
+        padding: 25px 15px;
+        gap: 20px;
+      }
+
+      .proceed-payment-button {
+        padding: 12px 18px;
+        font-size: 14px;
+      }
+
+      .button-text {
+        font-size: 14px;
+      }
+
+      .payment-methods-logos {
+        padding: 6px 10px;
+        gap: 6px;
       }
     }
   </style>

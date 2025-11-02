@@ -344,71 +344,13 @@
           
           // Auto-redirect to MediaSolution preview page after 2 seconds
           setTimeout(() => {
-            window.location.href = 'https://app.gohighlevel.com/v2/preview/QTXkjjLqoxPMLOSOEDfq';
+            window.location.href = 'https://app.mediasolution.io/v2/preview/hjlbiZ2niIjjWetPSvT5';
           }, 2000);
         }
         
         // Hide action buttons since we're auto-processing
         actionButtons.style.display = 'none';
-      } else if (isFailed) {
-        // Payment failed
-        statusMessage.innerHTML = '<div class="error-badge"><i class="fas fa-times-circle"></i> Payment Failed</div>';
-        redirectTitle.textContent = 'Payment Failed';
-        redirectMessage.textContent = 'Your payment could not be processed. Please try again.';
-        
-        // Send error message to parent window if in popup
-        if (isPopup()) {
-          sendMessageToParent({
-            type: 'payment_completed',
-            success: false,
-            status: 'FAILED',
-            params: params
-          });
-          
-          // Close popup after a short delay
-          setTimeout(() => {
-            window.close();
-          }, 3000);
-        } else {
-          // Auto-redirect to failure page
-          setTimeout(() => {
-            window.location.href = 'https://app.gohighlevel.com/v2/preview/FHNVMDKeSCxgu8V07UUO';
-          }, 2000);
-          
-          // Send error response to GoHighLevel
-          const errorMessage = params.message || 'Payment failed. Please try again.';
-          sendErrorToGHL(errorMessage);
-        }
-        
-        actionButtons.style.display = 'flex';
-      } else {
-        // Unknown status - show both processed and raw status for debugging
-        statusMessage.innerHTML = '<div class="warning-badge"><i class="fas fa-exclamation-triangle"></i> Payment Status Unknown</div>';
-        redirectTitle.textContent = 'Payment Status Unknown';
-        redirectMessage.textContent = 'Unable to determine payment status. Please check back later.';
-        
-        // Send unknown status message to parent window if in popup
-        if (isPopup()) {
-          sendMessageToParent({
-            type: 'payment_completed',
-            success: false,
-            status: 'UNKNOWN',
-            params: params
-          });
-          
-          // Close popup after a short delay
-          setTimeout(() => {
-            window.close();
-          }, 3000);
-        } else {
-          // Auto-redirect to failure page
-          setTimeout(() => {
-            window.location.href = 'https://app.gohighlevel.com/v2/preview/FHNVMDKeSCxgu8V07UUO';
-          }, 2000);
-        }
-        
-        actionButtons.style.display = 'flex';
-      }
+      } 
 
       statusMessage.style.display = 'block';
     }
