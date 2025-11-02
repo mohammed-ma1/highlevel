@@ -325,111 +325,132 @@
                 <div class="card-body">
                     <form method="POST" action="{{ route('provider.connect_or_disconnect') }}" id="paymentForm">
                         @csrf
-                        <input type="hidden" id="information" name="information">
+                        <input type="hidden" id="information" name="information" value="{{ old('information', request()->input('information')) }}">
 
-                        {{-- Connection Status --}}
-                        <div class="section">
-                            <div class="status-indicator status-connected">
-                                <span>🟢</span>
-                                <span>Payment Provider Ready</span>
-                            </div>
-                        </div>
-
-                        {{-- API Keys Section --}}
-                        <div class="section">
-                            <h2 class="section-title">API Configuration</h2>
-                            <p class="help-text">Enter your Tap Payment API keys. These are only used when connecting your provider.</p>
-                            
-                            <div class="form-grid">
-                                <div class="form-group">
-                                    <label class="form-label">Live API Key</label>
-                                    <input 
-                                        name="live_apiKey" 
-                                        type="text" 
-                                        value="{{ old('live_apiKey') }}" 
-                                        placeholder="live_xxx" 
-                                        class="form-input"
-                                    />
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label class="form-label">Live Publishable Key</label>
-                                    <input 
-                                        name="live_publishableKey" 
-                                        type="text" 
-                                        value="{{ old('live_publishableKey') }}" 
-                                        placeholder="pk_live_xxx" 
-                                        class="form-input"
-                                    />
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label class="form-label">Live Secret Key</label>
-                                    <input 
-                                        name="live_secretKey" 
-                                        type="password" 
-                                        value="{{ old('live_secretKey') }}" 
-                                        placeholder="sk_live_xxx" 
-                                        class="form-input"
-                                    />
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label class="form-label">Test API Key</label>
-                                    <input 
-                                        name="test_apiKey" 
-                                        type="text" 
-                                        value="{{ old('test_apiKey') }}" 
-                                        placeholder="test_xxx" 
-                                        class="form-input"
-                                    />
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label class="form-label">Test Publishable Key</label>
-                                    <input 
-                                        name="test_publishableKey" 
-                                        type="text" 
-                                        value="{{ old('test_publishableKey') }}" 
-                                        placeholder="pk_test_xxx" 
-                                        class="form-input"
-                                    />
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label class="form-label">Test Secret Key</label>
-                                    <input 
-                                        name="test_secretKey" 
-                                        type="password" 
-                                        value="{{ old('test_secretKey') }}" 
-                                        placeholder="sk_test_xxx" 
-                                        class="form-input"
-                                    />
+                        @if (session('success'))
+                            {{-- Success Message --}}
+                            <div class="section">
+                                <div class="response-box response-success" style="text-align: center; padding: 2rem;">
+                                    <div style="font-size: 3rem; margin-bottom: 1rem;">✅</div>
+                                    <h2 style="font-size: 1.5rem; font-weight: 600; color: #22543d; margin-bottom: 1rem;">
+                                        Connection Successful!
+                                    </h2>
+                                    <p style="font-size: 1rem; color: #2d5016; margin-bottom: 1.5rem;">
+                                        {{ session('message') ?? 'Provider config created/updated successfully' }}
+                                    </p>
+                                    @if (session('locationId'))
+                                        <p style="font-size: 0.875rem; color: #4a5568; margin-bottom: 2rem;">
+                                            Location ID: <strong>{{ session('locationId') }}</strong>
+                                        </p>
+                                    @endif
+                                    <div style="background: #f0fff4; border: 2px solid #48bb78; border-radius: 12px; padding: 1.5rem; margin-top: 1.5rem;">
+                                        <p style="font-size: 1.125rem; font-weight: 600; color: #22543d; margin-bottom: 0.5rem;">
+                                            🎉 All done!
+                                        </p>
+                                        <p style="font-size: 1rem; color: #2d5016; margin: 0;">
+                                            You can now close this tab.
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-
-                        {{-- Action Buttons --}}
-                        <div class="action-buttons">
-                            <button type="submit" name="action" value="connect" class="btn btn-primary">
-                                <span>🔗</span>
-                                Connect Provider
-                            </button>
-                        </div>
-
-                        {{-- Response Messages --}}
-                        @if (session('api_response'))
-                            <div class="response-box response-success">
-                                <strong>✅ Success Response:</strong>
-                                <pre style="margin-top: 0.5rem; white-space: pre-wrap; font-family: 'Monaco', 'Menlo', monospace;">{{ json_encode(session('api_response'), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                        @else
+                            {{-- Connection Status --}}
+                            <div class="section">
+                                <div class="status-indicator status-connected">
+                                    <span>🟢</span>
+                                    <span>Payment Provider Ready</span>
+                                </div>
                             </div>
-                        @endif
 
-                        @if (session('api_error'))
-                            <div class="response-box response-error">
-                                <strong>❌ Error Response:</strong>
-                                <pre style="margin-top: 0.5rem; white-space: pre-wrap; font-family: 'Monaco', 'Menlo', monospace;">{{ session('api_error') }}</pre>
+                            {{-- API Keys Section --}}
+                            <div class="section">
+                                <h2 class="section-title">API Configuration</h2>
+                                <p class="help-text">Enter your Tap Payment API keys. These are only used when connecting your provider.</p>
+                                
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <label class="form-label">Live API Key</label>
+                                        <input 
+                                            name="live_apiKey" 
+                                            type="text" 
+                                            value="{{ old('live_apiKey') }}" 
+                                            placeholder="live_xxx" 
+                                            class="form-input"
+                                        />
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label class="form-label">Live Publishable Key</label>
+                                        <input 
+                                            name="live_publishableKey" 
+                                            type="text" 
+                                            value="{{ old('live_publishableKey') }}" 
+                                            placeholder="pk_live_xxx" 
+                                            class="form-input"
+                                        />
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label class="form-label">Live Secret Key</label>
+                                        <input 
+                                            name="live_secretKey" 
+                                            type="password" 
+                                            value="{{ old('live_secretKey') }}" 
+                                            placeholder="sk_live_xxx" 
+                                            class="form-input"
+                                        />
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label class="form-label">Test API Key</label>
+                                        <input 
+                                            name="test_apiKey" 
+                                            type="text" 
+                                            value="{{ old('test_apiKey') }}" 
+                                            placeholder="test_xxx" 
+                                            class="form-input"
+                                        />
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label class="form-label">Test Publishable Key</label>
+                                        <input 
+                                            name="test_publishableKey" 
+                                            type="text" 
+                                            value="{{ old('test_publishableKey') }}" 
+                                            placeholder="pk_test_xxx" 
+                                            class="form-input"
+                                        />
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label class="form-label">Test Secret Key</label>
+                                        <input 
+                                            name="test_secretKey" 
+                                            type="password" 
+                                            value="{{ old('test_secretKey') }}" 
+                                            placeholder="sk_test_xxx" 
+                                            class="form-input"
+                                        />
+                                    </div>
+                                </div>
                             </div>
+
+                            {{-- Action Buttons --}}
+                            <div class="action-buttons">
+                                <button type="submit" name="action" value="connect" class="btn btn-primary">
+                                    <span>🔗</span>
+                                    Connect Provider
+                                </button>
+                            </div>
+
+                            {{-- Error Messages --}}
+                            @if (session('api_error'))
+                                <div class="response-box response-error">
+                                    <strong>❌ Error Response:</strong>
+                                    <pre style="margin-top: 0.5rem; white-space: pre-wrap; font-family: 'Monaco', 'Menlo', monospace;">{{ session('api_error') }}</pre>
+                                </div>
+                            @endif
                         @endif
                     </form>
                 </div>
@@ -439,13 +460,25 @@
         <script>
             // Initialize form functionality
             document.addEventListener('DOMContentLoaded', function() {
-                // Set the information field
-                const information = JSON.parse(`@json(request()->input('information'))`);
-                document.getElementById('information').value = window.parent.location.href;
+                // Set the information field if not already set
+                const informationField = document.getElementById('information');
+                if (!informationField.value) {
+                    // Try to get from parent window or use current location
+                    try {
+                        informationField.value = window.parent.location.href;
+                    } catch(e) {
+                        informationField.value = window.location.href;
+                    }
+                }
                 
-                // Add form validation
+                // Add form validation (only if form is visible, not in success state)
                 const form = document.getElementById('paymentForm');
                 const connectBtn = form.querySelector('button[value="connect"]');
+                
+                // Only add validation if connect button exists
+                if (!connectBtn) {
+                    return; // Success message is showing, no need for validation
+                }
                 
                 // Connect button validation
                 connectBtn.addEventListener('click', function(e) {

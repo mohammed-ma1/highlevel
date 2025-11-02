@@ -474,17 +474,13 @@ class ClientIntegrationController extends Controller
                 ], 502);
             }
 
-            // Redirect to MediaSolution integration page after successful connection
-            $redirectUrl = "https://app.mediasolution.io/integration?selectedTab=installedApps";
-            
-            return redirect($redirectUrl)->with([
-                'api_response' => [
-                    'message'      => 'Provider config created/updated successfully',
-                    'locationId'   => $locationId,
-                    'data'         => $resp->json(),
-                    'redirect_url' => $redirectUrl
-                ]
-            ]);
+            // Return success message instead of redirecting
+            return redirect()->back()->with([
+                'success' => true,
+                'message' => 'Provider config created/updated successfully',
+                'locationId' => $locationId,
+                'api_response' => $resp->json()
+            ])->withInput($request->only('information'));
         }
 
         // disconnect
