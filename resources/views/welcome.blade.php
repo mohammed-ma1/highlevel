@@ -319,7 +319,7 @@
             <div class="card">
                 <div class="card-header">
                     <h1>🔗 Tap Payment Integration</h1>
-                    <p>Connect or disconnect your payment provider with live and test mode support</p>
+                    <p>Connect your payment provider</p>
                 </div>
 
                 <div class="card-body">
@@ -409,72 +409,11 @@
                             </div>
                         </div>
 
-                        <div class="divider"></div>
-
-                        {{-- Mode Selection for Connect --}}
-                        <div class="section">
-                            <h2 class="section-title">Connect Mode Selection</h2>
-                            <p class="help-text">Choose which mode you want to connect when using the connect action.</p>
-                            
-                            <div class="mode-selector">
-                                <div class="mode-option">
-                                    <input type="radio" name="connect_mode" value="test" id="connect_test" {{ old('connect_mode', 'test') === 'test' ? 'checked' : '' }}>
-                                    <label for="connect_test">
-                                        <strong>Test Mode</strong>
-                                        <br>
-                                        <small>Connect test payment processing</small>
-                                    </label>
-                                </div>
-                                
-                                <div class="mode-option">
-                                    <input type="radio" name="connect_mode" value="live" id="connect_live" {{ old('connect_mode') === 'live' ? 'checked' : '' }}>
-                                    <label for="connect_live">
-                                        <strong>Live Mode</strong>
-                                        <br>
-                                        <small>Connect live payment processing</small>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="divider"></div>
-
-                        {{-- Mode Selection for Disconnect --}}
-                        <div class="section">
-                            <h2 class="section-title">Disconnect Mode Selection</h2>
-                            <p class="help-text">Choose which mode you want to disconnect when using the disconnect action.</p>
-                            
-                            <div class="mode-selector">
-                                <div class="mode-option">
-                                    <input type="radio" name="disconnect_mode" value="live" id="disconnect_live" {{ old('disconnect_mode') === 'live' ? 'checked' : '' }}>
-                                    <label for="disconnect_live">
-                                        <strong>Live Mode</strong>
-                                        <br>
-                                        <small>Disconnect live payment processing</small>
-                                    </label>
-                                </div>
-                                
-                                <div class="mode-option">
-                                    <input type="radio" name="disconnect_mode" value="test" id="disconnect_test" {{ old('disconnect_mode') === 'test' ? 'checked' : '' }}>
-                                    <label for="disconnect_test">
-                                        <strong>Test Mode</strong>
-                                        <br>
-                                        <small>Disconnect test payment processing</small>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-
                         {{-- Action Buttons --}}
                         <div class="action-buttons">
                             <button type="submit" name="action" value="connect" class="btn btn-primary">
                                 <span>🔗</span>
                                 Connect Provider
-                            </button>
-                            
-                            <button type="submit" name="action" value="disconnect" class="btn btn-danger" onclick="return confirmDisconnect()">
-                                <span>🔌</span>
-                                Disconnect Provider
                             </button>
                         </div>
 
@@ -507,11 +446,9 @@
                 // Add form validation
                 const form = document.getElementById('paymentForm');
                 const connectBtn = form.querySelector('button[value="connect"]');
-                const disconnectBtn = form.querySelector('button[value="disconnect"]');
                 
                 // Connect button validation
                 connectBtn.addEventListener('click', function(e) {
-                    const connectMode = form.querySelector('input[name="connect_mode"]:checked');
                     const liveApiKey = form.querySelector('input[name="live_apiKey"]').value;
                     const livePubKey = form.querySelector('input[name="live_publishableKey"]').value;
                     const liveSecretKey = form.querySelector('input[name="live_secretKey"]').value;
@@ -519,51 +456,17 @@
                     const testPubKey = form.querySelector('input[name="test_publishableKey"]').value;
                     const testSecretKey = form.querySelector('input[name="test_secretKey"]').value;
                     
-                    if (!connectMode) {
-                        e.preventDefault();
-                        alert('Please select a mode (Test or Live) to connect.');
-                        return false;
-                    }
+                    // Require at least one set of keys (live or test)
+                    const hasLiveKeys = liveApiKey && livePubKey && liveSecretKey;
+                    const hasTestKeys = testApiKey && testPubKey && testSecretKey;
                     
-                    if (connectMode.value === 'live') {
-                        if (!liveApiKey || !livePubKey || !liveSecretKey) {
-                            e.preventDefault();
-                            alert('Please enter all Live API keys (API Key, Publishable Key, and Secret Key) for Live mode.');
-                            return false;
-                        }
-                    } else if (connectMode.value === 'test') {
-                        if (!testApiKey || !testPubKey || !testSecretKey) {
-                            e.preventDefault();
-                            alert('Please enter all Test API keys (API Key, Publishable Key, and Secret Key) for Test mode.');
-                            return false;
-                        }
-                    }
-                });
-                
-                // Disconnect button validation
-                disconnectBtn.addEventListener('click', function(e) {
-                    const liveMode = form.querySelector('input[name="disconnect_mode"][value="live"]').checked;
-                    const testMode = form.querySelector('input[name="disconnect_mode"][value="test"]').checked;
-                    
-                    if (!liveMode && !testMode) {
+                    if (!hasLiveKeys && !hasTestKeys) {
                         e.preventDefault();
-                        alert('Please select which mode (Live or Test) you want to disconnect.');
+                        alert('Please enter at least one set of API keys (Live or Test).');
                         return false;
                     }
                 });
             });
-            
-            // Confirmation function for disconnect
-            function confirmDisconnect() {
-                const liveMode = document.querySelector('input[name="disconnect_mode"][value="live"]').checked;
-                const testMode = document.querySelector('input[name="disconnect_mode"][value="test"]').checked;
-                
-                let mode = '';
-                if (liveMode) mode = 'Live';
-                if (testMode) mode = 'Test';
-                
-                return confirm(`Are you sure you want to disconnect the ${mode} mode payment provider? This action cannot be undone.`);
-            }
         </script>
  
 </html>
