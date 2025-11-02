@@ -1381,11 +1381,18 @@
       // Store URL for button click
       window.openPaymentUrl = url;
       
-      // Update button to open in same page
+      // Update button to open in parent window
       const proceedBtn = document.getElementById('proceed-payment-btn');
       if (proceedBtn) {
         proceedBtn.onclick = function() {
-          window.location.href = url;
+          // Open in parent window (if in iframe) or top window
+          if (window.top && window.top !== window) {
+            window.top.location.href = url;
+          } else if (window.parent && window.parent !== window) {
+            window.parent.location.href = url;
+          } else {
+            window.location.href = url;
+          }
         };
       }
     }
