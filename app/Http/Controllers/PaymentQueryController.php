@@ -28,21 +28,32 @@ class PaymentQueryController extends Controller
                 'request_data' => $request->all()
             ]);
 
-            // Validate required parameters
+            // Validate required parameters - Always return HTTP 200 per GHL requirements
             if (!$type || !$locationId || !$apiKey) {
                 return response()->json([
-                    'success' => false,
-                    'message' => 'Missing required parameters: type, locationId, apiKey'
-                ], 400);
+                    'success' => false
+                ], 200);
             }
 
             // Find user by location ID
             $user = User::where('lead_location_id', $locationId)->first();
             if (!$user) {
                 return response()->json([
-                    'success' => false,
-                    'message' => 'Location not found'
-                ], 404);
+                    'success' => false
+                ], 200);
+            }
+
+            // Validate apiKey matches user's stored API key (security requirement)
+            $userApiKey = $user->tap_mode === 'live' ? $user->lead_live_api_key : $user->lead_test_api_key;
+            if ($apiKey !== $userApiKey) {
+                Log::warning('API key validation failed', [
+                    'locationId' => $locationId,
+                    'provided_key_length' => strlen($apiKey ?? ''),
+                    'expected_key_length' => strlen($userApiKey ?? '')
+                ]);
+                return response()->json([
+                    'failed' => true
+                ], 200);
             }
 
             // Route to appropriate handler based on type
@@ -65,9 +76,8 @@ class PaymentQueryController extends Controller
                     return $this->handleChargePayment($request, $user);
                 default:
                     return response()->json([
-                        'success' => false,
-                        'message' => 'Unsupported payment type: ' . $type
-                    ], 400);
+                        'success' => false
+                    ], 200);
             }
 
         } catch (\Exception $e) {
@@ -77,29 +87,39 @@ class PaymentQueryController extends Controller
             ]);
 
             return response()->json([
-                'success' => false,
-                'message' => 'Internal server error'
-            ], 500);
+                'failed' => true
+            ], 200);
         }
     }
 
     /**
      * Handle payment verification
-     * GHL sends: type=verify, transactionId, chargeId, apiKey, subscriptionId
+     * GHL sends: type=verify, transactionId, chargeId, apiKey, subscriptionId (optional)
+     * 
+     * Per HighLevel requirements:
+     * - Always return HTTP 200
+     * - Return { "success": true } for success
+     * - Return { "failed": true } for failure
+     * - Return { "success": false } for pending
      */
     private function handleVerify(Request $request, User $user)
     {
         $transactionId = $request->input('transactionId');
         $chargeId = $request->input('chargeId');
+        $subscriptionId = $request->input('subscriptionId'); // Optional
         
         // Accept either transactionId or chargeId (chargeId is preferred per GHL docs)
         $tapChargeId = $chargeId ?: $transactionId;
         
         if (!$tapChargeId) {
-            return response()->json([
-                'failed' => true,
-                'message' => 'Transaction ID or Charge ID is required'
+            Log::warning('Verify request missing transactionId and chargeId', [
+                'userId' => $user->id,
+                'request_data' => $request->all()
             ]);
+            // Per GHL requirements: always return HTTP 200
+            return response()->json([
+                'failed' => true
+            ], 200);
         }
 
         // Get user's Tap secret keys based on tap_mode
@@ -113,10 +133,10 @@ class PaymentQueryController extends Controller
                 'has_test_secret' => !empty($user->lead_test_secret_key)
             ]);
             
+            // Per GHL requirements: always return HTTP 200
             return response()->json([
-                'failed' => true,
-                'message' => 'No secret key configured for this location'
-            ]);
+                'failed' => true
+            ], 200);
         }
 
         try {
@@ -133,10 +153,10 @@ class PaymentQueryController extends Controller
                     'chargeId' => $tapChargeId
                 ]);
                 
+                // Per GHL requirements: always return HTTP 200 with proper format
                 return response()->json([
-                    'failed' => true,
-                    'message' => 'Failed to retrieve charge from Tap API'
-                ]);
+                    'failed' => true
+                ], 200);
             }
 
             $chargeData = $response->json();
@@ -145,37 +165,40 @@ class PaymentQueryController extends Controller
             Log::info('Tap charge verification result', [
                 'chargeId' => $tapChargeId,
                 'status' => $status,
+                'subscriptionId' => $subscriptionId,
                 'response_code' => $chargeData['response']['code'] ?? 'unknown'
             ]);
 
             // Return response according to GHL documentation
+            // Always return HTTP 200 per requirements
             if (in_array($status, ['CAPTURED', 'AUTHORIZED'])) {
                 // Payment successful
                 return response()->json([
                     'success' => true
-                ]);
+                ], 200);
             } elseif (in_array($status, ['FAILED', 'DECLINED', 'CANCELLED', 'REVERSED'])) {
                 // Payment failed
                 return response()->json([
                     'failed' => true
-                ]);
+                ], 200);
             } else {
                 // Payment pending (INITIATED, etc.) - keep in pending state
                 return response()->json([
                     'success' => false
-                ]);
+                ], 200);
             }
 
         } catch (\Exception $e) {
             Log::error('Error verifying charge with Tap API', [
                 'chargeId' => $tapChargeId,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
             
+            // Per GHL requirements: always return HTTP 200
             return response()->json([
-                'failed' => true,
-                'message' => 'Verification failed due to server error'
-            ]);
+                'failed' => true
+            ], 200);
         }
     }
 
