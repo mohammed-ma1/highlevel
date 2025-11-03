@@ -1381,93 +1381,29 @@
         if (tapResponse.ok && result.success && result.charge) {
           console.log('✅ Tap charge created successfully:', result.charge);
           
-          // Handle payment redirect - use cross-origin safe methods
-          // NOTE: For cross-origin iframes, the parent window should listen for 'navigate_to_payment' messages:
-          // window.addEventListener('message', function(event) {
-          //   if (event.data && event.data.type === 'navigate_to_payment') {
-          //     window.location.href = event.data.url;
-          //   }
-          // });
+          // Handle payment redirect based on browser
           if (result.charge.transaction?.url) {
             console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
             
-            // Function to safely navigate parent/top window (cross-origin safe)
-            function navigateToPayment(url) {
-              // First, try postMessage (cross-origin safe)
-              if (window.top && window.top !== window) {
-                console.log('🔗 Sending navigation message to top window (iframe detected)');
-                try {
-                  window.top.postMessage({
-                    type: 'navigate_to_payment',
-                    url: url
-                  }, '*');
-                } catch (e) {
-                  console.error('❌ Error sending message to top window:', e);
-                }
-              } else if (window.parent && window.parent !== window) {
-                console.log('🔗 Sending navigation message to parent window (nested iframe detected)');
-                try {
-                  window.parent.postMessage({
-                    type: 'navigate_to_payment',
-                    url: url
-                  }, '*');
-                } catch (e) {
-                  console.error('❌ Error sending message to parent window:', e);
-                }
+            // Double-check Safari detection before showing popup
+            const currentSafariCheck = detectSafari();
+            if (currentSafariCheck) {
+              // Use popup ONLY for Safari (desktop and mobile) to avoid iframe payment restrictions
+              console.log('🍎 Safari detected (desktop/mobile) - showing proceed payment popup');
+              console.log('📱 User Agent:', navigator.userAgent);
+              const paymentContainer = document.querySelector('.payment-container');
+              if (paymentContainer) {
+                paymentContainer.style.display = 'block';
               }
-              
-              // Also try creating a link with target='_top' and clicking it (best for cross-origin)
-              // This method works better than direct location assignment for cross-origin navigation
-              try {
-                const link = document.createElement('a');
-                link.href = url;
-                link.target = '_top';
-                link.style.display = 'none';
-                link.rel = 'noopener noreferrer';
-                document.body.appendChild(link);
-                // Use both click methods for maximum compatibility
-                if (link.click) {
-                  link.click();
-                } else {
-                  // Fallback for older browsers
-                  const event = new MouseEvent('click', {
-                    view: window,
-                    bubbles: true,
-                    cancelable: true
-                  });
-                  link.dispatchEvent(event);
-                }
-                // Remove link after a brief delay
-                setTimeout(() => {
-                  if (link.parentNode) {
-                    document.body.removeChild(link);
-                  }
-                }, 100);
-                console.log('🔗 Clicked link with target=_top');
-              } catch (e) {
-                console.log('⚠️ Link click method failed:', e);
-              }
-              
-              // Fallback: try direct navigation if same-origin (will fail silently if cross-origin)
+              showProceedPaymentPopup(result.charge.transaction.url);
+            } else {
+              // Direct redirect for all other browsers - NO POPUP
+              console.log('🌐 Non-Safari browser detected - using direct redirect (NO POPUP)');
+              console.log('🌐 User Agent:', navigator.userAgent);
               setTimeout(() => {
-                try {
-                  if (window.top && window.top !== window) {
-                    window.top.location.href = url;
-                  } else if (window.parent && window.parent !== window) {
-                    window.parent.location.href = url;
-                  } else {
-                    window.location.href = url;
-                  }
-                } catch (e) {
-                  console.log('⚠️ Direct navigation blocked (cross-origin) - parent window should listen for postMessage');
-                }
-              }, 100);
+                window.location.href = result.charge.transaction.url;
+              }, 500);
             }
-            
-            // Navigate after short delay
-            setTimeout(() => {
-              navigateToPayment(result.charge.transaction.url);
-            }, 500);
           } else {
             showError('No checkout URL received from Tap');
             showButton();
