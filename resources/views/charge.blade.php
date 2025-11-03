@@ -1381,29 +1381,26 @@
         if (tapResponse.ok && result.success && result.charge) {
           console.log('✅ Tap charge created successfully:', result.charge);
           
-          // Handle payment redirect based on browser
+          // Handle payment redirect - always open directly in parent/top window (no popup)
           if (result.charge.transaction?.url) {
             console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
             
-            // Double-check Safari detection before showing popup
-            const currentSafariCheck = detectSafari();
-            if (currentSafariCheck) {
-              // Use popup ONLY for Safari (desktop and mobile) to avoid iframe payment restrictions
-              console.log('🍎 Safari detected (desktop/mobile) - showing proceed payment popup');
-              console.log('📱 User Agent:', navigator.userAgent);
-              const paymentContainer = document.querySelector('.payment-container');
-              if (paymentContainer) {
-                paymentContainer.style.display = 'block';
-              }
-              showProceedPaymentPopup(result.charge.transaction.url);
-            } else {
-              // Direct redirect for all other browsers - NO POPUP
-              console.log('🌐 Non-Safari browser detected - using direct redirect (NO POPUP)');
-              console.log('🌐 User Agent:', navigator.userAgent);
-              setTimeout(() => {
+            // Open directly in parent window (if in iframe) or top window, without showing popup
+            setTimeout(() => {
+              if (window.top && window.top !== window) {
+                // We're in an iframe - open in top window
+                console.log('🔗 Opening in top window (iframe detected)');
+                window.top.location.href = result.charge.transaction.url;
+              } else if (window.parent && window.parent !== window) {
+                // We're in a nested iframe - open in parent window
+                console.log('🔗 Opening in parent window (nested iframe detected)');
+                window.parent.location.href = result.charge.transaction.url;
+              } else {
+                // Not in iframe - redirect in current window
+                console.log('🔗 Opening in current window (not in iframe)');
                 window.location.href = result.charge.transaction.url;
-              }, 500);
-            }
+              }
+            }, 500);
           } else {
             showError('No checkout URL received from Tap');
             showButton();
