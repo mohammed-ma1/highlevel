@@ -1381,25 +1381,92 @@
         if (tapResponse.ok && result.success && result.charge) {
           console.log('✅ Tap charge created successfully:', result.charge);
           
-          // Handle payment redirect - always open directly in parent/top window (no popup)
+          // Handle payment redirect - use cross-origin safe methods
+          // NOTE: For cross-origin iframes, the parent window should listen for 'navigate_to_payment' messages:
+          // window.addEventListener('message', function(event) {
+          //   if (event.data && event.data.type === 'navigate_to_payment') {
+          //     window.location.href = event.data.url;
+          //   }
+          // });
           if (result.charge.transaction?.url) {
             console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
             
-            // Open directly in parent window (if in iframe) or top window, without showing popup
-            setTimeout(() => {
+            // Function to safely navigate parent/top window (cross-origin safe)
+            function navigateToPayment(url) {
+              // First, try postMessage (cross-origin safe)
               if (window.top && window.top !== window) {
-                // We're in an iframe - open in top window
-                console.log('🔗 Opening in top window (iframe detected)');
-                window.top.location.href = result.charge.transaction.url;
+                console.log('🔗 Sending navigation message to top window (iframe detected)');
+                try {
+                  window.top.postMessage({
+                    type: 'navigate_to_payment',
+                    url: url
+                  }, '*');
+                } catch (e) {
+                  console.error('❌ Error sending message to top window:', e);
+                }
               } else if (window.parent && window.parent !== window) {
-                // We're in a nested iframe - open in parent window
-                console.log('🔗 Opening in parent window (nested iframe detected)');
-                window.parent.location.href = result.charge.transaction.url;
-              } else {
-                // Not in iframe - redirect in current window
-                console.log('🔗 Opening in current window (not in iframe)');
-                window.location.href = result.charge.transaction.url;
+                console.log('🔗 Sending navigation message to parent window (nested iframe detected)');
+                try {
+                  window.parent.postMessage({
+                    type: 'navigate_to_payment',
+                    url: url
+                  }, '*');
+                } catch (e) {
+                  console.error('❌ Error sending message to parent window:', e);
+                }
               }
+              
+              // Also try creating a link with target='_top' and clicking it (best for cross-origin)
+              // This method works better than direct location assignment for cross-origin navigation
+              try {
+                const link = document.createElement('a');
+                link.href = url;
+                link.target = '_top';
+                link.style.display = 'none';
+                link.rel = 'noopener noreferrer';
+                document.body.appendChild(link);
+                // Use both click methods for maximum compatibility
+                if (link.click) {
+                  link.click();
+                } else {
+                  // Fallback for older browsers
+                  const event = new MouseEvent('click', {
+                    view: window,
+                    bubbles: true,
+                    cancelable: true
+                  });
+                  link.dispatchEvent(event);
+                }
+                // Remove link after a brief delay
+                setTimeout(() => {
+                  if (link.parentNode) {
+                    document.body.removeChild(link);
+                  }
+                }, 100);
+                console.log('🔗 Clicked link with target=_top');
+              } catch (e) {
+                console.log('⚠️ Link click method failed:', e);
+              }
+              
+              // Fallback: try direct navigation if same-origin (will fail silently if cross-origin)
+              setTimeout(() => {
+                try {
+                  if (window.top && window.top !== window) {
+                    window.top.location.href = url;
+                  } else if (window.parent && window.parent !== window) {
+                    window.parent.location.href = url;
+                  } else {
+                    window.location.href = url;
+                  }
+                } catch (e) {
+                  console.log('⚠️ Direct navigation blocked (cross-origin) - parent window should listen for postMessage');
+                }
+              }, 100);
+            }
+            
+            // Navigate after short delay
+            setTimeout(() => {
+              navigateToPayment(result.charge.transaction.url);
             }, 500);
           } else {
             showError('No checkout URL received from Tap');
