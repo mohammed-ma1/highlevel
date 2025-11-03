@@ -945,6 +945,13 @@
         
         console.log('✅ Valid GHL message received:', parsedData);
         
+        // Mark GHL as acknowledged when we receive any message from them
+        if (!ghlAcknowledged) {
+          ghlAcknowledged = true;
+          stopReadyEventRetry();
+          console.log('✅ GHL acknowledged - received message from GHL');
+        }
+        
         // Process valid GHL messages
         if (parsedData.type === 'payment_initiate_props') {
           paymentData = parsedData;
@@ -987,6 +994,13 @@
           
           // Try to construct a valid payment message
           if (parsedData.publishableKey && parsedData.amount && parsedData.currency) {
+            // Mark GHL as acknowledged when we receive any message from them
+            if (!ghlAcknowledged) {
+              ghlAcknowledged = true;
+              stopReadyEventRetry();
+              console.log('✅ GHL acknowledged - received fallback message from GHL');
+            }
+            
             const fallbackData = {
               type: 'payment_initiate_props',
               publishableKey: parsedData.publishableKey,
@@ -1010,8 +1024,20 @@
       }
     });
 
-    // Send ready event to GoHighLevel parent window
-    function sendReadyEvent() {
+    // Track if GHL has acknowledged (received any message from GHL)
+    let ghlAcknowledged = false;
+    let readyEventRetryInterval = null;
+    let readyEventRetryCount = 0;
+    const MAX_RETRY_ATTEMPTS = 20; // Retry for ~10 seconds (20 * 500ms)
+    const RETRY_INTERVAL = 500; // Retry every 500ms
+
+    // Send ready event to GoHighLevel parent window with retry mechanism
+    function sendReadyEvent(forceRetry = false) {
+      // If GHL already acknowledged and we're not forcing a retry, skip
+      if (ghlAcknowledged && !forceRetry) {
+        return;
+      }
+
       const readyEvent = {
         type: 'custom_provider_ready',
         loaded: true,
@@ -1022,7 +1048,7 @@
         supportedModes: ['payment', 'setup']
       };
       
-      console.log('📤 Sending ready event to GHL:', readyEvent);
+      console.log(`📤 Sending ready event to GHL (attempt ${readyEventRetryCount + 1}):`, readyEvent);
       console.log('🔍 Window context:', {
         isIframe: window !== window.top,
         hasParent: window.parent !== window,
@@ -1050,13 +1076,54 @@
         }
         
         isReady = true;
-        console.log('✅ Payment iframe is ready and listening for GHL messages');
         
+        // Increment retry count
+        readyEventRetryCount++;
         
+        // If this is the first attempt, start retry interval
+        if (readyEventRetryCount === 1 && !ghlAcknowledged) {
+          startReadyEventRetry();
+        }
+        
+        // If we've received acknowledgment from GHL, stop retrying
+        if (ghlAcknowledged) {
+          stopReadyEventRetry();
+          console.log('✅ GHL acknowledged - stopped sending ready event');
+        } else if (readyEventRetryCount >= MAX_RETRY_ATTEMPTS) {
+          stopReadyEventRetry();
+          console.warn('⚠️ Max retry attempts reached. GHL may not be listening.');
+        } else {
+          console.log(`✅ Payment iframe is ready and listening for GHL messages (retry ${readyEventRetryCount}/${MAX_RETRY_ATTEMPTS})`);
+        }
         
       } catch (error) {
         console.warn('⚠️ Could not send ready event to parent:', error.message);
         isReady = true;
+      }
+    }
+
+    // Start retry interval for ready event
+    function startReadyEventRetry() {
+      if (readyEventRetryInterval) {
+        return; // Already started
+      }
+      
+      console.log('🔄 Starting ready event retry mechanism...');
+      readyEventRetryInterval = setInterval(() => {
+        if (!ghlAcknowledged && readyEventRetryCount < MAX_RETRY_ATTEMPTS) {
+          sendReadyEvent(true);
+        } else {
+          stopReadyEventRetry();
+        }
+      }, RETRY_INTERVAL);
+    }
+
+    // Stop retry interval
+    function stopReadyEventRetry() {
+      if (readyEventRetryInterval) {
+        clearInterval(readyEventRetryInterval);
+        readyEventRetryInterval = null;
+        console.log('🛑 Stopped ready event retry mechanism');
       }
     }
 
@@ -1573,6 +1640,25 @@
       
       // Send ready event immediately
       sendReadyEvent();
+
+      // Listen for visibility changes and resend ready event when page becomes visible
+      // This helps if GHL reloads or the iframe becomes visible again
+      document.addEventListener('visibilitychange', function() {
+        if (!document.hidden && !ghlAcknowledged) {
+          console.log('👁️ Page became visible - resending ready event');
+          readyEventRetryCount = 0; // Reset counter
+          sendReadyEvent();
+        }
+      });
+
+      // Also listen for focus events (additional safeguard)
+      window.addEventListener('focus', function() {
+        if (!ghlAcknowledged) {
+          console.log('🎯 Window focused - resending ready event');
+          readyEventRetryCount = 0; // Reset counter
+          sendReadyEvent();
+        }
+      });
 
       // Wire the button to create charge (if it exists)
       const createChargeBtn = document.getElementById('create-charge-btn');
