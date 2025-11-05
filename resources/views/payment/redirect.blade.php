@@ -23,6 +23,7 @@
     // Parse URL parameters
     function getUrlParams() {
       const params = new URLSearchParams(window.location.search);
+      console.log('📊 URL Parameters:', params);
       return {
         tap_id: params.get('tap_id'),
         charge_id: params.get('charge_id'),
@@ -239,7 +240,7 @@
     // Initialize when page loads
     document.addEventListener('DOMContentLoaded', function() {
       console.log('🚀 Payment Redirect Handler Loaded');
-   //   processPayment();
+     processPayment();
     });
   </script>
 </body>
