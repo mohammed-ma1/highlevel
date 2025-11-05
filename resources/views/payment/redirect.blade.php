@@ -77,25 +77,25 @@
         let messageSent = false;
         
         // Try postMessage for iframe scenarios
-        if (window.parent && window.parent !== window) {
-          try {
-            window.parent.postMessage(JSON.stringify(message), '*');
-            messageSent = true;
-            console.log('✅ Message sent via window.parent.postMessage');
-          } catch (error) {
-            console.warn('⚠️ Could not send message via window.parent:', error.message);
-          }
-        }
+        // if (window.parent && window.parent !== window) {
+        //   try {
+        //     window.parent.postMessage(JSON.stringify(message), '*');
+        //     messageSent = true;
+        //     console.log('✅ Message sent via window.parent.postMessage');
+        //   } catch (error) {
+        //     console.warn('⚠️ Could not send message via window.parent:', error.message);
+        //   }
+        // }
         
-        if (window.top && window.top !== window && window.top !== window.parent) {
-          try {
-            window.top.postMessage(JSON.stringify(message), '*');
-            messageSent = true;
-            console.log('✅ Message sent via window.top.postMessage');
-          } catch (error) {
-            console.warn('⚠️ Could not send message via window.top:', error.message);
-          }
-        }
+        // if (window.top && window.top !== window && window.top !== window.parent) {
+        //   try {
+        //     window.top.postMessage(JSON.stringify(message), '*');
+        //     messageSent = true;
+        //     console.log('✅ Message sent via window.top.postMessage');
+        //   } catch (error) {
+        //     console.warn('⚠️ Could not send message via window.top:', error.message);
+        //   }
+        // }
         
         // Fallback: Use localStorage for cross-tab communication (Safari new tab scenario)
         // This works when the page is opened in a new tab instead of an iframe
