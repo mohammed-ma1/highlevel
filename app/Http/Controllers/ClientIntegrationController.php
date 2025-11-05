@@ -294,13 +294,16 @@ class ClientIntegrationController extends Controller
                 // Not fatal to user creation, but you can choose to 502 here if you want
             }
 
-
-            return response()->json([
-                'message' => 'Connected & user saved',
-                'user_id' => $user->id,
+            // Redirect to GHL integrations page after successful connection
+            $redirectUrl = "https://app.gohighlevel.com/v2/location/{$locationId}/payments/integrations";
+            
+            Log::info('Redirecting to GHL integrations page', [
                 'locationId' => $locationId,
-                'provider' => $providerResp->json(),
-            ], 200);
+                'redirectUrl' => $redirectUrl,
+                'user_id' => $user->id,
+            ]);
+
+            return redirect($redirectUrl);
 
         } catch (\Throwable $e) {
             Log::error('Integration failed', ['error' => $e->getMessage()]);
@@ -474,10 +477,13 @@ class ClientIntegrationController extends Controller
                 ], 502);
             }
 
-            // Redirect to GoHighLevel integrations page on success
-            $redirectUrl = 'https://app.gohighlevel.com/v2/location/' . $locationId . '/payments/integrations';
-            
-            return redirect($redirectUrl);
+            // Return success message instead of redirecting
+            return redirect()->back()->with([
+                'success' => true,
+                'message' => 'Provider config created/updated successfully',
+                'locationId' => $locationId,
+                'api_response' => $resp->json()
+            ])->withInput($request->only('information'));
         }
 
         // disconnect
