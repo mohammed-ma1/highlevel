@@ -74,13 +74,13 @@
       try {
         console.log('📤 Sending message to GHL:', message);
         
-        // if (window.parent && window.parent !== window) {
-        //   window.parent.postMessage(JSON.stringify(message), '*');
-        // }
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(JSON.stringify(message), '*');
+        }
         
-        // if (window.top && window.top !== window && window.top !== window.parent) {
-        //   window.top.postMessage(JSON.stringify(message), '*');
-        // }
+        if (window.top && window.top !== window && window.top !== window.parent) {
+          window.top.postMessage(JSON.stringify(message), '*');
+        }
       } catch (error) {
         console.warn('⚠️ Could not send message to parent:', error.message);
       }
