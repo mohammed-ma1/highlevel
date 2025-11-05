@@ -149,7 +149,7 @@
           console.log('📊 Is successful:', isSuccessful);
           const isFailed = status === 'failed' || status === 'FAILED' || status === 'DECLINED' || status === 'REVERSED';
           console.log('📊 Is failed:', isFailed);
-          const isCanceled = status === 'CANCELLED' || status === 'canceled';
+          const isCanceled = status === 'CANCELLED' || status === 'canceled' || status === 'canceled' === 'cancelled';
           console.log('📊 Is canceled:', isCanceled);
           
           const chargeId = chargeData.charge?.id || params.charge_id || params.tap_id;
