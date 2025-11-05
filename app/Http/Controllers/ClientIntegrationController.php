@@ -663,7 +663,8 @@ class ClientIntegrationController extends Controller
                     $customer,
                     $description,
                     $orderId,
-                    $transactionId
+                    $transactionId,
+                    $locationId
                 );
 
                 if (!$chargeResponse) {
@@ -718,7 +719,7 @@ class ClientIntegrationController extends Controller
                 'merchant' => $data['merchant'] ?? ['id' => '1234'],
                 'source' => $data['source'] ?? ['id' => 'src_all'], // Use src_all for all payment methods
                 'post' => $data['post'] ?? ['url' => config('app.url') . '/charge/webhook'],
-                'redirect' => $data['redirect'] ?? ['url' => config('app.url') . '/charge/redirect']
+                'redirect' => $data['redirect'] ?? ['url' => config('app.url') . '/payment/redirect']
             ];
 
             // Get user and API keys based on locationId
@@ -732,6 +733,14 @@ class ClientIntegrationController extends Controller
                 ], 404)->header('Access-Control-Allow-Origin', '*')
                   ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+            }
+            
+            // Update redirect URL to include locationId for Safari cross-tab communication
+            $redirectUrl = ($data['redirect']['url'] ?? config('app.url') . '/payment/redirect');
+            // Add locationId as query parameter if not already present
+            if ($locationId && strpos($redirectUrl, 'locationId=') === false) {
+                $redirectUrl .= (strpos($redirectUrl, '?') !== false ? '&' : '?') . 'locationId=' . urlencode($locationId);
+                $tapData['redirect']['url'] = $redirectUrl;
             }
 
             // Use the secret key based on the user's stored tap_mode
