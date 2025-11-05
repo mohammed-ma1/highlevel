@@ -141,13 +141,19 @@
       if (params.tap_id) {
         try {
           const chargeData = await fetchChargeStatus(params.tap_id);
-          
+
+          console.log('📊 Charge data:', chargeData);
           const status = chargeData.payment_status || chargeData.charge?.status || params.status;
+          console.log('📊 Status:', status);
           const isSuccessful = chargeData.is_successful || status === 'success' || status === 'CAPTURED' || status === 'AUTHORIZED';
+          console.log('📊 Is successful:', isSuccessful);
           const isFailed = status === 'failed' || status === 'FAILED' || status === 'DECLINED' || status === 'REVERSED';
+          console.log('📊 Is failed:', isFailed);
           const isCanceled = status === 'CANCELLED' || status === 'canceled';
+          console.log('📊 Is canceled:', isCanceled);
           
           const chargeId = chargeData.charge?.id || params.charge_id || params.tap_id;
+          console.log('📊 Charge ID:', chargeId);
           
           if (isSuccessful) {
             // Payment successful
