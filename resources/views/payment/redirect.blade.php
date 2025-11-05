@@ -204,8 +204,7 @@
             sendSuccessToGHL(chargeId);
           } else if (isCanceled) {
             // Payment canceled
-          //  sendCloseToGHL();
-            return
+            sendCloseToGHL();
           } else if (isFailed) {
             // Payment failed
             const errorMessage = chargeData.charge?.response?.message || chargeData.message || 'Payment failed';
@@ -240,7 +239,7 @@
     // Initialize when page loads
     document.addEventListener('DOMContentLoaded', function() {
       console.log('🚀 Payment Redirect Handler Loaded');
-      processPayment();
+   //   processPayment();
     });
   </script>
 </body>
