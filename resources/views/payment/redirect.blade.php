@@ -74,13 +74,13 @@
       try {
         console.log('📤 Sending message to GHL:', message);
         
-        if (window.parent && window.parent !== window) {
-          window.parent.postMessage(JSON.stringify(message), '*');
-        }
+        // if (window.parent && window.parent !== window) {
+        //   window.parent.postMessage(JSON.stringify(message), '*');
+        // }
         
-        if (window.top && window.top !== window && window.top !== window.parent) {
-          window.top.postMessage(JSON.stringify(message), '*');
-        }
+        // if (window.top && window.top !== window && window.top !== window.parent) {
+        //   window.top.postMessage(JSON.stringify(message), '*');
+        // }
       } catch (error) {
         console.warn('⚠️ Could not send message to parent:', error.message);
       }
@@ -96,10 +96,6 @@
       console.log('✅ Sending success response to GHL:', successEvent);
       sendMessageToGHL(successEvent);
       
-      // Auto-redirect to MediaSolution preview page after 2 seconds
-      setTimeout(() => {
-      //  window.location.href = 'https://app.mediasolution.io/v2/preview/hjlbiZ2niIjjWetPSvT5';
-      }, 2000);
     }
 
     // Send error response to GoHighLevel
