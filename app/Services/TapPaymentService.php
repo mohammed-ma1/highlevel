@@ -70,15 +70,9 @@ class TapPaymentService
      * Create a charge using src_all (all payment methods)
      * This replaces the Card SDK approach with a hosted payment page
      */
-    public function createChargeWithAllPaymentMethods($amount, $currency = 'JOD', $customer = null, $description = null, $orderId = null, $transactionId = null, $locationId = null)
+    public function createChargeWithAllPaymentMethods($amount, $currency = 'JOD', $customer = null, $description = null, $orderId = null, $transactionId = null)
     {
         try {
-            // Build redirect URL with locationId if provided
-            $redirectUrl = config('app.url') . '/payment/redirect';
-            if ($locationId) {
-                $redirectUrl .= '?locationId=' . urlencode($locationId);
-            }
-            
             $payload = [
                 'amount' => $amount,
                 'currency' => $currency,
@@ -91,10 +85,10 @@ class TapPaymentService
                     'id' => 'src_all' // This displays all available payment methods
                 ],
                 'redirect' => [
-                    'url' => $redirectUrl
+                    'url' => config('app.url') . '/payment/redirect'
                 ],
                 'post' => [
-                    'url' => config('app.url') . '/charge/webhook'
+                    'url' => config('app.url') . '/payment/webhook'
                 ]
             ];
 

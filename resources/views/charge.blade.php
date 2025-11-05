@@ -1556,7 +1556,7 @@
               url: window.location.origin + '/charge/webhook'
             },
             redirect: {
-              url: window.location.origin + '/payment/redirect?locationId=' + encodeURIComponent(paymentData.locationId || '')
+              url: window.location.origin + '/charge/redirect'
             }
           })
         });
