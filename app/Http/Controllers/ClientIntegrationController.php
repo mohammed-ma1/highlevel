@@ -474,13 +474,10 @@ class ClientIntegrationController extends Controller
                 ], 502);
             }
 
-            // Return success message instead of redirecting
-            return redirect()->back()->with([
-                'success' => true,
-                'message' => 'Provider config created/updated successfully',
-                'locationId' => $locationId,
-                'api_response' => $resp->json()
-            ])->withInput($request->only('information'));
+            // Redirect to GoHighLevel integrations page on success
+            $redirectUrl = 'https://app.gohighlevel.com/v2/location/' . $locationId . '/payments/integrations';
+            
+            return redirect($redirectUrl);
         }
 
         // disconnect
