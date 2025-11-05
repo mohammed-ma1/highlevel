@@ -161,12 +161,12 @@
 
     // Send close response to GoHighLevel (for canceled payments)
     function sendCloseToGHL() {
-      // const closeEvent = {
-      //   type: 'custom_element_close_response'
-      // };
+      const closeEvent = {
+        type: 'custom_element_close_response'
+      };
       
-      // console.log('🚪 Sending close response to GHL (payment canceled):', closeEvent);
-    //  sendMessageToGHL(closeEvent);
+      console.log('🚪 Sending close response to GHL (payment canceled):', closeEvent);
+      sendMessageToGHL(closeEvent);
     }
 
     // Process payment status
@@ -204,7 +204,8 @@
             sendSuccessToGHL(chargeId);
           } else if (isCanceled) {
             // Payment canceled
-            sendCloseToGHL();
+          //  sendCloseToGHL();
+            return
           } else if (isFailed) {
             // Payment failed
             const errorMessage = chargeData.charge?.response?.message || chargeData.message || 'Payment failed';
