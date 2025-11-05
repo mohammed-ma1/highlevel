@@ -1024,6 +1024,136 @@
       }
     });
 
+    // Listen for messages from payment redirect page via localStorage (cross-tab communication for Safari)
+    // This handles the case where the payment opens in a new tab instead of an iframe
+    window.addEventListener('storage', function(event) {
+      try {
+        // Only process messages from the payment redirect page
+        if (event.key && event.key.startsWith('ghl_payment_message_') && event.newValue) {
+          console.log('📥 Received message via localStorage (cross-tab):', event.key);
+          
+          const messageData = JSON.parse(event.newValue);
+          
+          // Verify it's from the payment redirect page
+          if (messageData.source === 'payment_redirect' && messageData.message) {
+            const message = messageData.message;
+            console.log('✅ Processing payment redirect message:', message);
+            
+            // Process the message as if it came via postMessage
+            // Messages from redirect page have types: custom_element_success_response, custom_element_error_response, custom_element_close_response
+            if (message.type === 'custom_element_success_response') {
+              console.log('✅ Payment successful:', message.chargeId);
+              // Handle success - you may want to call your existing success handler here
+              // For now, we'll forward it to GHL via postMessage
+              if (window.parent && window.parent !== window) {
+                window.parent.postMessage(JSON.stringify(message), '*');
+              }
+              if (window.top && window.top !== window && window.top !== window.parent) {
+                window.top.postMessage(JSON.stringify(message), '*');
+              }
+            } else if (message.type === 'custom_element_error_response') {
+              console.log('❌ Payment error:', message.error);
+              // Handle error - forward to GHL
+              if (window.parent && window.parent !== window) {
+                window.parent.postMessage(JSON.stringify(message), '*');
+              }
+              if (window.top && window.top !== window && window.top !== window.parent) {
+                window.top.postMessage(JSON.stringify(message), '*');
+              }
+            } else if (message.type === 'custom_element_close_response') {
+              console.log('🚪 Payment canceled');
+              // Handle close - forward to GHL
+              if (window.parent && window.parent !== window) {
+                window.parent.postMessage(JSON.stringify(message), '*');
+              }
+              if (window.top && window.top !== window && window.top !== window.parent) {
+                window.top.postMessage(JSON.stringify(message), '*');
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error processing storage event:', error);
+      }
+    });
+
+    // Also poll localStorage periodically as a fallback (storage event may not fire in same-tab scenarios)
+    // This is a backup for Safari edge cases
+    let localStoragePollInterval = null;
+    const lastProcessedMessages = new Set();
+    
+    function pollLocalStorageMessages() {
+      try {
+        // Check all localStorage keys for payment messages
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('ghl_payment_message_') && !lastProcessedMessages.has(key)) {
+            try {
+              const messageDataStr = localStorage.getItem(key);
+              if (messageDataStr) {
+                const messageData = JSON.parse(messageDataStr);
+                
+                // Only process recent messages (within last 5 seconds)
+                const messageAge = Date.now() - messageData.timestamp;
+                if (messageAge < 5000 && messageData.source === 'payment_redirect' && messageData.message) {
+                  console.log('📥 Polling: Found unprocessed payment message:', key);
+                  lastProcessedMessages.add(key);
+                  
+                  // Process the message (same logic as storage event handler above)
+                  const message = messageData.message;
+                  if (message.type === 'custom_element_success_response' || 
+                      message.type === 'custom_element_error_response' || 
+                      message.type === 'custom_element_close_response') {
+                    console.log('✅ Processing polled payment message:', message.type);
+                    
+                    // Forward to GHL
+                    if (window.parent && window.parent !== window) {
+                      window.parent.postMessage(JSON.stringify(message), '*');
+                    }
+                    if (window.top && window.top !== window && window.top !== window.parent) {
+                      window.top.postMessage(JSON.stringify(message), '*');
+                    }
+                  }
+                  
+                  // Clean up
+                  localStorage.removeItem(key);
+                } else if (messageAge >= 5000) {
+                  // Clean up old messages
+                  localStorage.removeItem(key);
+                  lastProcessedMessages.delete(key);
+                }
+              }
+            } catch (e) {
+              console.warn('⚠️ Error processing localStorage message:', e);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error polling localStorage:', error);
+      }
+    }
+    
+    // Start polling every 500ms when page is visible
+    if (typeof document !== 'undefined' && document.visibilityState !== undefined) {
+      function startPolling() {
+        if (document.visibilityState === 'visible') {
+          if (!localStoragePollInterval) {
+            localStoragePollInterval = setInterval(pollLocalStorageMessages, 500);
+            console.log('🔄 Started polling localStorage for payment messages');
+          }
+        } else {
+          if (localStoragePollInterval) {
+            clearInterval(localStoragePollInterval);
+            localStoragePollInterval = null;
+            console.log('⏸️ Stopped polling localStorage (page hidden)');
+          }
+        }
+      }
+      
+      document.addEventListener('visibilitychange', startPolling);
+      startPolling(); // Start immediately
+    }
+
     // Track if GHL has acknowledged (received any message from GHL)
     let ghlAcknowledged = false;
     let readyEventRetryInterval = null;

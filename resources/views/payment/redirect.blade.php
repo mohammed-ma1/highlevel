@@ -74,12 +74,60 @@
       try {
         console.log('📤 Sending message to GHL:', message);
         
+        let messageSent = false;
+        
+        // Try postMessage for iframe scenarios
         if (window.parent && window.parent !== window) {
-          window.parent.postMessage(JSON.stringify(message), '*');
+          try {
+            window.parent.postMessage(JSON.stringify(message), '*');
+            messageSent = true;
+            console.log('✅ Message sent via window.parent.postMessage');
+          } catch (error) {
+            console.warn('⚠️ Could not send message via window.parent:', error.message);
+          }
         }
         
         if (window.top && window.top !== window && window.top !== window.parent) {
-          window.top.postMessage(JSON.stringify(message), '*');
+          try {
+            window.top.postMessage(JSON.stringify(message), '*');
+            messageSent = true;
+            console.log('✅ Message sent via window.top.postMessage');
+          } catch (error) {
+            console.warn('⚠️ Could not send message via window.top:', error.message);
+          }
+        }
+        
+        // Fallback: Use localStorage for cross-tab communication (Safari new tab scenario)
+        // This works when the page is opened in a new tab instead of an iframe
+        if (!messageSent || window.parent === window) {
+          try {
+            const storageKey = 'ghl_payment_message_' + Date.now();
+            const messageData = {
+              message: message,
+              timestamp: Date.now(),
+              source: 'payment_redirect'
+            };
+            
+            localStorage.setItem(storageKey, JSON.stringify(messageData));
+            console.log('✅ Message sent via localStorage (cross-tab communication):', storageKey);
+            
+            // Clean up old messages after a short delay
+            setTimeout(() => {
+              try {
+                localStorage.removeItem(storageKey);
+              } catch (e) {
+                // Ignore cleanup errors
+              }
+            }, 1000);
+            
+            messageSent = true;
+          } catch (error) {
+            console.warn('⚠️ Could not send message via localStorage:', error.message);
+          }
+        }
+        
+        if (!messageSent) {
+          console.warn('⚠️ Could not send message via any method');
         }
       } catch (error) {
         console.warn('⚠️ Could not send message to parent:', error.message);
