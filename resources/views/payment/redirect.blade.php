@@ -161,11 +161,11 @@
 
     // Send close response to GoHighLevel (for canceled payments)
     function sendCloseToGHL() {
-      const closeEvent = {
-        type: 'custom_element_close_response'
-      };
+      // const closeEvent = {
+      //   type: 'custom_element_close_response'
+      // };
       
-      console.log('🚪 Sending close response to GHL (payment canceled):', closeEvent);
+      // console.log('🚪 Sending close response to GHL (payment canceled):', closeEvent);
     //  sendMessageToGHL(closeEvent);
     }
 
