@@ -98,7 +98,7 @@
       
       // Auto-redirect to MediaSolution preview page after 2 seconds
       setTimeout(() => {
-        window.location.href = 'https://app.mediasolution.io/v2/preview/hjlbiZ2niIjjWetPSvT5';
+      //  window.location.href = 'https://app.mediasolution.io/v2/preview/hjlbiZ2niIjjWetPSvT5';
       }, 2000);
     }
 
