@@ -76,19 +76,32 @@
         console.log('📤 Sending message to GHL:', message);
         
         let messageSent = false;
+        const isPopup = window.opener && window.opener !== window;
         
-        // Try postMessage for popup scenarios (Safari workaround)
-        if (window.opener && window.opener !== window) {
+        // PRIORITY 1: Try postMessage for popup scenarios (Safari workaround)
+        // This is the primary method for popup windows
+        if (isPopup) {
           try {
             window.opener.postMessage(JSON.stringify(message), '*');
             messageSent = true;
             console.log('✅ Message sent via window.opener.postMessage (popup)');
+            
+            // Close popup after sending message (with small delay to ensure message is sent)
+            setTimeout(() => {
+              try {
+                if (window.opener && !window.opener.closed) {
+                  window.close();
+                }
+              } catch (e) {
+                console.debug('Could not close popup:', e.message);
+              }
+            }, 500);
           } catch (error) {
             console.warn('⚠️ Could not send message via window.opener:', error.message);
           }
         }
         
-        // Try postMessage for iframe scenarios
+        // PRIORITY 2: Try postMessage for iframe scenarios
         if (window.parent && window.parent !== window) {
           try {
             window.parent.postMessage(JSON.stringify(message), '*');
@@ -99,6 +112,7 @@
           }
         }
         
+        // PRIORITY 3: Try window.top
         if (window.top && window.top !== window && window.top !== window.parent) {
           try {
             window.top.postMessage(JSON.stringify(message), '*');
@@ -109,33 +123,43 @@
           }
         }
         
-        // Fallback: Use localStorage for cross-tab communication (Safari new tab scenario)
-        // This works when the page is opened in a new tab instead of an iframe
-        if (!messageSent || window.parent === window) {
+        // FALLBACK: Use localStorage for cross-tab communication (Safari new tab scenario)
+        // This works when the page is opened in a new tab instead of an iframe/popup
+        // Always send via localStorage as backup, even if postMessage worked
+        try {
+          const storageKey = 'ghl_payment_message_' + Date.now();
+          const messageData = {
+            message: message,
+            timestamp: Date.now(),
+            source: 'payment_redirect'
+          };
+          
+          localStorage.setItem(storageKey, JSON.stringify(messageData));
+          console.log('✅ Message sent via localStorage (cross-tab communication):', storageKey);
+          
+          // Trigger storage event for immediate processing
           try {
-            const storageKey = 'ghl_payment_message_' + Date.now();
-            const messageData = {
-              message: message,
-              timestamp: Date.now(),
-              source: 'payment_redirect'
-            };
-            
-            localStorage.setItem(storageKey, JSON.stringify(messageData));
-            console.log('✅ Message sent via localStorage (cross-tab communication):', storageKey);
-            
-            // Clean up old messages after a short delay
-            setTimeout(() => {
-              try {
-                localStorage.removeItem(storageKey);
-              } catch (e) {
-                // Ignore cleanup errors
-              }
-            }, 1000);
-            
-            messageSent = true;
-          } catch (error) {
-            console.warn('⚠️ Could not send message via localStorage:', error.message);
+            window.dispatchEvent(new StorageEvent('storage', {
+              key: storageKey,
+              newValue: JSON.stringify(messageData),
+              url: window.location.href
+            }));
+          } catch (e) {
+            // StorageEvent might not work in all browsers
           }
+          
+          // Clean up old messages after a delay
+          setTimeout(() => {
+            try {
+              localStorage.removeItem(storageKey);
+            } catch (e) {
+              // Ignore cleanup errors
+            }
+          }, 5000);
+          
+          messageSent = true;
+        } catch (error) {
+          console.warn('⚠️ Could not send message via localStorage:', error.message);
         }
         
         if (!messageSent) {
@@ -251,7 +275,29 @@
     // Initialize when page loads
     document.addEventListener('DOMContentLoaded', function() {
       console.log('🚀 Payment Redirect Handler Loaded');
-     processPayment();
+      
+      // Check if we're in a popup
+      const isPopup = window.opener && window.opener !== window;
+      console.log('🔍 Is popup:', isPopup);
+      console.log('🔍 Window opener:', window.opener ? 'exists' : 'null');
+      
+      // Process payment
+      processPayment();
+      
+      // If we're in a popup and message was sent, close after a delay
+      if (isPopup) {
+        setTimeout(() => {
+          try {
+            // Only close if we're still in a popup (not redirected to new tab)
+            if (window.opener && window.opener !== window) {
+              console.log('🚪 Closing popup window');
+              window.close();
+            }
+          } catch (e) {
+            console.debug('Could not close popup:', e.message);
+          }
+        }, 2000); // Give time for message to be sent
+      }
     });
   </script>
 </body>
