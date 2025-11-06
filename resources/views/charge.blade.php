@@ -616,6 +616,7 @@
         gap: 6px;
       }
     }
+
   </style>
 </head>
 <body>
@@ -623,6 +624,16 @@
     <div class="payment-body" id="payment-body">
       <!-- Payment form will be populated when GHL data is received -->
     </div>
+  </div>
+
+  <!-- Payment iframe -->
+  <div id="payment-iframe-wrapper" style="display: none; width: 100%; height: 100vh;">
+    <iframe 
+      id="payment-iframe" 
+      allow="payment"
+      style="width: 100%; height: 100%; border: none;"
+      title="Payment Checkout">
+    </iframe>
   </div>
 
   <script>
@@ -1560,14 +1571,12 @@
         if (tapResponse.ok && result.success && result.charge) {
           console.log('✅ Tap charge created successfully:', result.charge);
           
-          // Handle payment redirect
+          // Handle payment redirect - use iframe with allow="payment" for Safari compatibility
           if (result.charge.transaction?.url) {
-            console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
+            console.log('🔗 Loading Tap checkout in iframe:', result.charge.transaction.url);
             console.log('🌐 User Agent:', navigator.userAgent);
-            // Direct redirect for all browsers
-            setTimeout(() => {
-              window.location.href = result.charge.transaction.url;
-            }, 500);
+            // Load payment URL in iframe with allow="payment" attribute
+            loadPaymentInIframe(result.charge.transaction.url);
           } else {
             showError('No checkout URL received from Tap');
             showButton();
@@ -1590,6 +1599,89 @@
       }
     }
 
+    // Load payment URL in iframe with allow="payment" attribute (Safari workaround)
+    function loadPaymentInIframe(url) {
+      console.log('🖼️ Loading payment URL in iframe with allow="payment":', url);
+      
+      const iframeWrapper = document.getElementById('payment-iframe-wrapper');
+      const paymentIframe = document.getElementById('payment-iframe');
+      
+      if (!iframeWrapper || !paymentIframe) {
+        console.error('❌ Payment iframe elements not found, falling back to direct redirect');
+        setTimeout(() => {
+          window.location.href = url;
+        }, 500);
+        return;
+      }
+
+      // Hide payment container
+      const paymentContainer = document.querySelector('.payment-container');
+      if (paymentContainer) {
+        paymentContainer.style.display = 'none';
+      }
+
+      // Show iframe wrapper
+      iframeWrapper.style.display = 'block';
+      
+      // Set iframe source with allow="payment" attribute (already set in HTML)
+      paymentIframe.src = url;
+
+      // Listen for messages from iframe (for payment completion)
+      const messageHandler = function(event) {
+        // Only process messages from our redirect page
+        if (event.origin !== window.location.origin) {
+          return;
+        }
+
+        try {
+          let messageData = event.data;
+          if (typeof messageData === 'string') {
+            messageData = JSON.parse(messageData);
+          }
+
+          // Check if it's a payment completion message
+          if (messageData && messageData.type && 
+              (messageData.type === 'custom_element_success_response' || 
+               messageData.type === 'custom_element_error_response' || 
+               messageData.type === 'custom_element_close_response')) {
+            console.log('📥 Received payment message from iframe:', messageData);
+            
+            // Hide iframe
+            iframeWrapper.style.display = 'none';
+            
+            // Remove message listener
+            window.removeEventListener('message', messageHandler);
+            
+            // Forward message to GHL
+            if (messageData.type === 'custom_element_success_response') {
+              sendSuccessResponse(messageData.chargeId);
+            } else if (messageData.type === 'custom_element_error_response') {
+              sendErrorResponse(messageData.error?.description || 'Payment failed');
+            } else if (messageData.type === 'custom_element_close_response') {
+              sendErrorResponse('Payment canceled');
+            }
+          }
+        } catch (e) {
+          console.debug('Message from iframe (not payment related):', e);
+        }
+      };
+
+      window.addEventListener('message', messageHandler);
+
+      paymentIframe.onerror = function(error) {
+        console.error('❌ Payment iframe error:', error);
+        iframeWrapper.style.display = 'none';
+        showError('Failed to load payment page in iframe. Trying direct redirect...');
+        // Fallback to direct redirect if iframe fails
+        setTimeout(() => {
+          window.location.href = url;
+        }, 1000);
+      };
+
+      paymentIframe.onload = function() {
+        console.log('✅ Payment iframe loaded');
+      };
+    }
 
     // Initialize when page loads
     document.addEventListener('DOMContentLoaded', function() {

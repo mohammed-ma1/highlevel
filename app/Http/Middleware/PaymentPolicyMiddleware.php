@@ -21,7 +21,8 @@ class PaymentPolicyMiddleware
         $response->headers->set('X-Frame-Options', 'SAMEORIGIN');
         $response->headers->set('Content-Security-Policy', "frame-ancestors 'self' https://app.gohighlevel.com https://*.gohighlevel.com https://app.mediasolution.io https://*.mediasolution.io");
         
-        // Add Feature-Policy header to allow payment requests in iframe
+        // Add Permissions-Policy header to allow payment requests in iframe
+        // This allows iframes to use the payment feature (required for Safari)
         $response->headers->set('Permissions-Policy', 'payment=*');
         
         // Add additional headers for Safari compatibility
