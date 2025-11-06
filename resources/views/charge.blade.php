@@ -1431,28 +1431,28 @@
 
     function showButton() {
       // Show payment container for error cases
-      const paymentContainer = document.getElementById('payment-container');
-      if (paymentContainer) {
-        paymentContainer.style.display = 'block';
-      }
-      
-      const paymentBody = document.querySelector('.payment-body');
-      if (paymentBody) {
-        paymentBody.innerHTML = `
-          <div class="popup-payment-content">
-            <div class="error-message" id="error-message" style="display: block; margin-bottom: 20px;"></div>
-            <button id="retry-btn" type="button" class="proceed-payment-button">
-              <span class="button-text">Retry Payment</span>
-            </button>
-          </div>
-        `;
+        const paymentContainer = document.getElementById('payment-container');
+        if (paymentContainer) {
+          paymentContainer.style.display = 'block';
+        }
         
-        // Add retry button event listener
-        const retryBtn = document.getElementById('retry-btn');
-        if (retryBtn) {
-          retryBtn.addEventListener('click', () => {
-            createCharge();
-          });
+        const paymentBody = document.querySelector('.payment-body');
+        if (paymentBody) {
+          paymentBody.innerHTML = `
+            <div class="popup-payment-content">
+              <div class="error-message" id="error-message" style="display: block; margin-bottom: 20px;"></div>
+              <button id="retry-btn" type="button" class="proceed-payment-button">
+                <span class="button-text">Retry Payment</span>
+              </button>
+            </div>
+          `;
+          
+          // Add retry button event listener
+          const retryBtn = document.getElementById('retry-btn');
+          if (retryBtn) {
+            retryBtn.addEventListener('click', () => {
+              createCharge();
+            });
         }
       }
     }
@@ -1609,10 +1609,10 @@
         if (tapResponse.ok && result.success && result.charge) {
           console.log('✅ Tap charge created successfully:', result.charge);
           
-          // Handle payment in iframe
+          // Handle payment - use popup since Tap checkout blocks iframe embedding
           if (result.charge.transaction?.url) {
-            console.log('🔗 Loading Tap checkout in iframe:', result.charge.transaction.url);
-            showCheckoutIframe(result.charge.transaction.url);
+            console.log('🔗 Opening Tap checkout in popup window:', result.charge.transaction.url);
+            showCheckoutPopup(result.charge.transaction.url);
           } else {
             showError('No checkout URL received from Tap');
             showButton();
@@ -1633,6 +1633,78 @@
         // Send error response to GoHighLevel
         sendErrorResponse(error.message || 'An error occurred while creating the charge');
       }
+    }
+
+    // Show checkout URL in popup window (fallback when iframe is blocked)
+    function showCheckoutPopup(url) {
+      console.log('🔗 Opening checkout in popup window:', url);
+      
+      const paymentContainer = document.querySelector('.payment-container');
+      const paymentBody = document.querySelector('.payment-body');
+      
+      if (!paymentContainer || !paymentBody) {
+        console.error('❌ Payment container or body not found');
+        return;
+      }
+      
+      // Show the container with popup instructions
+      paymentContainer.style.display = 'block';
+      paymentBody.innerHTML = `
+        <div class="popup-payment-content">
+          <div class="loading-spinner-container">
+            <div class="payment-loading-spinner"></div>
+          </div>
+          <p style="color: #6b7280; font-size: 16px; margin: 20px 0;">Opening payment page in a new window...</p>
+          <p style="color: #9ca3af; font-size: 14px; margin-top: 10px;">If the window doesn't open, please check your popup blocker settings.</p>
+        </div>
+      `;
+      
+      // Open popup window
+      const popupWidth = 800;
+      const popupHeight = 900;
+      const left = (screen.width - popupWidth) / 2;
+      const top = (screen.height - popupHeight) / 2;
+      
+      const popup = window.open(
+        url,
+        'TapPayment',
+        `width=${popupWidth},height=${popupHeight},left=${left},top=${top},resizable=yes,scrollbars=yes,toolbar=no,menubar=no,location=no`
+      );
+      
+      if (!popup) {
+        // Popup blocked - show error and provide manual link
+        paymentBody.innerHTML = `
+          <div class="popup-payment-content">
+            <div class="error-message" style="display: block; margin-bottom: 20px;">
+              Popup blocked. Please click the button below to open the payment page.
+            </div>
+            <button id="open-payment-manually" class="proceed-payment-button" onclick="window.open('${url}', '_blank')">
+              <span class="button-text">Open Payment Page</span>
+            </button>
+          </div>
+        `;
+        return;
+      }
+      
+      // Monitor popup for closure or completion
+      const checkPopup = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(checkPopup);
+          console.log('🚪 Payment popup closed');
+          // Check if we received a success message (handled by message listener)
+          // If not, show a message
+          setTimeout(() => {
+            paymentBody.innerHTML = `
+              <div class="popup-payment-content">
+                <p style="color: #6b7280; font-size: 16px;">Payment window closed. Please check your payment status.</p>
+              </div>
+            `;
+          }, 1000);
+        }
+      }, 500);
+      
+      // Store popup reference
+      window.paymentPopup = popup;
     }
 
     // Show checkout URL in iframe
@@ -1669,9 +1741,31 @@
       
       checkoutIframe = document.getElementById('checkout-iframe');
       
+      let iframeLoadTimeout;
+      let iframeLoaded = false;
+      
+      // Set timeout to detect if iframe fails to load (likely blocked by X-Frame-Options)
+      iframeLoadTimeout = setTimeout(() => {
+        if (!iframeLoaded) {
+          console.warn('⚠️ Iframe may be blocked by X-Frame-Options - falling back to popup');
+          const loadingEl = document.getElementById('iframe-loading');
+          if (loadingEl) {
+            loadingEl.innerHTML = `
+              <p style="color: #dc2626; margin-bottom: 20px;">Unable to load payment page in iframe. Opening in popup window instead...</p>
+            `;
+          }
+          // Fallback to popup after short delay
+          setTimeout(() => {
+            showCheckoutPopup(url);
+          }, 1500);
+        }
+      }, 3000); // Wait 3 seconds for iframe to load
+      
       // Hide loading when iframe loads
       if (checkoutIframe) {
         checkoutIframe.addEventListener('load', function() {
+          iframeLoaded = true;
+          clearTimeout(iframeLoadTimeout);
           console.log('✅ Checkout iframe loaded');
           const loadingEl = document.getElementById('iframe-loading');
           if (loadingEl) {
@@ -1698,11 +1792,19 @@
         
         // Handle iframe errors
         checkoutIframe.addEventListener('error', function() {
-          console.error('❌ Checkout iframe failed to load');
+          iframeLoaded = true; // Mark as attempted
+          clearTimeout(iframeLoadTimeout);
+          console.error('❌ Checkout iframe failed to load - falling back to popup');
           const loadingEl = document.getElementById('iframe-loading');
           if (loadingEl) {
-            loadingEl.innerHTML = '<p style="color: #dc2626;">Failed to load payment page. Please try again.</p>';
+            loadingEl.innerHTML = `
+              <p style="color: #dc2626; margin-bottom: 20px;">Failed to load payment page in iframe. Opening in popup window instead...</p>
+            `;
           }
+          // Fallback to popup
+          setTimeout(() => {
+            showCheckoutPopup(url);
+          }, 1500);
         });
       }
       
@@ -1742,10 +1844,25 @@
               console.log('📥 Message origin:', event.origin);
               const chargeId = parsedData.chargeId || 'completed';
               sendSuccessResponse(chargeId);
-              // Remove iframe after successful payment
-              if (checkoutIframe && checkoutIframe.parentElement) {
-                checkoutIframe.parentElement.innerHTML = '<div style="text-align: center; padding: 40px;"><p style="color: #16a34a; font-size: 18px;">✅ Payment successful!</p></div>';
+              
+              // Close popup if it exists
+              if (window.paymentPopup && !window.paymentPopup.closed) {
+                window.paymentPopup.close();
               }
+              
+              // Update UI to show success
+              const paymentBody = document.querySelector('.payment-body');
+              if (paymentBody) {
+                paymentBody.innerHTML = `
+                  <div class="popup-payment-content">
+                    <div style="text-align: center; padding: 40px;">
+                      <p style="color: #16a34a; font-size: 18px; margin-bottom: 10px;">✅ Payment successful!</p>
+                      <p style="color: #6b7280; font-size: 14px;">Your payment has been processed successfully.</p>
+                    </div>
+                  </div>
+                `;
+              }
+              
               // Remove event listener after handling
               window.removeEventListener('message', iframeMessageHandler);
               return;
@@ -1754,12 +1871,37 @@
               console.log('📥 Message origin:', event.origin);
               const errorMsg = parsedData.error?.description || parsedData.error || 'Payment failed';
               sendErrorResponse(errorMsg);
+              
+              // Close popup if it exists
+              if (window.paymentPopup && !window.paymentPopup.closed) {
+                window.paymentPopup.close();
+              }
+              
+              // Update UI to show error
+              const paymentBody = document.querySelector('.payment-body');
+              if (paymentBody) {
+                paymentBody.innerHTML = `
+                  <div class="popup-payment-content">
+                    <div class="error-message" style="display: block; margin-bottom: 20px;">${errorMsg}</div>
+                    <button id="retry-btn" type="button" class="proceed-payment-button" onclick="createCharge()">
+                      <span class="button-text">Retry Payment</span>
+                    </button>
+                  </div>
+                `;
+              }
+              
               window.removeEventListener('message', iframeMessageHandler);
               return;
             } else if (parsedData.type === 'custom_element_close_response') {
               console.log('🚪 Payment canceled from redirect page');
               console.log('📥 Message origin:', event.origin);
               sendErrorResponse('Payment was canceled');
+              
+              // Close popup if it exists
+              if (window.paymentPopup && !window.paymentPopup.closed) {
+                window.paymentPopup.close();
+              }
+              
               window.removeEventListener('message', iframeMessageHandler);
               return;
             }
@@ -1780,7 +1922,7 @@
               const chargeId = parsedData.chargeId || parsedData.id || parsedData.transaction?.id;
               if (chargeId) {
                 sendSuccessResponse(chargeId);
-              } else {
+          } else {
                 sendSuccessResponse('completed');
               }
               window.removeEventListener('message', iframeMessageHandler);

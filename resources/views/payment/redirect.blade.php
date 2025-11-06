@@ -77,6 +77,17 @@
         
         let messageSent = false;
         
+        // Try postMessage for popup scenarios (window.opener)
+        if (window.opener && window.opener !== window) {
+          try {
+            window.opener.postMessage(JSON.stringify(message), '*');
+            messageSent = true;
+            console.log('✅ Message sent via window.opener.postMessage (popup)');
+          } catch (error) {
+            console.warn('⚠️ Could not send message via window.opener:', error.message);
+          }
+        }
+        
         // Try postMessage for iframe scenarios
         if (window.parent && window.parent !== window) {
           try {
