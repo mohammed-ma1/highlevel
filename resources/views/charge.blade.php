@@ -658,10 +658,55 @@
         return false;
       }
       
-      // Monitor popup for completion
+      // Set up message listener for popup communication
+      const popupMessageHandler = function(event) {
+        // Only process messages from our redirect page
+        if (event.origin !== window.location.origin) {
+          return;
+        }
+
+        try {
+          let messageData = event.data;
+          if (typeof messageData === 'string') {
+            messageData = JSON.parse(messageData);
+          }
+
+          // Check if it's a payment completion message from the popup
+          if (messageData && messageData.type && 
+              (messageData.type === 'custom_element_success_response' || 
+               messageData.type === 'custom_element_error_response' || 
+               messageData.type === 'custom_element_close_response')) {
+            console.log('📥 Received payment message from popup:', messageData);
+            
+            // Close popup if still open
+            if (paymentPopup && !paymentPopup.closed) {
+              paymentPopup.close();
+            }
+            
+            // Remove message listener
+            window.removeEventListener('message', popupMessageHandler);
+            
+            // Forward message to GHL
+            if (messageData.type === 'custom_element_success_response') {
+              sendSuccessResponse(messageData.chargeId);
+            } else if (messageData.type === 'custom_element_error_response') {
+              sendErrorResponse(messageData.error?.description || 'Payment failed');
+            } else if (messageData.type === 'custom_element_close_response') {
+              sendErrorResponse('Payment canceled');
+            }
+          }
+        } catch (e) {
+          console.debug('Message from popup (not payment related):', e);
+        }
+      };
+
+      window.addEventListener('message', popupMessageHandler);
+      
+      // Monitor popup for completion (fallback if message doesn't come through)
       const checkClosed = setInterval(() => {
         if (paymentPopup.closed) {
           clearInterval(checkClosed);
+          window.removeEventListener('message', popupMessageHandler);
           checkPaymentStatus();
         }
       }, 1000);
@@ -674,6 +719,42 @@
       // The redirect page will send a message via postMessage or localStorage
       // This is handled by the existing message listeners
       console.log('🔍 Checking payment status after popup closed');
+      
+      // Check localStorage for payment messages (fallback)
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('ghl_payment_message_')) {
+            const messageDataStr = localStorage.getItem(key);
+            if (messageDataStr) {
+              const messageData = JSON.parse(messageDataStr);
+              const message = messageData.message;
+              
+              if (message && message.type && 
+                  (message.type === 'custom_element_success_response' || 
+                   message.type === 'custom_element_error_response' || 
+                   message.type === 'custom_element_close_response')) {
+                console.log('📥 Found payment message in localStorage:', message);
+                
+                // Forward to GHL
+                if (message.type === 'custom_element_success_response') {
+                  sendSuccessResponse(message.chargeId);
+                } else if (message.type === 'custom_element_error_response') {
+                  sendErrorResponse(message.error?.description || 'Payment failed');
+                } else if (message.type === 'custom_element_close_response') {
+                  sendErrorResponse('Payment canceled');
+                }
+                
+                // Clean up
+                localStorage.removeItem(key);
+                return;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ Error checking localStorage:', e);
+      }
     }
     
     // REMOVED: All complex iframe error handling code
