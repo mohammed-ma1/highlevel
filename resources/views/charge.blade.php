@@ -1668,6 +1668,7 @@
 
       window.addEventListener('message', messageHandler);
 
+      // Handle iframe errors and navigation issues
       paymentIframe.onerror = function(error) {
         console.error('❌ Payment iframe error:', error);
         iframeWrapper.style.display = 'none';
@@ -1678,9 +1679,56 @@
         }, 1000);
       };
 
+      // Listen for security errors from iframe (cross-origin navigation attempts)
+      window.addEventListener('error', function(event) {
+        if (event.message && event.message.includes('Failed to set a named property \'href\' on \'Location\'')) {
+          console.warn('⚠️ Tap attempted to navigate parent window (blocked by security). Falling back to direct redirect.');
+          iframeWrapper.style.display = 'none';
+          // Fallback to direct redirect
+          setTimeout(() => {
+            window.location.href = url;
+          }, 500);
+        }
+      }, true);
+
       paymentIframe.onload = function() {
         console.log('✅ Payment iframe loaded');
+        
+        // Monitor iframe URL changes to detect redirects
+        try {
+          const iframeUrl = paymentIframe.contentWindow.location.href;
+          console.log('🔍 Iframe URL:', iframeUrl);
+          
+          // Check if redirected to our redirect page
+          if (iframeUrl && iframeUrl.includes('/charge/redirect')) {
+            console.log('🔄 Payment iframe redirected to our redirect page');
+          }
+        } catch (e) {
+          // CORS - can't access iframe URL, which is expected for cross-origin
+          // This is normal for Tap's payment page
+          console.debug('Cannot access iframe URL (CORS - expected):', e.message);
+        }
       };
+
+      // Monitor iframe navigation by checking URL periodically (fallback)
+      let urlCheckInterval = setInterval(function() {
+        try {
+          const iframeUrl = paymentIframe.contentWindow.location.href;
+          if (iframeUrl && iframeUrl.includes('/charge/redirect')) {
+            console.log('🔄 Detected redirect to our redirect page via polling');
+            clearInterval(urlCheckInterval);
+            // The redirect page will send a message, so we'll handle it via messageHandler
+          }
+        } catch (e) {
+          // CORS - can't access iframe URL, which is normal for cross-origin
+          // This is expected, so we'll rely on postMessage instead
+        }
+      }, 1000);
+
+      // Clear interval after 5 minutes (timeout)
+      setTimeout(function() {
+        clearInterval(urlCheckInterval);
+      }, 300000);
     }
 
     // Initialize when page loads
