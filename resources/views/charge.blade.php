@@ -1614,6 +1614,26 @@
         return;
       }
 
+      // Store original URL for fallback
+      const paymentUrl = url;
+      let fallbackTriggered = false;
+
+      // Function to trigger fallback to direct redirect
+      const triggerFallback = function(reason) {
+        if (fallbackTriggered) return;
+        fallbackTriggered = true;
+        
+        console.warn('⚠️ Iframe approach failed:', reason);
+        console.log('🔄 Falling back to direct redirect');
+        
+        iframeWrapper.style.display = 'none';
+        
+        // Small delay to ensure iframe is hidden
+        setTimeout(() => {
+          window.location.href = paymentUrl;
+        }, 300);
+      };
+
       // Hide payment container
       const paymentContainer = document.querySelector('.payment-container');
       if (paymentContainer) {
@@ -1623,9 +1643,75 @@
       // Show iframe wrapper
       iframeWrapper.style.display = 'block';
       
-      // Set iframe source with allow="payment" attribute (already set in HTML)
-      paymentIframe.src = url;
+      // Set up comprehensive error detection BEFORE loading iframe
+      const errorHandler = function(event) {
+        const errorMsg = event.message || event.error?.message || '';
+        const errorStr = errorMsg.toString().toLowerCase();
+        
+        // Check for security errors related to navigation
+        if (errorStr.includes('failed to set a named property') ||
+            errorStr.includes('unsafe attempt to initiate navigation') ||
+            errorStr.includes('permission to navigate') ||
+            errorStr.includes('securityerror') ||
+            errorStr.includes('location') && errorStr.includes('href')) {
+          console.warn('⚠️ Security error detected - Tap tried to navigate parent window:', errorMsg);
+          triggerFallback('Security error: Tap attempted to navigate parent window');
+          window.removeEventListener('error', errorHandler, true);
+        }
+      };
 
+      // Listen for security errors with capture phase (catches errors from iframe)
+      window.addEventListener('error', errorHandler, true);
+
+      // Also listen for unhandled promise rejections
+      const rejectionHandler = function(event) {
+        const reason = event.reason;
+        const reasonMsg = (reason?.message || reason?.toString() || '').toLowerCase();
+        
+        if (reasonMsg.includes('failed to set a named property') ||
+            reasonMsg.includes('unsafe attempt to initiate navigation') ||
+            reasonMsg.includes('permission to navigate') ||
+            reasonMsg.includes('securityerror') ||
+            reasonMsg.includes('location') && reasonMsg.includes('href')) {
+          console.warn('⚠️ Unhandled rejection - navigation security error:', reason);
+          triggerFallback('Unhandled rejection: navigation security error');
+          window.removeEventListener('unhandledrejection', rejectionHandler);
+        }
+      };
+      window.addEventListener('unhandledrejection', rejectionHandler);
+
+      // Monitor console errors (Tap's errors might be logged but not thrown)
+      const originalConsoleError = console.error;
+      console.error = function(...args) {
+        const errorText = args.join(' ').toLowerCase();
+        if (errorText.includes('failed to set a named property') ||
+            errorText.includes('unsafe attempt to initiate navigation') ||
+            errorText.includes('permission to navigate') ||
+            errorText.includes('securityerror')) {
+          console.warn('⚠️ Console error detected - navigation security issue');
+          triggerFallback('Console error: navigation security issue');
+          // Restore original console.error
+          console.error = originalConsoleError;
+        }
+        originalConsoleError.apply(console, args);
+      };
+
+      // Set iframe source with allow="payment" attribute (already set in HTML)
+      paymentIframe.src = paymentUrl;
+      
+      // Cleanup listeners after 30 seconds if no error occurred
+      setTimeout(() => {
+        window.removeEventListener('error', errorHandler, true);
+        window.removeEventListener('unhandledrejection', rejectionHandler);
+        // Restore original console.error if it was overridden
+        if (console.error !== originalConsoleError) {
+          console.error = originalConsoleError;
+        }
+      }, 30000);
+
+      // Set up timeout fallback first (before message handler)
+      let timeoutFallback;
+      
       // Listen for messages from iframe (for payment completion)
       const messageHandler = function(event) {
         // Only process messages from our redirect page
@@ -1646,11 +1732,16 @@
                messageData.type === 'custom_element_close_response')) {
             console.log('📥 Received payment message from iframe:', messageData);
             
+            // Clear timeout if it exists
+            if (timeoutFallback) {
+              clearTimeout(timeoutFallback);
+            }
+            
             // Hide iframe
             iframeWrapper.style.display = 'none';
             
             // Remove message listener
-            window.removeEventListener('message', messageHandler);
+            window.removeEventListener('message', wrappedMessageHandler);
             
             // Forward message to GHL
             if (messageData.type === 'custom_element_success_response') {
@@ -1666,7 +1757,28 @@
         }
       };
 
-      window.addEventListener('message', messageHandler);
+      // Wrap message handler to clear timeout when payment completes
+      const wrappedMessageHandler = function(event) {
+        messageHandler(event);
+      };
+
+      // Set timeout - if iframe doesn't redirect within 5 seconds, assume it's stuck
+      // and fall back to direct redirect (Tap usually redirects quickly)
+      timeoutFallback = setTimeout(() => {
+        try {
+          // Check if iframe has navigated to our redirect page
+          const iframeUrl = paymentIframe.contentWindow?.location?.href;
+          if (!iframeUrl || !iframeUrl.includes('/charge/redirect')) {
+            console.warn('⚠️ Iframe timeout - no redirect detected after 5 seconds');
+            triggerFallback('Timeout: iframe did not redirect within expected time');
+          }
+        } catch (e) {
+          // CORS - can't check, but that's okay
+          // If we can't check, assume it might be working and don't trigger fallback
+        }
+      }, 5000);
+
+      window.addEventListener('message', wrappedMessageHandler);
 
       // Handle iframe errors and navigation issues
       paymentIframe.onerror = function(error) {
@@ -1679,17 +1791,6 @@
         }, 1000);
       };
 
-      // Listen for security errors from iframe (cross-origin navigation attempts)
-      window.addEventListener('error', function(event) {
-        if (event.message && event.message.includes('Failed to set a named property \'href\' on \'Location\'')) {
-          console.warn('⚠️ Tap attempted to navigate parent window (blocked by security). Falling back to direct redirect.');
-          iframeWrapper.style.display = 'none';
-          // Fallback to direct redirect
-          setTimeout(() => {
-            window.location.href = url;
-          }, 500);
-        }
-      }, true);
 
       paymentIframe.onload = function() {
         console.log('✅ Payment iframe loaded');
