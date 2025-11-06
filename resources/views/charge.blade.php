@@ -638,36 +638,29 @@
   </div>
 
   <script>
-    // Set up Tap navigation error interceptor FIRST, before any other interceptors
-    // This must be global and set up immediately to catch errors from iframes
-    console.log('🚀 Setting up Tap navigation error interceptor...');
+    // Set up Tap navigation error handler - use multiple methods to catch the error
+    console.log('🚀 Setting up Tap navigation error handler...');
     
     (function() {
-      if (!window.tapConsoleErrorInterceptorSetup) {
-        window.tapConsoleErrorInterceptorSetup = true;
+      if (!window.tapErrorHandlerSetup) {
+        window.tapErrorHandlerSetup = true;
+        window.tapRedirectHandled = false;
         
-        // Get the ORIGINAL console.error before any modifications
+        // Method 1: Intercept console.error
         const originalConsoleError = console.error.bind(console);
-        
-        // Set up our navigation error interceptor
-        const tapErrorInterceptor = function(...args) {
+        console.error = function(...args) {
           const errorText = args.join(' ');
           
-          // Log ALL console.error calls to see what we're getting
-          if (errorText.includes('SecurityError') || errorText.includes('tap_process') || errorText.includes('acceptance')) {
-            console.log('📢 Console.error called with potential navigation error:', errorText.substring(0, 400));
-          }
-          
-          // Check if it's a navigation security error
-          if (errorText.includes('Failed to set a named property') ||
-              errorText.includes('Unsafe attempt to initiate navigation') ||
-              errorText.includes('permission to navigate') ||
-              errorText.includes('SecurityError') ||
-              (args[0] && args[0].name === 'SecurityError')) {
+          // Check for navigation security error
+          if ((errorText.includes('Failed to set a named property') ||
+               errorText.includes('Unsafe attempt to initiate navigation') ||
+               errorText.includes('permission to navigate') ||
+               errorText.includes('SecurityError')) &&
+              !window.tapRedirectHandled) {
             
-            console.log('🔍 Navigation error detected in console.error!', errorText.substring(0, 300));
+            console.log('🔍 Navigation error detected in console.error!');
             
-            // Try to extract URL - the error message contains the full URL
+            // Extract URL
             const urlMatch = errorText.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
                             errorText.match(/['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i) ||
                             errorText.match(/(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i) ||
@@ -683,34 +676,105 @@
                   !window.tapRedirectHandled) {
                 
                 window.tapRedirectHandled = true;
-                console.log('🔗 Extracted URL and redirecting to:', redirectUrl);
+                console.log('🔗 Redirecting to:', redirectUrl);
                 
-                // Redirect immediately
-                try {
+                setTimeout(() => {
                   if (window.top && window.top !== window) {
                     window.top.location.href = redirectUrl;
                   } else {
                     window.location.href = redirectUrl;
                   }
-                } catch (e) {
-                  originalConsoleError('Failed to redirect:', e);
-                  window.open(redirectUrl, '_top');
-                }
-                return; // Don't log the error
+                }, 100);
+                return;
               }
-            } else {
-              console.warn('⚠️ Navigation error detected but could not extract URL. Error text:', errorText.substring(0, 500));
             }
           }
           
-          // Call the original console.error for all other errors
           originalConsoleError.apply(console, args);
         };
         
-        console.error = tapErrorInterceptor;
-        console.log('✅ Global console.error interceptor set up for Tap navigation errors');
-      } else {
-        console.log('⚠️ Tap console.error interceptor already set up');
+        // Method 2: Use window error event listener
+        window.addEventListener('error', function(event) {
+          if (window.tapRedirectHandled) return;
+          
+          const errorMsg = (event.message || event.error?.message || '').toString();
+          
+          if (errorMsg.includes('Failed to set a named property') ||
+              errorMsg.includes('Unsafe attempt to initiate navigation') ||
+              errorMsg.includes('SecurityError')) {
+            
+            console.log('🔍 Navigation error detected in window error event!');
+            
+            const urlMatch = errorMsg.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
+                            errorMsg.match(/(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i);
+            
+            if (urlMatch && urlMatch[1] && !window.tapRedirectHandled) {
+              const redirectUrl = urlMatch[1].replace(/['"]+$/, '').trim();
+              
+              if (redirectUrl.includes('tap_process.aspx') || redirectUrl.includes('acceptance')) {
+                window.tapRedirectHandled = true;
+                console.log('🔗 Redirecting to (from error event):', redirectUrl);
+                
+                setTimeout(() => {
+                  if (window.top && window.top !== window) {
+                    window.top.location.href = redirectUrl;
+                  } else {
+                    window.location.href = redirectUrl;
+                  }
+                }, 100);
+              }
+            }
+          }
+        }, true);
+        
+        // Method 3: Monitor console output using MutationObserver (fallback)
+        // This watches for new console entries
+        if (typeof MutationObserver !== 'undefined') {
+          const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+              mutation.addedNodes.forEach(function(node) {
+                if (node.nodeType === 1 && node.textContent) {
+                  const text = node.textContent;
+                  if (text.includes('Failed to set a named property') &&
+                      text.includes('tap_process') &&
+                      !window.tapRedirectHandled) {
+                    
+                    const urlMatch = text.match(/to\s+['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i) ||
+                                    text.match(/(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i);
+                    
+                    if (urlMatch && urlMatch[1]) {
+                      const redirectUrl = urlMatch[1].replace(/['"]+$/, '').trim();
+                      if (redirectUrl.includes('tap_process.aspx') || redirectUrl.includes('acceptance')) {
+                        window.tapRedirectHandled = true;
+                        console.log('🔗 Redirecting to (from MutationObserver):', redirectUrl);
+                        
+                        setTimeout(() => {
+                          if (window.top && window.top !== window) {
+                            window.top.location.href = redirectUrl;
+                          } else {
+                            window.location.href = redirectUrl;
+                          }
+                        }, 100);
+                      }
+                    }
+                  }
+                }
+              });
+            });
+          });
+          
+          // Try to observe console output (may not work in all browsers)
+          try {
+            const consoleDiv = document.querySelector('body');
+            if (consoleDiv) {
+              observer.observe(consoleDiv, { childList: true, subtree: true });
+            }
+          } catch (e) {
+            // MutationObserver might not work for console, that's okay
+          }
+        }
+        
+        console.log('✅ Tap navigation error handler set up with multiple methods');
       }
     })();
     
