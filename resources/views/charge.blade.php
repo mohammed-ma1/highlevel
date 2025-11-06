@@ -1679,120 +1679,7 @@
       return false;
     }
 
-    // Open payment in popup window for Safari compatibility
-    function openPaymentPopup(url) {
-      const popupFeatures = 'width=800,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no';
-      paymentPopup = window.open(url, 'tap_payment', popupFeatures);
-      
-      if (!paymentPopup) {
-        showError('Popup blocked. Please allow popups for this site and try again.');
-        return false;
-      }
-      
-      console.log('✅ Payment popup opened successfully');
-      
-      // Set up message listener for popup communication
-      const popupMessageHandler = function(event) {
-        // Only process messages from our redirect page
-        if (event.origin !== window.location.origin) {
-          return;
-        }
-
-        try {
-          let messageData = event.data;
-          if (typeof messageData === 'string') {
-            messageData = JSON.parse(messageData);
-          }
-
-          // Check if it's a payment completion message from the popup
-          if (messageData && messageData.type && 
-              (messageData.type === 'custom_element_success_response' || 
-               messageData.type === 'custom_element_error_response' || 
-               messageData.type === 'custom_element_close_response')) {
-            console.log('📥 Received payment message from popup:', messageData);
-            
-            // Close popup if still open
-            if (paymentPopup && !paymentPopup.closed) {
-              paymentPopup.close();
-            }
-            
-            // Remove message listener
-            window.removeEventListener('message', popupMessageHandler);
-            
-            // Forward message to GHL
-            if (messageData.type === 'custom_element_success_response') {
-              sendSuccessResponse(messageData.chargeId);
-            } else if (messageData.type === 'custom_element_error_response') {
-              sendErrorResponse(messageData.error?.description || 'Payment failed');
-            } else if (messageData.type === 'custom_element_close_response') {
-              sendErrorResponse('Payment canceled');
-            }
-          }
-        } catch (e) {
-          console.debug('Message from popup (not payment related):', e);
-        }
-      };
-
-      window.addEventListener('message', popupMessageHandler);
-      
-      // Monitor popup for completion (fallback if message doesn't come through)
-      const checkClosed = setInterval(() => {
-        if (paymentPopup.closed) {
-          clearInterval(checkClosed);
-          window.removeEventListener('message', popupMessageHandler);
-          checkPaymentStatus();
-        }
-      }, 1000);
-      
-      return true;
-    }
-    
-    // Check payment status after popup closes
-    function checkPaymentStatus() {
-      console.log('🔍 Checking payment status after popup closed');
-      
-      // Check localStorage for payment messages (fallback)
-      try {
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && key.startsWith('ghl_payment_message_')) {
-            try {
-              const messageDataStr = localStorage.getItem(key);
-              if (messageDataStr) {
-                const messageData = JSON.parse(messageDataStr);
-                const message = messageData.message;
-                
-                if (message && message.type && 
-                    (message.type === 'custom_element_success_response' || 
-                     message.type === 'custom_element_error_response' || 
-                     message.type === 'custom_element_close_response')) {
-                  console.log('📥 Found payment message in localStorage:', message);
-                  
-                  // Forward to GHL
-                  if (message.type === 'custom_element_success_response') {
-                    sendSuccessResponse(message.chargeId);
-                  } else if (message.type === 'custom_element_error_response') {
-                    sendErrorResponse(message.error?.description || 'Payment failed');
-                  } else if (message.type === 'custom_element_close_response') {
-                    sendErrorResponse('Payment canceled');
-                  }
-                  
-                  // Clean up
-                  localStorage.removeItem(key);
-                  return;
-                }
-              }
-            } catch (e) {
-              console.warn('⚠️ Error processing localStorage message:', e);
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('⚠️ Error checking localStorage:', e);
-      }
-    }
-
-    // Show proceed payment popup for Safari only (DEPRECATED - now opens popup directly)
+    // Show proceed payment popup for Safari only
     function showProceedPaymentPopup(url) {
       // Final safety check - ensure this is Safari
       const finalSafariCheck = detectSafari();
@@ -1804,12 +1691,54 @@
         return;
       }
       
-      console.log('🍎 Safari detected - opening payment in popup window');
+      console.log('🔗 Showing proceed payment popup for Safari:', url);
+      console.log('🔍 Final Safari verification:', {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        isMobile: /iPhone|iPad|iPod/.test(navigator.userAgent) || ('ontouchend' in document)
+      });
       
-      // Open payment URL directly in popup window
-      if (!openPaymentPopup(url)) {
-        // Popup blocked, show error
-        showError('Popup blocked. Please allow popups for this site and try again.');
+      const paymentBody = document.querySelector('.payment-body');
+      const paymentContainer = document.querySelector('.payment-container');
+      
+      if (paymentBody && paymentContainer) {
+        // Show popup content directly without any card before
+        paymentBody.innerHTML = `
+          <div class="popup-payment-content">
+            <!-- Loading Spinner -->
+            <div class="loading-spinner-container">
+              <div class="payment-loading-spinner"></div>
+            </div>
+            
+            <!-- Proceed Payment Button -->
+            <button id="proceed-payment-btn" class="proceed-payment-button">
+              <span class="button-arrow">→</span>
+              <span class="button-text">الذهاب لصفحة الدفع</span>
+            </button>
+            
+            <!-- Payment Methods -->
+            <div class="payment-methods-logos">
+            <img src="{{ asset('https://images.leadconnectorhq.com/image/f_webp/q_80/r_1200/u_https://assets.cdn.filesafe.space/xAN9Y8iZDOugbNvKBKad/media/6901e4a9a412c65d60fb7f4b.png') }}" alt="Tap" class="payment-logo">
+          </div>
+        `;
+      }
+      
+      // Store URL for button click
+      window.openPaymentUrl = url;
+      
+      // Update button to open in parent window
+      const proceedBtn = document.getElementById('proceed-payment-btn');
+      if (proceedBtn) {
+        proceedBtn.onclick = function() {
+          // Open in parent window (if in iframe) or top window
+          if (window.top && window.top !== window) {
+            window.top.location.href = url;
+          } else if (window.parent && window.parent !== window) {
+            window.parent.location.href = url;
+          } else {
+            window.location.href = url;
+          }
+        };
       }
     }
 
