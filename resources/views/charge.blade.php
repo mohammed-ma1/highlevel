@@ -1774,21 +1774,42 @@
           }
         }
         
+        // Log all error details for debugging
         console.log('🔍 Security error detected:', {
           message: errorStr,
           stack: errorStack,
           filename: errorFilename,
-          fullError: fullErrorText.substring(0, 500) // Log first 500 chars
+          errorName: event.error?.name,
+          errorType: event.error?.constructor?.name,
+          hasError: !!event.error,
+          errorMessage: event.error?.message,
+          fullError: fullErrorText.substring(0, 2000) // Log first 2000 chars to see full URL
         });
+        
+        // Also log the raw error object if available
+        if (event.error) {
+          console.log('🔍 Raw error object:', event.error);
+          try {
+            console.log('🔍 Error object keys:', Object.keys(event.error));
+          } catch (e) {
+            // Can't access keys
+          }
+        }
         
         // Check if it's a navigation security error with a URL
         // Also check the error target - it might contain the URL
         const errorTarget = event.target?.href || event.target?.location?.href || '';
         const allErrorText = fullErrorText + ' ' + errorTarget;
         
-        if (allErrorText.includes('Failed to set a named property') ||
-            allErrorText.includes('Unsafe attempt to initiate navigation') ||
-            allErrorText.includes('permission to navigate')) {
+        // Check for navigation security errors - both warnings and actual errors
+        const isNavigationError = 
+          allErrorText.includes('Failed to set a named property') ||
+          allErrorText.includes('Unsafe attempt to initiate navigation') ||
+          allErrorText.includes('permission to navigate') ||
+          allErrorText.includes('SecurityError') ||
+          (event.error && event.error.name === 'SecurityError');
+        
+        if (isNavigationError) {
           
           // Try multiple patterns to extract URL from error message
           // Error format: "Failed to set a named property 'href' on 'Location': The current window does not have permission to navigate the target frame to 'URL'."
