@@ -437,40 +437,6 @@
       margin-left: 4px;
     }
 
-    .checkout-iframe-container {
-      width: 100%;
-      height: 100vh;
-      border: none;
-      display: flex;
-      flex-direction: column;
-      position: relative;
-      background: white;
-    }
-
-    .checkout-iframe {
-      width: 100%;
-      height: 100%;
-      border: none;
-      flex: 1;
-      min-height: 600px;
-    }
-
-    .iframe-loading {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 20px;
-      z-index: 10;
-    }
-
-    .iframe-loading.hidden {
-      display: none;
-    }
-
 
     @media (max-width: 768px) {
       body {
@@ -758,7 +724,8 @@
     // GoHighLevel iframe communication
     let paymentData = null;
     let isReady = false;
-    let checkoutIframe = null;
+    let isSafari = false;
+    let paymentPopup = null;
 
     // Validate GHL message structure according to documentation
     function isValidGHLMessage(data) {
@@ -1430,7 +1397,8 @@
     }
 
     function showButton() {
-      // Show payment container for error cases
+      // Show payment container for error cases (only Safari)
+      if (isSafari) {
         const paymentContainer = document.getElementById('payment-container');
         if (paymentContainer) {
           paymentContainer.style.display = 'block';
@@ -1453,6 +1421,7 @@
             retryBtn.addEventListener('click', () => {
               createCharge();
             });
+          }
         }
       }
     }
@@ -1609,10 +1578,29 @@
         if (tapResponse.ok && result.success && result.charge) {
           console.log('✅ Tap charge created successfully:', result.charge);
           
-          // Handle payment - use popup since Tap checkout blocks iframe embedding
+          // Handle payment redirect based on browser
           if (result.charge.transaction?.url) {
-            console.log('🔗 Opening Tap checkout in popup window:', result.charge.transaction.url);
-            showCheckoutPopup(result.charge.transaction.url);
+            console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
+            
+            // Double-check Safari detection before showing popup
+            const currentSafariCheck = detectSafari();
+            if (currentSafariCheck) {
+              // Use popup ONLY for Safari (desktop and mobile) to avoid iframe payment restrictions
+              console.log('🍎 Safari detected (desktop/mobile) - showing proceed payment popup');
+              console.log('📱 User Agent:', navigator.userAgent);
+              const paymentContainer = document.querySelector('.payment-container');
+              if (paymentContainer) {
+                paymentContainer.style.display = 'block';
+              }
+              showProceedPaymentPopup(result.charge.transaction.url);
+            } else {
+              // Direct redirect for all other browsers - NO POPUP
+              console.log('🌐 Non-Safari browser detected - using direct redirect (NO POPUP)');
+              console.log('🌐 User Agent:', navigator.userAgent);
+              setTimeout(() => {
+                window.location.href = result.charge.transaction.url;
+              }, 500);
+            }
           } else {
             showError('No checkout URL received from Tap');
             showButton();
@@ -1635,317 +1623,144 @@
       }
     }
 
-    // Show checkout URL in popup window (fallback when iframe is blocked)
-    function showCheckoutPopup(url) {
-      console.log('🔗 Opening checkout in popup window:', url);
+    // Detect Safari browser (desktop and mobile)
+    function detectSafari() {
+      const userAgent = navigator.userAgent;
       
-      const paymentContainer = document.querySelector('.payment-container');
-      const paymentBody = document.querySelector('.payment-body');
-      
-      if (!paymentContainer || !paymentBody) {
-        console.error('❌ Payment container or body not found');
-        return;
+      // Check for Chrome first (Chrome on iOS reports as Safari but has Chrome in userAgent)
+      if (/Chrome/.test(userAgent) && !/Chromium/.test(userAgent)) {
+        // Chrome browser (desktop or mobile)
+        return false;
       }
       
-      // Show the container with popup instructions
-      paymentContainer.style.display = 'block';
-      paymentBody.innerHTML = `
-        <div class="popup-payment-content">
-          <div class="loading-spinner-container">
-            <div class="payment-loading-spinner"></div>
-          </div>
-          <p style="color: #6b7280; font-size: 16px; margin: 20px 0;">Opening payment page in a new window...</p>
-          <p style="color: #9ca3af; font-size: 14px; margin-top: 10px;">If the window doesn't open, please check your popup blocker settings.</p>
-        </div>
-      `;
-      
-      // Open popup window
-      const popupWidth = 800;
-      const popupHeight = 900;
-      const left = (screen.width - popupWidth) / 2;
-      const top = (screen.height - popupHeight) / 2;
-      
-      const popup = window.open(
-        url,
-        'TapPayment',
-        `width=${popupWidth},height=${popupHeight},left=${left},top=${top},resizable=yes,scrollbars=yes,toolbar=no,menubar=no,location=no`
-      );
-      
-      if (!popup) {
-        // Popup blocked - show error and provide manual link
-        paymentBody.innerHTML = `
-          <div class="popup-payment-content">
-            <div class="error-message" style="display: block; margin-bottom: 20px;">
-              Popup blocked. Please click the button below to open the payment page.
-            </div>
-            <button id="open-payment-manually" class="proceed-payment-button" onclick="window.open('${url}', '_blank')">
-              <span class="button-text">Open Payment Page</span>
-            </button>
-          </div>
-        `;
-        return;
+      // Check for Firefox
+      if (/Firefox/.test(userAgent)) {
+        return false;
       }
       
-      // Monitor popup for closure or completion
-      const checkPopup = setInterval(() => {
-        if (popup.closed) {
-          clearInterval(checkPopup);
-          console.log('🚪 Payment popup closed');
-          // Check if we received a success message (handled by message listener)
-          // If not, show a message
-          setTimeout(() => {
-            paymentBody.innerHTML = `
-              <div class="popup-payment-content">
-                <p style="color: #6b7280; font-size: 16px;">Payment window closed. Please check your payment status.</p>
-              </div>
-            `;
-          }, 1000);
+      // Check for Edge
+      if (/Edg/.test(userAgent) || /Edge/.test(userAgent)) {
+        return false;
+      }
+      
+      // Check for Opera
+      if (/Opera/.test(userAgent) || /OPR/.test(userAgent)) {
+        return false;
+      }
+      
+      // iOS devices (iPhone, iPad, iPod) - all use Safari
+      const isIOS = /iPad|iPhone|iPod/.test(userAgent);
+      if (isIOS) {
+        // Additional check: iPad on iOS 13+ might report as Mac, so check for touch
+        if (/Macintosh/.test(userAgent) && 'ontouchend' in document) {
+          return true; // iPad running iOS 13+
         }
-      }, 500);
+        return true; // iPhone/iPod/iPad (iOS < 13)
+      }
       
-      // Store popup reference
-      window.paymentPopup = popup;
+      // macOS Safari (desktop) - must have Safari but not Chrome
+      const isMac = /Macintosh/.test(userAgent);
+      const hasSafari = /Safari/.test(userAgent);
+      const noChrome = !/Chrome/.test(userAgent) && !/Chromium/.test(userAgent);
+      
+      if (isMac && hasSafari && noChrome) {
+        return true; // macOS Safari
+      }
+      
+      // Additional Safari detection for older versions or edge cases
+      if (/^((?!chrome|android).)*safari/i.test(userAgent)) {
+        // Make sure it's not Chrome by checking vendor
+        const isChrome = /Google Inc/.test(navigator.vendor);
+        if (!isChrome) {
+          return true;
+        }
+      }
+      
+      return false;
     }
 
-    // Show checkout URL in iframe
-    function showCheckoutIframe(url) {
-      console.log('🔗 Loading checkout in iframe:', url);
-      
-      const paymentContainer = document.querySelector('.payment-container');
-      const paymentBody = document.querySelector('.payment-body');
-      
-      if (!paymentContainer || !paymentBody) {
-        console.error('❌ Payment container or body not found');
+    // Show proceed payment popup for Safari only
+    function showProceedPaymentPopup(url) {
+      // Final safety check - ensure this is Safari
+      const finalSafariCheck = detectSafari();
+      if (!finalSafariCheck) {
+        console.error('❌ Security: showProceedPaymentPopup called but not Safari! Redirecting instead.');
+        setTimeout(() => {
+          window.location.href = url;
+        }, 500);
         return;
       }
       
-      // Show the container
-      paymentContainer.style.display = 'block';
+      console.log('🔗 Showing proceed payment popup for Safari:', url);
+      console.log('🔍 Final Safari verification:', {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        isMobile: /iPhone|iPad|iPod/.test(navigator.userAgent) || ('ontouchend' in document)
+      });
       
-      // Create iframe container with loading indicator
-      paymentBody.innerHTML = `
-        <div class="checkout-iframe-container">
-          <div class="iframe-loading" id="iframe-loading">
-            <div class="payment-loading-spinner"></div>
-            <p style="color: #6b7280; font-size: 16px;">Loading payment page...</p>
-          </div>
-          <iframe 
-            id="checkout-iframe" 
-            class="checkout-iframe" 
-            src="${url}"
-            allow="payment; camera; microphone"
-            title="Tap Payment Checkout"
-          ></iframe>
-        </div>
-      `;
+      const paymentBody = document.querySelector('.payment-body');
+      const paymentContainer = document.querySelector('.payment-container');
       
-      checkoutIframe = document.getElementById('checkout-iframe');
-      
-      let iframeLoadTimeout;
-      let iframeLoaded = false;
-      
-      // Set timeout to detect if iframe fails to load (likely blocked by X-Frame-Options)
-      iframeLoadTimeout = setTimeout(() => {
-        if (!iframeLoaded) {
-          console.warn('⚠️ Iframe may be blocked by X-Frame-Options - falling back to popup');
-          const loadingEl = document.getElementById('iframe-loading');
-          if (loadingEl) {
-            loadingEl.innerHTML = `
-              <p style="color: #dc2626; margin-bottom: 20px;">Unable to load payment page in iframe. Opening in popup window instead...</p>
-            `;
-          }
-          // Fallback to popup after short delay
-          setTimeout(() => {
-            showCheckoutPopup(url);
-          }, 1500);
-        }
-      }, 3000); // Wait 3 seconds for iframe to load
-      
-      // Hide loading when iframe loads
-      if (checkoutIframe) {
-        checkoutIframe.addEventListener('load', function() {
-          iframeLoaded = true;
-          clearTimeout(iframeLoadTimeout);
-          console.log('✅ Checkout iframe loaded');
-          const loadingEl = document.getElementById('iframe-loading');
-          if (loadingEl) {
-            loadingEl.classList.add('hidden');
-          }
-          
-          // Try to detect if iframe has navigated to our redirect URL
-          // Note: This may fail due to same-origin policy, but will work if redirect is to our domain
-          try {
-            const iframeSrc = checkoutIframe.contentWindow.location.href;
-            console.log('🔍 Iframe current URL:', iframeSrc);
+      if (paymentBody && paymentContainer) {
+        // Show popup content directly without any card before
+        paymentBody.innerHTML = `
+          <div class="popup-payment-content">
+            <!-- Loading Spinner -->
+            <div class="loading-spinner-container">
+              <div class="payment-loading-spinner"></div>
+            </div>
             
-            // Check if iframe has navigated to our redirect URL
-            if (iframeSrc && iframeSrc.includes('/charge/redirect')) {
-              console.log('✅ Iframe navigated to redirect URL - waiting for message from redirect page');
-              // The redirect page will send a message, which we'll handle in the message handler
-            }
-          } catch (e) {
-            // Cross-origin restriction - this is expected when iframe is on tap.company domain
-            // We'll rely on postMessage from the redirect page instead
-            console.log('🔒 Cannot access iframe URL (cross-origin restriction) - will rely on postMessage');
-          }
-        });
-        
-        // Handle iframe errors
-        checkoutIframe.addEventListener('error', function() {
-          iframeLoaded = true; // Mark as attempted
-          clearTimeout(iframeLoadTimeout);
-          console.error('❌ Checkout iframe failed to load - falling back to popup');
-          const loadingEl = document.getElementById('iframe-loading');
-          if (loadingEl) {
-            loadingEl.innerHTML = `
-              <p style="color: #dc2626; margin-bottom: 20px;">Failed to load payment page in iframe. Opening in popup window instead...</p>
-            `;
-          }
-          // Fallback to popup
-          setTimeout(() => {
-            showCheckoutPopup(url);
-          }, 1500);
-        });
+            <!-- Proceed Payment Button -->
+            <button id="proceed-payment-btn" class="proceed-payment-button">
+              <span class="button-arrow">→</span>
+              <span class="button-text">الذهاب لصفحة الدفع</span>
+            </button>
+            
+            <!-- Payment Methods -->
+            <div class="payment-methods-logos">
+            <img src="{{ asset('https://images.leadconnectorhq.com/image/f_webp/q_80/r_1200/u_https://assets.cdn.filesafe.space/xAN9Y8iZDOugbNvKBKad/media/6901e4a9a412c65d60fb7f4b.png') }}" alt="Tap" class="payment-logo">
+          </div>
+        `;
       }
       
-      // Listen for messages from the iframe (Tap checkout and redirect page)
-      const iframeMessageHandler = function(event) {
-        // Parse JSON string if needed
-        let parsedData = event.data;
-        if (typeof event.data === 'string') {
-          try {
-            parsedData = JSON.parse(event.data);
-          } catch (e) {
-            // Not JSON, skip
-            return;
-          }
-        }
-        
-        // Handle messages from redirect page (our redirect URL - same domain)
-        // Also accept from Tap checkout domain
-        const isFromOurDomain = event.origin && (
-          event.origin.includes(window.location.hostname) || 
-          event.origin.includes('mediasolution.io') ||
-          event.origin.includes(location.hostname)
-        );
-        const isFromTapDomain = event.origin && event.origin.includes('tap.company');
-        
-        if (parsedData && typeof parsedData === 'object') {
-          // Check for redirect page messages (custom_element_*_response)
-          // These come from our redirect URL which loads in the iframe
-          // Accept messages from our domain or Tap domain
-          const isRedirectMessage = parsedData.type === 'custom_element_success_response' ||
-                                    parsedData.type === 'custom_element_error_response' ||
-                                    parsedData.type === 'custom_element_close_response';
-          
-          if (isRedirectMessage && (isFromOurDomain || isFromTapDomain)) {
-            if (parsedData.type === 'custom_element_success_response') {
-              console.log('✅ Payment successful from redirect page:', parsedData);
-              console.log('📥 Message origin:', event.origin);
-              const chargeId = parsedData.chargeId || 'completed';
-              sendSuccessResponse(chargeId);
-              
-              // Close popup if it exists
-              if (window.paymentPopup && !window.paymentPopup.closed) {
-                window.paymentPopup.close();
-              }
-              
-              // Update UI to show success
-              const paymentBody = document.querySelector('.payment-body');
-              if (paymentBody) {
-                paymentBody.innerHTML = `
-                  <div class="popup-payment-content">
-                    <div style="text-align: center; padding: 40px;">
-                      <p style="color: #16a34a; font-size: 18px; margin-bottom: 10px;">✅ Payment successful!</p>
-                      <p style="color: #6b7280; font-size: 14px;">Your payment has been processed successfully.</p>
-                    </div>
-                  </div>
-                `;
-              }
-              
-              // Remove event listener after handling
-              window.removeEventListener('message', iframeMessageHandler);
-              return;
-            } else if (parsedData.type === 'custom_element_error_response') {
-              console.log('❌ Payment error from redirect page:', parsedData);
-              console.log('📥 Message origin:', event.origin);
-              const errorMsg = parsedData.error?.description || parsedData.error || 'Payment failed';
-              sendErrorResponse(errorMsg);
-              
-              // Close popup if it exists
-              if (window.paymentPopup && !window.paymentPopup.closed) {
-                window.paymentPopup.close();
-              }
-              
-              // Update UI to show error
-              const paymentBody = document.querySelector('.payment-body');
-              if (paymentBody) {
-                paymentBody.innerHTML = `
-                  <div class="popup-payment-content">
-                    <div class="error-message" style="display: block; margin-bottom: 20px;">${errorMsg}</div>
-                    <button id="retry-btn" type="button" class="proceed-payment-button" onclick="createCharge()">
-                      <span class="button-text">Retry Payment</span>
-                    </button>
-                  </div>
-                `;
-              }
-              
-              window.removeEventListener('message', iframeMessageHandler);
-              return;
-            } else if (parsedData.type === 'custom_element_close_response') {
-              console.log('🚪 Payment canceled from redirect page');
-              console.log('📥 Message origin:', event.origin);
-              sendErrorResponse('Payment was canceled');
-              
-              // Close popup if it exists
-              if (window.paymentPopup && !window.paymentPopup.closed) {
-                window.paymentPopup.close();
-              }
-              
-              window.removeEventListener('message', iframeMessageHandler);
-              return;
-            }
-          }
-        }
-        
-        // Handle messages from Tap checkout domain (if Tap sends any)
-        if (isFromTapDomain) {
-          console.log('📥 Message from Tap checkout:', parsedData);
-          
-          // Handle payment success/error messages from Tap
-          if (parsedData && typeof parsedData === 'object') {
-            // Check for Tap payment completion signals
-            if (parsedData.type === 'tap_payment_success' || 
-                parsedData.status === 'CAPTURED' || 
-                parsedData.status === 'AUTHORIZED') {
-              console.log('✅ Payment successful from Tap iframe');
-              const chargeId = parsedData.chargeId || parsedData.id || parsedData.transaction?.id;
-              if (chargeId) {
-                sendSuccessResponse(chargeId);
-          } else {
-                sendSuccessResponse('completed');
-              }
-              window.removeEventListener('message', iframeMessageHandler);
-            } else if (parsedData.type === 'tap_payment_error' || 
-                       parsedData.status === 'DECLINED' || 
-                       parsedData.status === 'FAILED') {
-              console.log('❌ Payment failed from Tap iframe');
-              const errorMsg = parsedData.message || parsedData.error || 'Payment failed';
-              sendErrorResponse(errorMsg);
-              window.removeEventListener('message', iframeMessageHandler);
-            }
-          }
-        }
-      };
+      // Store URL for button click
+      window.openPaymentUrl = url;
       
-      // Add event listener for iframe messages
-      window.addEventListener('message', iframeMessageHandler);
+      // Update button to open in parent window
+      const proceedBtn = document.getElementById('proceed-payment-btn');
+      if (proceedBtn) {
+        proceedBtn.onclick = function() {
+          // Open in parent window (if in iframe) or top window
+          if (window.top && window.top !== window) {
+            window.top.location.href = url;
+          } else if (window.parent && window.parent !== window) {
+            window.parent.location.href = url;
+          } else {
+            window.location.href = url;
+          }
+        };
+      }
     }
 
     // Initialize when page loads
     document.addEventListener('DOMContentLoaded', function() {
       console.log('🚀 Charge API Integration Loaded Successfully');
-      console.log('✅ Checkout will be loaded in iframe');
+      
+      // Detect Safari (desktop and mobile)
+      isSafari = detectSafari();
+      console.log('🔍 Browser detection:', {
+        isSafari: isSafari,
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        vendor: navigator.vendor,
+        hasTouch: 'ontouchend' in document
+      });
+      
+      if (isSafari) {
+        console.log('✅ Safari detected - Popup will be shown for payment');
+      } else {
+        console.log('✅ Non-Safari browser detected - Direct redirect will be used');
+      }
       
       console.log('🔍 Window context:', {
         isIframe: window !== window.top,
