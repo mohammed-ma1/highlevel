@@ -1739,7 +1739,7 @@
       const securityErrorHandler = function(event) {
         if (redirectHandled) return;
         
-        // Get error message from multiple sources
+        // Get error message from multiple sources - the error object itself has the full message
         const errorMsg = event.message || event.error?.message || event.error?.toString() || '';
         const errorStr = errorMsg.toString();
         
@@ -1748,6 +1748,7 @@
         const errorFilename = event.filename || '';
         
         // Try to get full error object as string (might contain full URL)
+        // IMPORTANT: The error.message property contains the FULL URL, even if console truncates it
         let fullErrorText = [errorStr, errorStack, errorFilename].join(' ');
         
         // Try to stringify the entire error object to get all properties
@@ -1758,19 +1759,37 @@
           // Can't stringify, that's okay
         }
         
-        // Also try to get all error properties
+        // Also try to get all error properties - especially the message which has the full URL
         if (event.error) {
           try {
+            // The error.message property should contain the full URL
+            if (event.error.message && typeof event.error.message === 'string') {
+              fullErrorText += ' ' + event.error.message;
+            }
+            
+            // Check all properties
             for (const key in event.error) {
               if (event.error.hasOwnProperty(key)) {
                 const value = event.error[key];
-                if (typeof value === 'string' && value.includes('acceptance') && value.includes('tap_process')) {
+                if (typeof value === 'string' && (value.includes('acceptance') || value.includes('tap_process'))) {
                   fullErrorText += ' ' + value;
                 }
               }
             }
           } catch (e) {
             // Can't iterate, that's okay
+          }
+        }
+        
+        // Also check the event itself for URL information
+        if (event.target) {
+          try {
+            const targetHref = event.target.href || event.target.location?.href || '';
+            if (targetHref) {
+              fullErrorText += ' ' + targetHref;
+            }
+          } catch (e) {
+            // Can't access, that's okay
           }
         }
         
@@ -1836,10 +1855,37 @@
           ];
           
           // Try to extract from full error text (including target)
+          // The error.message should contain the FULL URL even if console truncates it
+          console.log('🔍 Attempting URL extraction from error text (length:', allErrorText.length, ')');
+          
           for (const pattern of patterns) {
             urlMatch = allErrorText.match(pattern);
             if (urlMatch && urlMatch[1]) {
+              console.log('✅ URL pattern matched:', pattern.toString());
               break;
+            }
+          }
+          
+          // If no match, try a more aggressive pattern that captures everything after "to '"
+          if (!urlMatch) {
+            const aggressivePattern = /to\s+['"]([^'"]+)/i;
+            const match = allErrorText.match(aggressivePattern);
+            if (match && match[1]) {
+              let potentialUrl = match[1];
+              // Check if it looks like a URL
+              if (potentialUrl.startsWith('http://') || potentialUrl.startsWith('https://')) {
+                // Try to find where the URL ends (might be truncated in console but full in error object)
+                // Look for the end of the URL - it should end before the next quote or space
+                const urlEndMatch = allErrorText.match(/to\s+['"](https?:\/\/[^'"]*)/i);
+                if (urlEndMatch && urlEndMatch[1]) {
+                  potentialUrl = urlEndMatch[1];
+                  // Check if it's a tap_process URL
+                  if (potentialUrl.includes('tap_process') || potentialUrl.includes('acceptance')) {
+                    urlMatch = [null, potentialUrl];
+                    console.log('✅ Extracted URL using aggressive pattern:', potentialUrl);
+                  }
+                }
+              }
             }
           }
           
