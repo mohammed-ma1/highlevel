@@ -631,7 +631,8 @@
   <div id="payment-iframe-wrapper" style="display: none; width: 100%; height: 100vh; position: fixed; top: 0; left: 0; z-index: 10000; background: white;">
     <iframe 
       id="payment-iframe" 
-      allow="payment *"
+      allow="payment *; fullscreen"
+      sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts allow-top-navigation allow-top-navigation-by-user-activation"
       style="width: 100%; height: 100%; border: none;"
       title="Payment Checkout">
     </iframe>
