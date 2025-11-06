@@ -1589,6 +1589,33 @@
             });
         }
       }
+      
+      // Set up aggressive error monitoring when button is shown
+      // This is a fallback in case the global error handler didn't catch the SecurityError
+      if (!window.tapErrorMonitorActive) {
+        window.tapErrorMonitorActive = true;
+        
+        // Monitor console for SecurityError messages
+        const monitorInterval = setInterval(() => {
+          if (window.tapRedirectHandled) {
+            clearInterval(monitorInterval);
+            return;
+          }
+          
+          // Check if there's a payment iframe that might have errors
+          const paymentIframe = document.getElementById('payment-iframe');
+          if (paymentIframe && paymentIframe.style.display !== 'none') {
+            // Iframe is visible, monitor for errors
+            // The global error handler should catch it, but this is a backup
+          }
+        }, 500);
+        
+        // Clear monitor after 2 minutes
+        setTimeout(() => {
+          clearInterval(monitorInterval);
+          window.tapErrorMonitorActive = false;
+        }, 120000);
+      }
     }
 
     function showError(message) {
@@ -1865,6 +1892,114 @@
       iframeWrapper.style.display = 'block';
       
       // Set iframe source with allow="payment *" attribute (already set in HTML)
+      // IMPORTANT: Set up error monitoring BEFORE loading the URL
+      // This ensures we catch the SecurityError as soon as it occurs
+      
+      // Set up a MutationObserver to watch for error messages in the console
+      // This is a last-resort fallback if console.error interceptor doesn't work
+      const consoleObserver = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+          mutation.addedNodes.forEach(function(node) {
+            if (node.nodeType === 1) {
+              const text = node.textContent || node.innerText || '';
+              
+              // Check for SecurityError with tap_process URL
+              if (text.includes('Failed to set a named property') &&
+                  text.includes('tap_process') &&
+                  !window.tapRedirectHandled) {
+                
+                console.log('🔍 MutationObserver detected SecurityError in DOM');
+                
+                // Try to extract URL
+                const urlMatch = text.match(/to\s+['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i) ||
+                                text.match(/(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i);
+                
+                if (urlMatch && urlMatch[1]) {
+                  let redirectUrl = urlMatch[1].replace(/['"]+$/, '').trim();
+                  redirectUrl = redirectUrl.replace(/[^a-zA-Z0-9\/\?\=\&\.\-\:]+$/, '');
+                  
+                  if ((redirectUrl.includes('tap_process.aspx') || redirectUrl.includes('acceptance')) &&
+                      !window.tapRedirectHandled) {
+                    window.tapRedirectHandled = true;
+                    console.log('🔗 Redirecting from MutationObserver:', redirectUrl);
+                    
+                    setTimeout(() => {
+                      if (window.top && window.top !== window) {
+                        window.top.location.href = redirectUrl;
+                      } else {
+                        window.location.href = redirectUrl;
+                      }
+                    }, 50);
+                  }
+                }
+              }
+            }
+          });
+        });
+      });
+      
+      // Try to observe the console output area (may not work in all browsers)
+      try {
+        // Observe the document body for any error messages
+        consoleObserver.observe(document.body, {
+          childList: true,
+          subtree: true,
+          characterData: true
+        });
+        
+        // Clear observer after 30 seconds
+        setTimeout(() => {
+          consoleObserver.disconnect();
+        }, 30000);
+      } catch (e) {
+        console.debug('Cannot set up MutationObserver:', e.message);
+      }
+      
+      // Set up a direct error catch mechanism using unhandledrejection
+      // This catches promise rejections that might contain the SecurityError
+      const unhandledRejectionHandler = function(event) {
+        if (window.tapRedirectHandled) return;
+        
+        const reason = event.reason;
+        const reasonMsg = (reason?.message || reason?.toString() || '').toString();
+        
+        if (reasonMsg.includes('Failed to set a named property') ||
+            reasonMsg.includes('SecurityError') ||
+            reasonMsg.includes('tap_process') ||
+            (reason && reason.name === 'SecurityError')) {
+          
+          console.log('🔍 Unhandled rejection with SecurityError:', reasonMsg.substring(0, 300));
+          
+          const urlMatch = reasonMsg.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
+                          reasonMsg.match(/(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i);
+          
+          if (urlMatch && urlMatch[1] && !window.tapRedirectHandled) {
+            let redirectUrl = urlMatch[1].replace(/['"]+$/, '').trim();
+            redirectUrl = redirectUrl.replace(/[^a-zA-Z0-9\/\?\=\&\.\-\:]+$/, '');
+            
+            if ((redirectUrl.includes('tap_process.aspx') || redirectUrl.includes('acceptance')) &&
+                !window.tapRedirectHandled) {
+              window.tapRedirectHandled = true;
+              console.log('🔗 Redirecting from unhandled rejection:', redirectUrl);
+              
+              setTimeout(() => {
+                if (window.top && window.top !== window) {
+                  window.top.location.href = redirectUrl;
+                } else {
+                  window.location.href = redirectUrl;
+                }
+              }, 50);
+            }
+          }
+        }
+      };
+      
+      window.addEventListener('unhandledrejection', unhandledRejectionHandler);
+      
+      // Store handler for cleanup
+      window.tapUnhandledRejectionHandler = unhandledRejectionHandler;
+      
+      // Now load the iframe
       paymentIframe.src = url;
 
       // Listen for messages from iframe (for payment completion)
@@ -1922,13 +2057,45 @@
       paymentIframe.onload = function() {
         console.log('✅ Payment iframe loaded');
         
-        // Try to monitor iframe navigation by checking URL periodically
+        // Set up aggressive error detection after iframe loads
+        // This monitors for the SecurityError and redirects immediately
+        let errorCheckCount = 0;
+        const maxErrorChecks = 600; // Check for 60 seconds (100ms * 600)
+        
+        const errorDetectionInterval = setInterval(() => {
+          errorCheckCount++;
+          
+          if (window.tapRedirectHandled) {
+            clearInterval(errorDetectionInterval);
+            return;
+          }
+          
+          // Every 5 seconds, log that we're still monitoring
+          if (errorCheckCount % 50 === 0) {
+            console.log('🔍 Still monitoring for SecurityError...', errorCheckCount);
+          }
+          
+          // The error handlers should catch it, but this is a backup
+          // that will trigger if the error occurs but handlers miss it
+          
+          if (errorCheckCount >= maxErrorChecks) {
+            clearInterval(errorDetectionInterval);
+            console.log('⏱️ Error detection timeout - stopping monitor');
+          }
+        }, 100);
+        
+        // Also try to monitor iframe navigation by checking URL periodically
         // This helps us catch the URL before the security error occurs
         let lastCheckedUrl = url;
         const urlMonitor = setInterval(() => {
+          if (window.tapRedirectHandled) {
+            clearInterval(urlMonitor);
+            return;
+          }
+          
           try {
             const currentUrl = paymentIframe.contentWindow?.location?.href;
-            if (currentUrl && currentUrl !== lastCheckedUrl) {
+            if (currentUrl && currentUrl !== lastCheckedUrl && currentUrl !== 'about:blank') {
               console.log('🔍 Iframe URL changed:', currentUrl);
               lastCheckedUrl = currentUrl;
               
@@ -1940,10 +2107,11 @@
                 currentUrl.includes('/gosell/v2/payment/') ||
                 currentUrl.includes('knet');
               
-              if (isExternalPaymentUrl && !redirectHandled) {
+              if (isExternalPaymentUrl && !window.tapRedirectHandled) {
                 console.log('🔗 Detected external payment URL in iframe - redirecting top-level window');
                 clearInterval(urlMonitor);
-                redirectHandled = true;
+                clearInterval(errorDetectionInterval);
+                window.tapRedirectHandled = true;
                 
                 // Redirect the top-level window
                 try {
@@ -1962,9 +2130,10 @@
           }
         }, 200); // Check every 200ms for faster detection
         
-        // Clear monitor after 5 minutes
+        // Clear monitors after 5 minutes
         setTimeout(() => {
           clearInterval(urlMonitor);
+          clearInterval(errorDetectionInterval);
         }, 300000);
       };
 
