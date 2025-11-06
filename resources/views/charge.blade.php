@@ -1394,28 +1394,28 @@
 
     function showButton() {
       // Show payment container for error cases
-      const paymentContainer = document.getElementById('payment-container');
-      if (paymentContainer) {
-        paymentContainer.style.display = 'block';
-      }
-      
-      const paymentBody = document.querySelector('.payment-body');
-      if (paymentBody) {
-        paymentBody.innerHTML = `
-          <div class="popup-payment-content">
-            <div class="error-message" id="error-message" style="display: block; margin-bottom: 20px;"></div>
-            <button id="retry-btn" type="button" class="proceed-payment-button">
-              <span class="button-text">Retry Payment</span>
-            </button>
-          </div>
-        `;
+        const paymentContainer = document.getElementById('payment-container');
+        if (paymentContainer) {
+          paymentContainer.style.display = 'block';
+        }
         
-        // Add retry button event listener
-        const retryBtn = document.getElementById('retry-btn');
-        if (retryBtn) {
-          retryBtn.addEventListener('click', () => {
-            createCharge();
-          });
+        const paymentBody = document.querySelector('.payment-body');
+        if (paymentBody) {
+          paymentBody.innerHTML = `
+            <div class="popup-payment-content">
+              <div class="error-message" id="error-message" style="display: block; margin-bottom: 20px;"></div>
+              <button id="retry-btn" type="button" class="proceed-payment-button">
+                <span class="button-text">Retry Payment</span>
+              </button>
+            </div>
+          `;
+          
+          // Add retry button event listener
+          const retryBtn = document.getElementById('retry-btn');
+          if (retryBtn) {
+            retryBtn.addEventListener('click', () => {
+              createCharge();
+            });
         }
       }
     }
@@ -1575,7 +1575,7 @@
           // Handle payment redirect - use iframe for all browsers
           if (result.charge.transaction?.url) {
             console.log('🔗 Loading Tap checkout in iframe:', result.charge.transaction.url);
-            console.log('🌐 User Agent:', navigator.userAgent);
+              console.log('🌐 User Agent:', navigator.userAgent);
             // Load payment URL in iframe with allow="payment" attribute
             loadPaymentInIframe(result.charge.transaction.url);
           } else {
@@ -1682,6 +1682,220 @@
       paymentIframe.onload = function() {
         console.log('✅ Payment iframe loaded');
       };
+
+      // Catch security errors when Tap tries to navigate parent window to external payment URLs
+      // Extract the URL from the error message and redirect the top-level window
+      const securityErrorHandler = function(event) {
+        const errorMsg = event.message || event.error?.message || '';
+        const errorStr = errorMsg.toString();
+        
+        // Check if it's a navigation security error with a URL
+        if (errorStr.includes('Failed to set a named property \'href\' on \'Location\'') ||
+            errorStr.includes('Unsafe attempt to initiate navigation')) {
+          
+          // Try to extract URL from error message
+          // Error format: "Failed to set a named property 'href' on 'Location': The current window does not have permission to navigate the target frame to 'URL'."
+          const urlMatch = errorStr.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) || 
+                         errorStr.match(/navigate[^'"]*to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
+                         errorStr.match(/['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i) ||
+                         errorStr.match(/['"](https?:\/\/[^'"]+knet[^'"]+)['"]/i) ||
+                         errorStr.match(/['"](https?:\/\/acceptance[^'"]+)['"]/i) ||
+                         errorStr.match(/['"](https?:\/\/[^'"]+gosell[^'"]+)['"]/i);
+          
+          if (urlMatch && urlMatch[1]) {
+            const redirectUrl = urlMatch[1];
+            console.log('🔗 Extracted redirect URL from security error:', redirectUrl);
+            
+            // Check if it's an external payment URL
+            const isExternalPaymentUrl = 
+              redirectUrl.includes('knet') ||
+              redirectUrl.includes('tap_process.aspx') ||
+              redirectUrl.includes('acceptance.sandbox.tap.company') ||
+              redirectUrl.includes('acceptance.tap.company') ||
+              redirectUrl.includes('/gosell/v2/payment/');
+            
+            if (isExternalPaymentUrl) {
+              console.log('🔗 Redirecting top-level window to external payment URL');
+              window.removeEventListener('error', securityErrorHandler, true);
+              
+              // Redirect the top-level window (breaks out of iframe)
+              if (window.top && window.top !== window) {
+                window.top.location.href = redirectUrl;
+              } else {
+                window.location.href = redirectUrl;
+              }
+            }
+          }
+        }
+      };
+      
+      // Intercept console errors to catch navigation errors
+      // Chain with existing console.error interceptor
+      const existingConsoleError = console.error;
+      const consoleErrorInterceptor = function(...args) {
+        const errorText = args.join(' ');
+        
+        // Check if it's a navigation security error
+        if (errorText.includes('Failed to set a named property \'href\' on \'Location\'') ||
+            errorText.includes('Unsafe attempt to initiate navigation')) {
+          
+          // Try to extract URL from console error
+          const urlMatch = errorText.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) || 
+                         errorText.match(/navigate[^'"]*to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
+                         errorText.match(/['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i) ||
+                         errorText.match(/['"](https?:\/\/[^'"]+knet[^'"]+)['"]/i) ||
+                         errorText.match(/['"](https?:\/\/acceptance[^'"]+)['"]/i) ||
+                         errorText.match(/['"](https?:\/\/[^'"]+gosell[^'"]+)['"]/i);
+          
+          if (urlMatch && urlMatch[1]) {
+            const redirectUrl = urlMatch[1];
+            console.log('🔗 Extracted redirect URL from console error:', redirectUrl);
+            
+            const isExternalPaymentUrl = 
+              redirectUrl.includes('knet') ||
+              redirectUrl.includes('tap_process.aspx') ||
+              redirectUrl.includes('acceptance.sandbox.tap.company') ||
+              redirectUrl.includes('acceptance.tap.company') ||
+              redirectUrl.includes('/gosell/v2/payment/');
+            
+            if (isExternalPaymentUrl) {
+              console.log('🔗 Redirecting top-level window to external payment URL');
+              console.error = existingConsoleError; // Restore to existing interceptor
+              window.removeEventListener('error', securityErrorHandler, true);
+              window.removeEventListener('unhandledrejection', rejectionHandler);
+              
+              if (window.top && window.top !== window) {
+                window.top.location.href = redirectUrl;
+              } else {
+                window.location.href = redirectUrl;
+              }
+              return; // Don't log the error
+            }
+          }
+        }
+        
+        // Call existing console.error (which chains to the original)
+        existingConsoleError.apply(console, args);
+      };
+      
+      console.error = consoleErrorInterceptor;
+      
+      // Listen for security errors with capture phase
+      window.addEventListener('error', securityErrorHandler, true);
+      
+      // Also listen for unhandled promise rejections
+      const rejectionHandler = function(event) {
+        const reason = event.reason;
+        const reasonMsg = (reason?.message || reason?.toString() || '');
+        
+        if (reasonMsg.includes('Failed to set a named property \'href\' on \'Location\'') ||
+            reasonMsg.includes('Unsafe attempt to initiate navigation')) {
+          
+          // Try to extract URL from rejection
+          const urlMatch = reasonMsg.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) || 
+                         reasonMsg.match(/navigate[^'"]*to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
+                         reasonMsg.match(/['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i) ||
+                         reasonMsg.match(/['"](https?:\/\/[^'"]+knet[^'"]+)['"]/i) ||
+                         reasonMsg.match(/['"](https?:\/\/acceptance[^'"]+)['"]/i) ||
+                         reasonMsg.match(/['"](https?:\/\/[^'"]+gosell[^'"]+)['"]/i);
+          
+          if (urlMatch && urlMatch[1]) {
+            const redirectUrl = urlMatch[1];
+            console.log('🔗 Extracted redirect URL from rejection:', redirectUrl);
+            
+            const isExternalPaymentUrl = 
+              redirectUrl.includes('knet') ||
+              redirectUrl.includes('tap_process.aspx') ||
+              redirectUrl.includes('acceptance.sandbox.tap.company') ||
+              redirectUrl.includes('acceptance.tap.company') ||
+              redirectUrl.includes('/gosell/v2/payment/');
+            
+            if (isExternalPaymentUrl) {
+              console.log('🔗 Redirecting top-level window to external payment URL');
+              window.removeEventListener('unhandledrejection', rejectionHandler);
+              
+          if (window.top && window.top !== window) {
+                window.top.location.href = redirectUrl;
+          } else {
+                window.location.href = redirectUrl;
+              }
+            }
+          }
+        }
+      };
+      
+      window.addEventListener('unhandledrejection', rejectionHandler);
+      
+      // Store reference to existing console.error for cleanup
+      const existingConsoleErrorForCleanup = existingConsoleError;
+      
+      // Cleanup error handlers when payment completes
+      const cleanupErrorHandlers = function() {
+        console.error = existingConsoleErrorForCleanup; // Restore to existing interceptor
+        window.removeEventListener('error', securityErrorHandler, true);
+        window.removeEventListener('unhandledrejection', rejectionHandler);
+      };
+      
+      // Cleanup after 10 minutes
+      setTimeout(cleanupErrorHandlers, 600000);
+
+      // Also listen for postMessage from Tap that might indicate navigation
+      const tapMessageHandler = function(event) {
+        // Tap might send messages about navigation
+        if (event.origin && (
+            event.origin.includes('checkout.tap.company') ||
+            event.origin.includes('tap.company')
+          )) {
+          try {
+            const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+            
+            // Check if Tap is trying to communicate a redirect URL
+            if (data && (data.redirectUrl || data.url || data.paymentUrl)) {
+              const redirectUrl = data.redirectUrl || data.url || data.paymentUrl;
+              console.log('📥 Received redirect URL from Tap:', redirectUrl);
+              
+              // Check if it's an external payment URL
+              const isExternalPaymentUrl = 
+                redirectUrl.includes('knet') ||
+                redirectUrl.includes('tap_process.aspx') ||
+                redirectUrl.includes('acceptance.sandbox.tap.company') ||
+                redirectUrl.includes('acceptance.tap.company') ||
+                redirectUrl.includes('/gosell/v2/payment/');
+              
+              if (isExternalPaymentUrl) {
+                console.log('🔗 Redirecting top-level window to external payment URL');
+                clearInterval(navigationMonitor);
+                window.removeEventListener('message', tapMessageHandler);
+                
+                // Redirect the top-level window
+          if (window.top && window.top !== window) {
+                  window.top.location.href = redirectUrl;
+          } else {
+                  window.location.href = redirectUrl;
+                }
+              }
+            }
+          } catch (e) {
+            // Not a JSON message or not a redirect message
+          }
+        }
+      };
+      
+      window.addEventListener('message', tapMessageHandler);
+      
+      // Cleanup handlers when payment completes
+      const originalMessageHandler = messageHandler;
+      const wrappedMessageHandler = function(event) {
+        console.error = existingConsoleError; // Restore to existing interceptor
+        window.removeEventListener('message', tapMessageHandler);
+        window.removeEventListener('error', securityErrorHandler, true);
+        window.removeEventListener('unhandledrejection', rejectionHandler);
+        originalMessageHandler(event);
+      };
+      
+      // Replace the original message handler
+      window.removeEventListener('message', messageHandler);
+      window.addEventListener('message', wrappedMessageHandler);
     }
 
     // Initialize when page loads
