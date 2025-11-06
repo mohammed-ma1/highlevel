@@ -646,28 +646,46 @@
         window.tapErrorHandlerSetup = true;
         window.tapRedirectHandled = false;
         
-        // Method 1: Intercept console.error
+        // Method 1: Intercept console.error - this is the PRIMARY method
         const originalConsoleError = console.error.bind(console);
         console.error = function(...args) {
           const errorText = args.join(' ');
+          
+          // Log all SecurityErrors to debug
+          if (errorText.includes('SecurityError') || errorText.includes('tap_process') || errorText.includes('acceptance')) {
+            console.log('📢 SecurityError detected in console.error:', errorText.substring(0, 400));
+          }
           
           // Check for navigation security error
           if ((errorText.includes('Failed to set a named property') ||
                errorText.includes('Unsafe attempt to initiate navigation') ||
                errorText.includes('permission to navigate') ||
-               errorText.includes('SecurityError')) &&
+               errorText.includes('SecurityError') ||
+               errorText.includes('sandboxed')) &&
               !window.tapRedirectHandled) {
             
-            console.log('🔍 Navigation error detected in console.error!');
+            console.log('🔍 Navigation error detected in console.error!', errorText.substring(0, 300));
             
-            // Extract URL
-            const urlMatch = errorText.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
-                            errorText.match(/['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i) ||
-                            errorText.match(/(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i) ||
-                            errorText.match(/(https?:\/\/acceptance\.tap\.company[^\s'"]+)/i);
+            // Extract URL - try multiple patterns
+            let urlMatch = errorText.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
+                          errorText.match(/['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i) ||
+                          errorText.match(/(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i) ||
+                          errorText.match(/(https?:\/\/acceptance\.tap\.company[^\s'"]+)/i);
+            
+            // If URL is truncated, try to extract the base URL
+            if (!urlMatch) {
+              const baseMatch = errorText.match(/(https?:\/\/acceptance\.sandbox\.tap\.company\/gosell\/v2\/payment\/tap_process\.aspx)/i);
+              if (baseMatch) {
+                // We have the base URL, but the chg_url parameter is truncated
+                // We'll need to get it from the API or use a different method
+                console.warn('⚠️ URL is truncated in error message');
+              }
+            }
             
             if (urlMatch && urlMatch[1]) {
-              const redirectUrl = urlMatch[1].replace(/['"]+$/, '').trim();
+              let redirectUrl = urlMatch[1].replace(/['"]+$/, '').trim();
+              // Remove any trailing incomplete characters
+              redirectUrl = redirectUrl.replace(/[^a-zA-Z0-9\/\?\=\&\.\-\:]+$/, '');
               
               if ((redirectUrl.includes('tap_process.aspx') ||
                    redirectUrl.includes('acceptance.sandbox.tap.company') ||
@@ -676,17 +694,25 @@
                   !window.tapRedirectHandled) {
                 
                 window.tapRedirectHandled = true;
-                console.log('🔗 Redirecting to:', redirectUrl);
+                console.log('🔗 Extracted URL and redirecting to:', redirectUrl);
                 
+                // Redirect immediately
                 setTimeout(() => {
-                  if (window.top && window.top !== window) {
-                    window.top.location.href = redirectUrl;
-                  } else {
-                    window.location.href = redirectUrl;
+                  try {
+                    if (window.top && window.top !== window) {
+                      window.top.location.href = redirectUrl;
+                    } else {
+                      window.location.href = redirectUrl;
+                    }
+                  } catch (e) {
+                    console.error('Failed to redirect:', e);
+                    window.open(redirectUrl, '_top');
                   }
-                }, 100);
-                return;
+                }, 50);
+                return; // Don't log the error
               }
+            } else {
+              console.warn('⚠️ Could not extract URL from error. Error text:', errorText.substring(0, 500));
             }
           }
           
@@ -1760,16 +1786,26 @@
         return;
       }
 
-      // Verify iframe doesn't have sandbox attribute (it might be added by browser or parent)
+      // CRITICAL: Remove sandbox attribute if present - it blocks navigation
+      // For cross-origin iframes, we don't need sandbox restrictions
+      // The sandbox attribute prevents the iframe from navigating the parent window
       if (paymentIframe.hasAttribute('sandbox')) {
         console.warn('⚠️ Iframe has sandbox attribute, removing it to allow navigation');
         paymentIframe.removeAttribute('sandbox');
       }
       
-      // Ensure allow attribute is set
+      // Ensure allow attribute is set for payment requests
       if (!paymentIframe.hasAttribute('allow')) {
         paymentIframe.setAttribute('allow', 'payment *; fullscreen');
       }
+      
+      // Double-check after a brief delay (in case something adds sandbox dynamically)
+      setTimeout(() => {
+        if (paymentIframe.hasAttribute('sandbox')) {
+          console.warn('⚠️ Sandbox attribute was added after load, removing it');
+          paymentIframe.removeAttribute('sandbox');
+        }
+      }, 500);
 
       // Store the original charge URL and charge data for potential fallback
       window.tapChargeUrl = url;
