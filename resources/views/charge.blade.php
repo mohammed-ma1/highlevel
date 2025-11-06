@@ -626,15 +626,6 @@
     </div>
   </div>
 
-  <!-- Payment iframe -->
-  <div id="payment-iframe-wrapper" style="display: none; width: 100%; height: 100vh;">
-    <iframe 
-      id="payment-iframe" 
-      allow="payment"
-      style="width: 100%; height: 100%; border: none;"
-      title="Payment Checkout">
-    </iframe>
-  </div>
 
   <script>
     // Suppress all extension-related console errors
@@ -1571,12 +1562,15 @@
         if (tapResponse.ok && result.success && result.charge) {
           console.log('✅ Tap charge created successfully:', result.charge);
           
-          // Handle payment redirect - use iframe with allow="payment" for Safari compatibility
+          // Handle payment redirect - Tap's checkout doesn't support iframes, use direct redirect
           if (result.charge.transaction?.url) {
-            console.log('🔗 Loading Tap checkout in iframe:', result.charge.transaction.url);
+            console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
             console.log('🌐 User Agent:', navigator.userAgent);
-            // Load payment URL in iframe with allow="payment" attribute
-            loadPaymentInIframe(result.charge.transaction.url);
+            // Direct redirect - Tap's checkout page doesn't work in iframes
+            // The Permissions-Policy header should still help with Safari's payment feature policy
+            setTimeout(() => {
+              window.location.href = result.charge.transaction.url;
+            }, 500);
           } else {
             showError('No checkout URL received from Tap');
             showButton();
@@ -1599,238 +1593,6 @@
       }
     }
 
-    // Load payment URL in iframe with allow="payment" attribute (Safari workaround)
-    function loadPaymentInIframe(url) {
-      console.log('🖼️ Loading payment URL in iframe with allow="payment":', url);
-      
-      const iframeWrapper = document.getElementById('payment-iframe-wrapper');
-      const paymentIframe = document.getElementById('payment-iframe');
-      
-      if (!iframeWrapper || !paymentIframe) {
-        console.error('❌ Payment iframe elements not found, falling back to direct redirect');
-        setTimeout(() => {
-          window.location.href = url;
-        }, 500);
-        return;
-      }
-
-      // Store original URL for fallback
-      const paymentUrl = url;
-      let fallbackTriggered = false;
-
-      // Function to trigger fallback to direct redirect
-      const triggerFallback = function(reason) {
-        if (fallbackTriggered) return;
-        fallbackTriggered = true;
-        
-        console.warn('⚠️ Iframe approach failed:', reason);
-        console.log('🔄 Falling back to direct redirect');
-        
-        iframeWrapper.style.display = 'none';
-        
-        // Small delay to ensure iframe is hidden
-        setTimeout(() => {
-          window.location.href = paymentUrl;
-        }, 300);
-      };
-
-      // Hide payment container
-      const paymentContainer = document.querySelector('.payment-container');
-      if (paymentContainer) {
-        paymentContainer.style.display = 'none';
-      }
-
-      // Show iframe wrapper
-      iframeWrapper.style.display = 'block';
-      
-      // Set up comprehensive error detection BEFORE loading iframe
-      const errorHandler = function(event) {
-        const errorMsg = event.message || event.error?.message || '';
-        const errorStr = errorMsg.toString().toLowerCase();
-        
-        // Check for security errors related to navigation
-        if (errorStr.includes('failed to set a named property') ||
-            errorStr.includes('unsafe attempt to initiate navigation') ||
-            errorStr.includes('permission to navigate') ||
-            errorStr.includes('securityerror') ||
-            errorStr.includes('location') && errorStr.includes('href')) {
-          console.warn('⚠️ Security error detected - Tap tried to navigate parent window:', errorMsg);
-          triggerFallback('Security error: Tap attempted to navigate parent window');
-          window.removeEventListener('error', errorHandler, true);
-        }
-      };
-
-      // Listen for security errors with capture phase (catches errors from iframe)
-      window.addEventListener('error', errorHandler, true);
-
-      // Also listen for unhandled promise rejections
-      const rejectionHandler = function(event) {
-        const reason = event.reason;
-        const reasonMsg = (reason?.message || reason?.toString() || '').toLowerCase();
-        
-        if (reasonMsg.includes('failed to set a named property') ||
-            reasonMsg.includes('unsafe attempt to initiate navigation') ||
-            reasonMsg.includes('permission to navigate') ||
-            reasonMsg.includes('securityerror') ||
-            reasonMsg.includes('location') && reasonMsg.includes('href')) {
-          console.warn('⚠️ Unhandled rejection - navigation security error:', reason);
-          triggerFallback('Unhandled rejection: navigation security error');
-          window.removeEventListener('unhandledrejection', rejectionHandler);
-        }
-      };
-      window.addEventListener('unhandledrejection', rejectionHandler);
-
-      // Monitor console errors (Tap's errors might be logged but not thrown)
-      const originalConsoleError = console.error;
-      console.error = function(...args) {
-        const errorText = args.join(' ').toLowerCase();
-        if (errorText.includes('failed to set a named property') ||
-            errorText.includes('unsafe attempt to initiate navigation') ||
-            errorText.includes('permission to navigate') ||
-            errorText.includes('securityerror')) {
-          console.warn('⚠️ Console error detected - navigation security issue');
-          triggerFallback('Console error: navigation security issue');
-          // Restore original console.error
-          console.error = originalConsoleError;
-        }
-        originalConsoleError.apply(console, args);
-      };
-
-      // Set iframe source with allow="payment" attribute (already set in HTML)
-      paymentIframe.src = paymentUrl;
-      
-      // Cleanup listeners after 30 seconds if no error occurred
-      setTimeout(() => {
-        window.removeEventListener('error', errorHandler, true);
-        window.removeEventListener('unhandledrejection', rejectionHandler);
-        // Restore original console.error if it was overridden
-        if (console.error !== originalConsoleError) {
-          console.error = originalConsoleError;
-        }
-      }, 30000);
-
-      // Set up timeout fallback first (before message handler)
-      let timeoutFallback;
-      
-      // Listen for messages from iframe (for payment completion)
-      const messageHandler = function(event) {
-        // Only process messages from our redirect page
-        if (event.origin !== window.location.origin) {
-          return;
-        }
-
-        try {
-          let messageData = event.data;
-          if (typeof messageData === 'string') {
-            messageData = JSON.parse(messageData);
-          }
-
-          // Check if it's a payment completion message
-          if (messageData && messageData.type && 
-              (messageData.type === 'custom_element_success_response' || 
-               messageData.type === 'custom_element_error_response' || 
-               messageData.type === 'custom_element_close_response')) {
-            console.log('📥 Received payment message from iframe:', messageData);
-            
-            // Clear timeout if it exists
-            if (timeoutFallback) {
-              clearTimeout(timeoutFallback);
-            }
-            
-            // Hide iframe
-            iframeWrapper.style.display = 'none';
-            
-            // Remove message listener
-            window.removeEventListener('message', wrappedMessageHandler);
-            
-            // Forward message to GHL
-            if (messageData.type === 'custom_element_success_response') {
-              sendSuccessResponse(messageData.chargeId);
-            } else if (messageData.type === 'custom_element_error_response') {
-              sendErrorResponse(messageData.error?.description || 'Payment failed');
-            } else if (messageData.type === 'custom_element_close_response') {
-              sendErrorResponse('Payment canceled');
-            }
-          }
-        } catch (e) {
-          console.debug('Message from iframe (not payment related):', e);
-        }
-      };
-
-      // Wrap message handler to clear timeout when payment completes
-      const wrappedMessageHandler = function(event) {
-        messageHandler(event);
-      };
-
-      // Set timeout - if iframe doesn't redirect within 5 seconds, assume it's stuck
-      // and fall back to direct redirect (Tap usually redirects quickly)
-      timeoutFallback = setTimeout(() => {
-        try {
-          // Check if iframe has navigated to our redirect page
-          const iframeUrl = paymentIframe.contentWindow?.location?.href;
-          if (!iframeUrl || !iframeUrl.includes('/charge/redirect')) {
-            console.warn('⚠️ Iframe timeout - no redirect detected after 5 seconds');
-            triggerFallback('Timeout: iframe did not redirect within expected time');
-          }
-        } catch (e) {
-          // CORS - can't check, but that's okay
-          // If we can't check, assume it might be working and don't trigger fallback
-        }
-      }, 5000);
-
-      window.addEventListener('message', wrappedMessageHandler);
-
-      // Handle iframe errors and navigation issues
-      paymentIframe.onerror = function(error) {
-        console.error('❌ Payment iframe error:', error);
-        iframeWrapper.style.display = 'none';
-        showError('Failed to load payment page in iframe. Trying direct redirect...');
-        // Fallback to direct redirect if iframe fails
-        setTimeout(() => {
-          window.location.href = url;
-        }, 1000);
-      };
-
-
-      paymentIframe.onload = function() {
-        console.log('✅ Payment iframe loaded');
-        
-        // Monitor iframe URL changes to detect redirects
-        try {
-          const iframeUrl = paymentIframe.contentWindow.location.href;
-          console.log('🔍 Iframe URL:', iframeUrl);
-          
-          // Check if redirected to our redirect page
-          if (iframeUrl && iframeUrl.includes('/charge/redirect')) {
-            console.log('🔄 Payment iframe redirected to our redirect page');
-          }
-        } catch (e) {
-          // CORS - can't access iframe URL, which is expected for cross-origin
-          // This is normal for Tap's payment page
-          console.debug('Cannot access iframe URL (CORS - expected):', e.message);
-        }
-      };
-
-      // Monitor iframe navigation by checking URL periodically (fallback)
-      let urlCheckInterval = setInterval(function() {
-        try {
-          const iframeUrl = paymentIframe.contentWindow.location.href;
-          if (iframeUrl && iframeUrl.includes('/charge/redirect')) {
-            console.log('🔄 Detected redirect to our redirect page via polling');
-            clearInterval(urlCheckInterval);
-            // The redirect page will send a message, so we'll handle it via messageHandler
-          }
-        } catch (e) {
-          // CORS - can't access iframe URL, which is normal for cross-origin
-          // This is expected, so we'll rely on postMessage instead
-        }
-      }, 1000);
-
-      // Clear interval after 5 minutes (timeout)
-      setTimeout(function() {
-        clearInterval(urlCheckInterval);
-      }, 300000);
-    }
 
     // Initialize when page loads
     document.addEventListener('DOMContentLoaded', function() {
