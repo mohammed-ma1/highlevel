@@ -632,6 +632,7 @@
     <iframe 
       id="payment-iframe" 
       allow="payment *"
+      sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts allow-top-navigation allow-top-navigation-by-user-activation"
       style="width: 100%; height: 100%; border: none;"
       title="Payment Checkout">
     </iframe>
@@ -1615,6 +1616,10 @@
         return;
       }
 
+      // Store the original charge URL and charge data for potential fallback
+      window.tapChargeUrl = url;
+      window.tapChargeData = paymentData; // Store charge data to fetch payment URL if needed
+
       // Hide payment container
       const paymentContainer = document.querySelector('.payment-container');
       if (paymentContainer) {
@@ -1681,29 +1686,264 @@
 
       paymentIframe.onload = function() {
         console.log('✅ Payment iframe loaded');
+        
+        // Try to monitor iframe navigation by checking URL periodically
+        // This helps us catch the URL before the security error occurs
+        let lastCheckedUrl = url;
+        const urlMonitor = setInterval(() => {
+          try {
+            const currentUrl = paymentIframe.contentWindow?.location?.href;
+            if (currentUrl && currentUrl !== lastCheckedUrl) {
+              console.log('🔍 Iframe URL changed:', currentUrl);
+              lastCheckedUrl = currentUrl;
+              
+              // Check if it's an external payment URL
+              const isExternalPaymentUrl = 
+                currentUrl.includes('tap_process.aspx') ||
+                currentUrl.includes('acceptance.sandbox.tap.company') ||
+                currentUrl.includes('acceptance.tap.company') ||
+                currentUrl.includes('/gosell/v2/payment/') ||
+                currentUrl.includes('knet');
+              
+              if (isExternalPaymentUrl && !redirectHandled) {
+                console.log('🔗 Detected external payment URL in iframe - redirecting top-level window');
+                clearInterval(urlMonitor);
+                redirectHandled = true;
+                
+                // Redirect the top-level window
+                try {
+                  if (window.top && window.top !== window) {
+                    window.top.location.href = currentUrl;
+                  } else {
+                    window.location.href = currentUrl;
+                  }
+                } catch (e) {
+                  console.error('Failed to redirect:', e);
+                }
+              }
+            }
+          } catch (e) {
+            // CORS - can't access iframe URL, which is expected
+          }
+        }, 200); // Check every 200ms for faster detection
+        
+        // Clear monitor after 5 minutes
+        setTimeout(() => {
+          clearInterval(urlMonitor);
+        }, 300000);
       };
 
       // Catch security errors when Tap tries to navigate parent window to external payment URLs
       // Extract the URL from the error message and redirect the top-level window
+      let redirectHandled = false;
+      
       const securityErrorHandler = function(event) {
-        const errorMsg = event.message || event.error?.message || '';
+        if (redirectHandled) return;
+        
+        // Get error message from multiple sources
+        const errorMsg = event.message || event.error?.message || event.error?.toString() || '';
         const errorStr = errorMsg.toString();
         
+        // Also check error stack and filename
+        const errorStack = event.error?.stack || '';
+        const errorFilename = event.filename || '';
+        
+        // Try to get full error object as string (might contain full URL)
+        let fullErrorText = [errorStr, errorStack, errorFilename].join(' ');
+        
+        // Try to stringify the entire error object to get all properties
+        try {
+          const errorObjStr = JSON.stringify(event.error || event);
+          fullErrorText += ' ' + errorObjStr;
+        } catch (e) {
+          // Can't stringify, that's okay
+        }
+        
+        // Also try to get all error properties
+        if (event.error) {
+          try {
+            for (const key in event.error) {
+              if (event.error.hasOwnProperty(key)) {
+                const value = event.error[key];
+                if (typeof value === 'string' && value.includes('acceptance') && value.includes('tap_process')) {
+                  fullErrorText += ' ' + value;
+                }
+              }
+            }
+          } catch (e) {
+            // Can't iterate, that's okay
+          }
+        }
+        
+        console.log('🔍 Security error detected:', {
+          message: errorStr,
+          stack: errorStack,
+          filename: errorFilename,
+          fullError: fullErrorText.substring(0, 500) // Log first 500 chars
+        });
+        
         // Check if it's a navigation security error with a URL
-        if (errorStr.includes('Failed to set a named property \'href\' on \'Location\'') ||
-            errorStr.includes('Unsafe attempt to initiate navigation')) {
+        // Also check the error target - it might contain the URL
+        const errorTarget = event.target?.href || event.target?.location?.href || '';
+        const allErrorText = fullErrorText + ' ' + errorTarget;
+        
+        if (allErrorText.includes('Failed to set a named property') ||
+            allErrorText.includes('Unsafe attempt to initiate navigation') ||
+            allErrorText.includes('permission to navigate')) {
           
-          // Try to extract URL from error message
+          // Try multiple patterns to extract URL from error message
           // Error format: "Failed to set a named property 'href' on 'Location': The current window does not have permission to navigate the target frame to 'URL'."
-          const urlMatch = errorStr.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) || 
-                         errorStr.match(/navigate[^'"]*to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
-                         errorStr.match(/['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i) ||
-                         errorStr.match(/['"](https?:\/\/[^'"]+knet[^'"]+)['"]/i) ||
-                         errorStr.match(/['"](https?:\/\/acceptance[^'"]+)['"]/i) ||
-                         errorStr.match(/['"](https?:\/\/[^'"]+gosell[^'"]+)['"]/i);
+          let urlMatch = null;
+          const patterns = [
+            /to\s+['"](https?:\/\/[^'"]+)['"]/i,
+            /navigate[^'"]*to\s+['"](https?:\/\/[^'"]+)['"]/i,
+            /['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i,
+            /['"](https?:\/\/[^'"]+knet[^'"]+)['"]/i,
+            /['"](https?:\/\/acceptance[^'"]+)['"]/i,
+            /['"](https?:\/\/[^'"]+gosell[^'"]+)['"]/i,
+            /(https?:\/\/acceptance[^\s'"]+)/i,
+            /(https?:\/\/[^\s'"]+tap_process[^\s'"]+)/i,
+            // More flexible patterns
+            /(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i,
+            /(https?:\/\/acceptance\.tap\.company[^\s'"]+)/i
+          ];
+          
+          // Try to extract from full error text (including target)
+          for (const pattern of patterns) {
+            urlMatch = allErrorText.match(pattern);
+            if (urlMatch && urlMatch[1]) {
+              break;
+            }
+          }
+          
+          // If still no match, but we detected the error pattern, try to get URL from iframe
+          if (!urlMatch && allErrorText.includes('acceptance') && allErrorText.includes('tap_process')) {
+            console.log('⚠️ URL truncated in error, attempting to get from iframe...');
+            
+            // Try to get URL from iframe location (may fail due to CORS)
+            try {
+              const iframeUrl = paymentIframe.contentWindow?.location?.href;
+              if (iframeUrl && (
+                  iframeUrl.includes('tap_process.aspx') ||
+                  iframeUrl.includes('acceptance.sandbox.tap.company') ||
+                  iframeUrl.includes('acceptance.tap.company')
+                )) {
+                console.log('🔗 Got URL from iframe location:', iframeUrl);
+                urlMatch = [null, iframeUrl];
+              }
+            } catch (e) {
+              console.debug('Cannot access iframe URL (CORS):', e.message);
+            }
+            
+            // If still no URL, but we detected the error, we know Tap is trying to navigate
+            // The URL is truncated, but we can try to get it from the iframe's attempted navigation
+            // or construct a base URL and let the user complete the payment
+            if (!urlMatch) {
+              console.warn('⚠️ URL truncated in error message. Attempting alternative methods...');
+              
+              // Method 1: Try to get URL from iframe location (may work if navigation started)
+              try {
+                const iframeUrl = paymentIframe.contentWindow?.location?.href;
+                if (iframeUrl && iframeUrl !== url && (
+                    iframeUrl.includes('tap_process.aspx') ||
+                    iframeUrl.includes('acceptance.sandbox.tap.company') ||
+                    iframeUrl.includes('acceptance.tap.company')
+                  )) {
+                  console.log('🔗 Got URL from iframe location (after navigation attempt):', iframeUrl);
+                  if (!redirectHandled) {
+                    redirectHandled = true;
+                    window.removeEventListener('error', securityErrorHandler, true);
+                    
+                    if (window.top && window.top !== window) {
+                      window.top.location.href = iframeUrl;
+                    } else {
+                      window.location.href = iframeUrl;
+                    }
+                  }
+                  return;
+                }
+              } catch (e) {
+                console.debug('Cannot access iframe URL (CORS):', e.message);
+              }
+              
+              // Method 2: Extract partial URL and try to use it
+              // The partial URL might still work if Tap's server can handle it
+              const partialMatch = allErrorText.match(/(https?:\/\/acceptance[^\s'"]+)/i);
+              if (partialMatch && partialMatch[1] && !redirectHandled) {
+                let partialUrl = partialMatch[1];
+                // Remove trailing ellipsis or special characters
+                partialUrl = partialUrl.replace(/[…\.]+$/, '').trim();
+                
+                console.warn('⚠️ Using partial URL (may not work):', partialUrl);
+                redirectHandled = true;
+                window.removeEventListener('error', securityErrorHandler, true);
+                
+                // Try redirecting - Tap's server might redirect to the full URL
+                try {
+                  if (window.top && window.top !== window) {
+                    window.top.location.href = partialUrl;
+                  } else {
+                    window.location.href = partialUrl;
+                  }
+                } catch (e) {
+                  console.error('Failed to redirect to partial URL:', e);
+                }
+                return;
+              }
+              
+              // Method 3: Try to fetch the payment URL from Tap API using charge ID
+              if (window.currentTapCharge && window.currentTapCharge.id && !redirectHandled) {
+                console.log('🔄 Attempting to fetch payment URL from Tap API...');
+                const chargeId = window.currentTapCharge.id;
+                const locationId = window.tapChargeData?.locationId || paymentData?.locationId || '';
+                
+                // Fetch charge status which might contain the payment URL
+                fetch(`/charge/status?tap_id=${chargeId}&locationId=${locationId}`)
+                  .then(response => response.json())
+                  .then(data => {
+                    if (data.success && data.charge) {
+                      // Check if charge has transaction URL
+                      const paymentUrl = data.charge.transaction?.url || 
+                                       data.charge.url ||
+                                       data.charge.redirect?.url;
+                      
+                      if (paymentUrl && (
+                          paymentUrl.includes('tap_process.aspx') ||
+                          paymentUrl.includes('acceptance.sandbox.tap.company') ||
+                          paymentUrl.includes('acceptance.tap.company') ||
+                          paymentUrl.includes('/gosell/v2/payment/') ||
+                          paymentUrl.includes('knet')
+                        )) {
+                        console.log('🔗 Got payment URL from API:', paymentUrl);
+                        redirectHandled = true;
+                        window.removeEventListener('error', securityErrorHandler, true);
+                        
+                        if (window.top && window.top !== window) {
+                          window.top.location.href = paymentUrl;
+                        } else {
+                          window.location.href = paymentUrl;
+                        }
+                      } else {
+                        console.warn('⚠️ API response does not contain external payment URL');
+                      }
+                    }
+                  })
+                  .catch(error => {
+                    console.error('❌ Failed to fetch payment URL from API:', error);
+                  });
+              } else {
+                console.warn('⚠️ Could not extract URL. Error details logged above.');
+              }
+            }
+          }
           
           if (urlMatch && urlMatch[1]) {
-            const redirectUrl = urlMatch[1];
+            let redirectUrl = urlMatch[1];
+            // Clean up URL (remove trailing quotes or other characters)
+            redirectUrl = redirectUrl.replace(/['"]+$/, '').trim();
+            // Remove any trailing dots or ellipsis
+            redirectUrl = redirectUrl.replace(/\.+$/, '');
+            
             console.log('🔗 Extracted redirect URL from security error:', redirectUrl);
             
             // Check if it's an external payment URL
@@ -1715,16 +1955,25 @@
               redirectUrl.includes('/gosell/v2/payment/');
             
             if (isExternalPaymentUrl) {
-              console.log('🔗 Redirecting top-level window to external payment URL');
+              redirectHandled = true;
+              console.log('🔗 Redirecting top-level window to external payment URL:', redirectUrl);
               window.removeEventListener('error', securityErrorHandler, true);
               
               // Redirect the top-level window (breaks out of iframe)
-              if (window.top && window.top !== window) {
-                window.top.location.href = redirectUrl;
-              } else {
-                window.location.href = redirectUrl;
+              try {
+                if (window.top && window.top !== window) {
+                  window.top.location.href = redirectUrl;
+                } else {
+                  window.location.href = redirectUrl;
+                }
+              } catch (e) {
+                console.error('Failed to redirect:', e);
+                // Fallback: try to open in new window
+                window.open(redirectUrl, '_top');
               }
             }
+          } else {
+            console.warn('⚠️ Could not extract URL from error message. Full error:', fullErrorText);
           }
         }
       };
@@ -1736,19 +1985,37 @@
         const errorText = args.join(' ');
         
         // Check if it's a navigation security error
-        if (errorText.includes('Failed to set a named property \'href\' on \'Location\'') ||
-            errorText.includes('Unsafe attempt to initiate navigation')) {
+        if (errorText.includes('Failed to set a named property') ||
+            errorText.includes('Unsafe attempt to initiate navigation') ||
+            errorText.includes('permission to navigate')) {
           
-          // Try to extract URL from console error
-          const urlMatch = errorText.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) || 
-                         errorText.match(/navigate[^'"]*to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
-                         errorText.match(/['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i) ||
-                         errorText.match(/['"](https?:\/\/[^'"]+knet[^'"]+)['"]/i) ||
-                         errorText.match(/['"](https?:\/\/acceptance[^'"]+)['"]/i) ||
-                         errorText.match(/['"](https?:\/\/[^'"]+gosell[^'"]+)['"]/i);
+          console.log('🔍 Console error with navigation issue:', errorText);
+          
+          // Try multiple patterns to extract URL
+          let urlMatch = null;
+          const patterns = [
+            /to\s+['"](https?:\/\/[^'"]+)['"]/i,
+            /navigate[^'"]*to\s+['"](https?:\/\/[^'"]+)['"]/i,
+            /['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i,
+            /['"](https?:\/\/[^'"]+knet[^'"]+)['"]/i,
+            /['"](https?:\/\/acceptance[^'"]+)['"]/i,
+            /['"](https?:\/\/[^'"]+gosell[^'"]+)['"]/i,
+            /(https?:\/\/acceptance[^\s'"]+)/i,
+            /(https?:\/\/[^\s'"]+tap_process[^\s'"]+)/i
+          ];
+          
+          for (const pattern of patterns) {
+            urlMatch = errorText.match(pattern);
+            if (urlMatch && urlMatch[1]) {
+              break;
+            }
+          }
           
           if (urlMatch && urlMatch[1]) {
-            const redirectUrl = urlMatch[1];
+            let redirectUrl = urlMatch[1];
+            // Clean up URL
+            redirectUrl = redirectUrl.replace(/['"]+$/, '').trim();
+            
             console.log('🔗 Extracted redirect URL from console error:', redirectUrl);
             
             const isExternalPaymentUrl = 
@@ -1758,19 +2025,27 @@
               redirectUrl.includes('acceptance.tap.company') ||
               redirectUrl.includes('/gosell/v2/payment/');
             
-            if (isExternalPaymentUrl) {
-              console.log('🔗 Redirecting top-level window to external payment URL');
+            if (isExternalPaymentUrl && !redirectHandled) {
+              redirectHandled = true;
+              console.log('🔗 Redirecting top-level window to external payment URL:', redirectUrl);
               console.error = existingConsoleError; // Restore to existing interceptor
               window.removeEventListener('error', securityErrorHandler, true);
               window.removeEventListener('unhandledrejection', rejectionHandler);
               
-              if (window.top && window.top !== window) {
-                window.top.location.href = redirectUrl;
-              } else {
-                window.location.href = redirectUrl;
+              try {
+                if (window.top && window.top !== window) {
+                  window.top.location.href = redirectUrl;
+                } else {
+                  window.location.href = redirectUrl;
+                }
+              } catch (e) {
+                console.error('Failed to redirect:', e);
+                window.open(redirectUrl, '_top');
               }
               return; // Don't log the error
             }
+          } else {
+            console.warn('⚠️ Could not extract URL from console error');
           }
         }
         
@@ -1785,22 +2060,41 @@
       
       // Also listen for unhandled promise rejections
       const rejectionHandler = function(event) {
+        if (redirectHandled) return;
+        
         const reason = event.reason;
         const reasonMsg = (reason?.message || reason?.toString() || '');
         
-        if (reasonMsg.includes('Failed to set a named property \'href\' on \'Location\'') ||
-            reasonMsg.includes('Unsafe attempt to initiate navigation')) {
+        console.log('🔍 Unhandled rejection:', reasonMsg);
+        
+        if (reasonMsg.includes('Failed to set a named property') ||
+            reasonMsg.includes('Unsafe attempt to initiate navigation') ||
+            reasonMsg.includes('permission to navigate')) {
           
-          // Try to extract URL from rejection
-          const urlMatch = reasonMsg.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) || 
-                         reasonMsg.match(/navigate[^'"]*to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
-                         reasonMsg.match(/['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i) ||
-                         reasonMsg.match(/['"](https?:\/\/[^'"]+knet[^'"]+)['"]/i) ||
-                         reasonMsg.match(/['"](https?:\/\/acceptance[^'"]+)['"]/i) ||
-                         reasonMsg.match(/['"](https?:\/\/[^'"]+gosell[^'"]+)['"]/i);
+          // Try multiple patterns to extract URL
+          let urlMatch = null;
+          const patterns = [
+            /to\s+['"](https?:\/\/[^'"]+)['"]/i,
+            /navigate[^'"]*to\s+['"](https?:\/\/[^'"]+)['"]/i,
+            /['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i,
+            /['"](https?:\/\/[^'"]+knet[^'"]+)['"]/i,
+            /['"](https?:\/\/acceptance[^'"]+)['"]/i,
+            /['"](https?:\/\/[^'"]+gosell[^'"]+)['"]/i,
+            /(https?:\/\/acceptance[^\s'"]+)/i,
+            /(https?:\/\/[^\s'"]+tap_process[^\s'"]+)/i
+          ];
+          
+          for (const pattern of patterns) {
+            urlMatch = reasonMsg.match(pattern);
+            if (urlMatch && urlMatch[1]) {
+              break;
+            }
+          }
           
           if (urlMatch && urlMatch[1]) {
-            const redirectUrl = urlMatch[1];
+            let redirectUrl = urlMatch[1];
+            redirectUrl = redirectUrl.replace(/['"]+$/, '').trim();
+            
             console.log('🔗 Extracted redirect URL from rejection:', redirectUrl);
             
             const isExternalPaymentUrl = 
@@ -1810,14 +2104,20 @@
               redirectUrl.includes('acceptance.tap.company') ||
               redirectUrl.includes('/gosell/v2/payment/');
             
-            if (isExternalPaymentUrl) {
-              console.log('🔗 Redirecting top-level window to external payment URL');
+            if (isExternalPaymentUrl && !redirectHandled) {
+              redirectHandled = true;
+              console.log('🔗 Redirecting top-level window to external payment URL:', redirectUrl);
               window.removeEventListener('unhandledrejection', rejectionHandler);
               
-          if (window.top && window.top !== window) {
-                window.top.location.href = redirectUrl;
-          } else {
-                window.location.href = redirectUrl;
+              try {
+                if (window.top && window.top !== window) {
+                  window.top.location.href = redirectUrl;
+                } else {
+                  window.location.href = redirectUrl;
+                }
+              } catch (e) {
+                console.error('Failed to redirect:', e);
+                window.open(redirectUrl, '_top');
               }
             }
           }
