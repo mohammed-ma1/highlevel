@@ -640,6 +640,8 @@
   <script>
     // Set up Tap navigation error interceptor FIRST, before any other interceptors
     // This must be global and set up immediately to catch errors from iframes
+    console.log('🚀 Setting up Tap navigation error interceptor...');
+    
     (function() {
       if (!window.tapConsoleErrorInterceptorSetup) {
         window.tapConsoleErrorInterceptorSetup = true;
@@ -648,8 +650,13 @@
         const originalConsoleError = console.error.bind(console);
         
         // Set up our navigation error interceptor
-        console.error = function(...args) {
+        const tapErrorInterceptor = function(...args) {
           const errorText = args.join(' ');
+          
+          // Log ALL console.error calls to see what we're getting
+          if (errorText.includes('SecurityError') || errorText.includes('tap_process') || errorText.includes('acceptance')) {
+            console.log('📢 Console.error called with potential navigation error:', errorText.substring(0, 400));
+          }
           
           // Check if it's a navigation security error
           if (errorText.includes('Failed to set a named property') ||
@@ -686,11 +693,13 @@
                     window.location.href = redirectUrl;
                   }
                 } catch (e) {
-                  console.error('Failed to redirect:', e);
+                  originalConsoleError('Failed to redirect:', e);
                   window.open(redirectUrl, '_top');
                 }
                 return; // Don't log the error
               }
+            } else {
+              console.warn('⚠️ Navigation error detected but could not extract URL. Error text:', errorText.substring(0, 500));
             }
           }
           
@@ -698,7 +707,10 @@
           originalConsoleError.apply(console, args);
         };
         
+        console.error = tapErrorInterceptor;
         console.log('✅ Global console.error interceptor set up for Tap navigation errors');
+      } else {
+        console.log('⚠️ Tap console.error interceptor already set up');
       }
     })();
     
