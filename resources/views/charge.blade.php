@@ -638,6 +638,70 @@
   </div>
 
   <script>
+    // Set up Tap navigation error interceptor FIRST, before any other interceptors
+    // This must be global and set up immediately to catch errors from iframes
+    (function() {
+      if (!window.tapConsoleErrorInterceptorSetup) {
+        window.tapConsoleErrorInterceptorSetup = true;
+        
+        // Get the ORIGINAL console.error before any modifications
+        const originalConsoleError = console.error.bind(console);
+        
+        // Set up our navigation error interceptor
+        console.error = function(...args) {
+          const errorText = args.join(' ');
+          
+          // Check if it's a navigation security error
+          if (errorText.includes('Failed to set a named property') ||
+              errorText.includes('Unsafe attempt to initiate navigation') ||
+              errorText.includes('permission to navigate') ||
+              errorText.includes('SecurityError') ||
+              (args[0] && args[0].name === 'SecurityError')) {
+            
+            console.log('🔍 Navigation error detected in console.error!', errorText.substring(0, 300));
+            
+            // Try to extract URL - the error message contains the full URL
+            const urlMatch = errorText.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
+                            errorText.match(/['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i) ||
+                            errorText.match(/(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i) ||
+                            errorText.match(/(https?:\/\/acceptance\.tap\.company[^\s'"]+)/i);
+            
+            if (urlMatch && urlMatch[1]) {
+              const redirectUrl = urlMatch[1].replace(/['"]+$/, '').trim();
+              
+              if ((redirectUrl.includes('tap_process.aspx') ||
+                   redirectUrl.includes('acceptance.sandbox.tap.company') ||
+                   redirectUrl.includes('acceptance.tap.company') ||
+                   redirectUrl.includes('/gosell/v2/payment/')) &&
+                  !window.tapRedirectHandled) {
+                
+                window.tapRedirectHandled = true;
+                console.log('🔗 Extracted URL and redirecting to:', redirectUrl);
+                
+                // Redirect immediately
+                try {
+                  if (window.top && window.top !== window) {
+                    window.top.location.href = redirectUrl;
+                  } else {
+                    window.location.href = redirectUrl;
+                  }
+                } catch (e) {
+                  console.error('Failed to redirect:', e);
+                  window.open(redirectUrl, '_top');
+                }
+                return; // Don't log the error
+              }
+            }
+          }
+          
+          // Call the original console.error for all other errors
+          originalConsoleError.apply(console, args);
+        };
+        
+        console.log('✅ Global console.error interceptor set up for Tap navigation errors');
+      }
+    })();
+    
     // Suppress all extension-related console errors
     (function() {
       const originalConsoleError = console.error;
@@ -1598,62 +1662,6 @@
         // Send error response to GoHighLevel
         sendErrorResponse(error.message || 'An error occurred while creating the charge');
       }
-    }
-
-    // Set up console.error interceptor EARLY, before iframe loads
-    // This needs to be global so it catches errors from the iframe
-    if (!window.tapConsoleErrorInterceptorSetup) {
-      window.tapConsoleErrorInterceptorSetup = true;
-      
-      // Get the current console.error (which might already be intercepted)
-      const currentConsoleError = console.error;
-      
-      // Set up our navigation error interceptor
-      console.error = function(...args) {
-        const errorText = args.join(' ');
-        
-        // Check if it's a navigation security error
-        if (errorText.includes('Failed to set a named property') ||
-            errorText.includes('Unsafe attempt to initiate navigation') ||
-            errorText.includes('permission to navigate') ||
-            errorText.includes('SecurityError') ||
-            (args[0] && args[0].name === 'SecurityError')) {
-          
-          console.log('🔍 Navigation error detected in console.error!', errorText.substring(0, 300));
-          
-          // Try to extract URL
-          const urlMatch = errorText.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
-                          errorText.match(/['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i) ||
-                          errorText.match(/(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i);
-          
-          if (urlMatch && urlMatch[1]) {
-            const redirectUrl = urlMatch[1].replace(/['"]+$/, '').trim();
-            
-            if ((redirectUrl.includes('tap_process.aspx') ||
-                 redirectUrl.includes('acceptance.sandbox.tap.company') ||
-                 redirectUrl.includes('acceptance.tap.company') ||
-                 redirectUrl.includes('/gosell/v2/payment/')) &&
-                !window.tapRedirectHandled) {
-              
-              window.tapRedirectHandled = true;
-              console.log('🔗 Redirecting to:', redirectUrl);
-              
-              // Redirect immediately
-              if (window.top && window.top !== window) {
-                window.top.location.href = redirectUrl;
-              } else {
-                window.location.href = redirectUrl;
-              }
-              return; // Don't log the error
-            }
-          }
-        }
-        
-        // Call the original console.error
-        currentConsoleError.apply(console, args);
-      };
-      
-      console.log('✅ Global console.error interceptor set up for Tap navigation errors');
     }
 
     // Load payment URL in iframe with allow="payment" attribute (Safari workaround)
