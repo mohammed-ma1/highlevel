@@ -632,7 +632,6 @@
     <iframe 
       id="payment-iframe" 
       allow="payment *"
-      sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts allow-top-navigation allow-top-navigation-by-user-activation"
       style="width: 100%; height: 100%; border: none;"
       title="Payment Checkout">
     </iframe>
@@ -1795,17 +1794,24 @@
           // Error format: "Failed to set a named property 'href' on 'Location': The current window does not have permission to navigate the target frame to 'URL'."
           let urlMatch = null;
           const patterns = [
+            // Primary pattern: "to 'URL'"
             /to\s+['"](https?:\/\/[^'"]+)['"]/i,
+            // Alternative: "navigate ... to 'URL'"
             /navigate[^'"]*to\s+['"](https?:\/\/[^'"]+)['"]/i,
+            // Direct URL patterns
             /['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i,
             /['"](https?:\/\/[^'"]+knet[^'"]+)['"]/i,
             /['"](https?:\/\/acceptance[^'"]+)['"]/i,
             /['"](https?:\/\/[^'"]+gosell[^'"]+)['"]/i,
+            // Patterns without quotes (for console errors)
             /(https?:\/\/acceptance[^\s'"]+)/i,
             /(https?:\/\/[^\s'"]+tap_process[^\s'"]+)/i,
-            // More flexible patterns
+            // More specific patterns
             /(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i,
-            /(https?:\/\/acceptance\.tap\.company[^\s'"]+)/i
+            /(https?:\/\/acceptance\.tap\.company[^\s'"]+)/i,
+            // Pattern for full tap_process URLs with query params
+            /(https?:\/\/acceptance\.sandbox\.tap\.company\/gosell\/v2\/payment\/tap_process\.aspx\?[^\s'"]+)/i,
+            /(https?:\/\/acceptance\.tap\.company\/gosell\/v2\/payment\/tap_process\.aspx\?[^\s'"]+)/i
           ];
           
           // Try to extract from full error text (including target)
@@ -1860,7 +1866,7 @@
                       window.location.href = iframeUrl;
                     }
                   }
-                  return;
+        return;
                 }
               } catch (e) {
                 console.debug('Cannot access iframe URL (CORS):', e.message);
@@ -2033,9 +2039,9 @@
               window.removeEventListener('unhandledrejection', rejectionHandler);
               
               try {
-                if (window.top && window.top !== window) {
+          if (window.top && window.top !== window) {
                   window.top.location.href = redirectUrl;
-                } else {
+          } else {
                   window.location.href = redirectUrl;
                 }
               } catch (e) {
