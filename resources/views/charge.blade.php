@@ -1600,6 +1600,62 @@
       }
     }
 
+    // Set up console.error interceptor EARLY, before iframe loads
+    // This needs to be global so it catches errors from the iframe
+    if (!window.tapConsoleErrorInterceptorSetup) {
+      window.tapConsoleErrorInterceptorSetup = true;
+      
+      // Get the current console.error (which might already be intercepted)
+      const currentConsoleError = console.error;
+      
+      // Set up our navigation error interceptor
+      console.error = function(...args) {
+        const errorText = args.join(' ');
+        
+        // Check if it's a navigation security error
+        if (errorText.includes('Failed to set a named property') ||
+            errorText.includes('Unsafe attempt to initiate navigation') ||
+            errorText.includes('permission to navigate') ||
+            errorText.includes('SecurityError') ||
+            (args[0] && args[0].name === 'SecurityError')) {
+          
+          console.log('🔍 Navigation error detected in console.error!', errorText.substring(0, 300));
+          
+          // Try to extract URL
+          const urlMatch = errorText.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
+                          errorText.match(/['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i) ||
+                          errorText.match(/(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i);
+          
+          if (urlMatch && urlMatch[1]) {
+            const redirectUrl = urlMatch[1].replace(/['"]+$/, '').trim();
+            
+            if ((redirectUrl.includes('tap_process.aspx') ||
+                 redirectUrl.includes('acceptance.sandbox.tap.company') ||
+                 redirectUrl.includes('acceptance.tap.company') ||
+                 redirectUrl.includes('/gosell/v2/payment/')) &&
+                !window.tapRedirectHandled) {
+              
+              window.tapRedirectHandled = true;
+              console.log('🔗 Redirecting to:', redirectUrl);
+              
+              // Redirect immediately
+              if (window.top && window.top !== window) {
+                window.top.location.href = redirectUrl;
+              } else {
+                window.location.href = redirectUrl;
+              }
+              return; // Don't log the error
+            }
+          }
+        }
+        
+        // Call the original console.error
+        currentConsoleError.apply(console, args);
+      };
+      
+      console.log('✅ Global console.error interceptor set up for Tap navigation errors');
+    }
+
     // Load payment URL in iframe with allow="payment" attribute (Safari workaround)
     function loadPaymentInIframe(url) {
       console.log('🖼️ Loading payment URL in iframe with allow="payment":', url);
@@ -1618,6 +1674,9 @@
       // Store the original charge URL and charge data for potential fallback
       window.tapChargeUrl = url;
       window.tapChargeData = paymentData; // Store charge data to fetch payment URL if needed
+      
+      // Reset redirect flag for new payment attempt
+      window.tapRedirectHandled = false;
 
       // Hide payment container
       const paymentContainer = document.querySelector('.payment-container');
@@ -1737,7 +1796,21 @@
       let redirectHandled = false;
       
       const securityErrorHandler = function(event) {
-        if (redirectHandled) return;
+        // Log every error event to see if handler is being called
+        console.log('🔔 Error event received:', {
+          type: event.type,
+          message: event.message,
+          filename: event.filename,
+          lineno: event.lineno,
+          colno: event.colno,
+          error: event.error,
+          hasError: !!event.error
+        });
+        
+        if (redirectHandled) {
+          console.log('⚠️ Redirect already handled, ignoring error');
+          return;
+        }
         
         // Get error message from multiple sources - the error object itself has the full message
         const errorMsg = event.message || event.error?.message || event.error?.toString() || '';
@@ -2053,16 +2126,34 @@
       
       // Intercept console errors to catch navigation errors
       // Chain with existing console.error interceptor
-      const existingConsoleError = console.error;
+      // Get the ORIGINAL console.error (before any other interceptors)
+      const originalConsoleError = console.error.bind(console);
+      
+      // Check if console.error has already been intercepted
+      let existingConsoleError = console.error;
+      if (console.error.toString().includes('consoleErrorInterceptor') || 
+          console.error.toString().includes('originalConsoleError')) {
+        // Already intercepted, use the current one
+        existingConsoleError = console.error;
+      } else {
+        // Not intercepted yet, use original
+        existingConsoleError = originalConsoleError;
+      }
+      
       const consoleErrorInterceptor = function(...args) {
         const errorText = args.join(' ');
+        
+        // Log ALL console errors to see what we're getting
+        console.log('📢 Console.error called:', errorText.substring(0, 200));
         
         // Check if it's a navigation security error
         if (errorText.includes('Failed to set a named property') ||
             errorText.includes('Unsafe attempt to initiate navigation') ||
-            errorText.includes('permission to navigate')) {
+            errorText.includes('permission to navigate') ||
+            errorText.includes('SecurityError') ||
+            (args[0] && args[0].name === 'SecurityError')) {
           
-          console.log('🔍 Console error with navigation issue:', errorText);
+          console.log('🔍 Console error with navigation issue detected!', errorText);
           
           // Try multiple patterns to extract URL
           let urlMatch = null;
@@ -2127,9 +2218,14 @@
       };
       
       console.error = consoleErrorInterceptor;
+      console.log('✅ Console.error interceptor installed for navigation errors');
       
       // Listen for security errors with capture phase
+      // Use capture phase to catch errors before they bubble
       window.addEventListener('error', securityErrorHandler, true);
+      
+      // Also add a test log to confirm the listener is registered
+      console.log('✅ Security error handler registered and listening for errors');
       
       // Also listen for unhandled promise rejections
       const rejectionHandler = function(event) {
