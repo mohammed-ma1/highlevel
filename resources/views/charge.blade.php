@@ -779,11 +779,15 @@
     })();
     
     // Suppress all extension-related console errors
+    // IMPORTANT: This must come AFTER the Tap error handler so it doesn't interfere
     (function() {
-      const originalConsoleError = console.error;
+      // Get the current console.error (which should be our Tap handler)
+      const currentConsoleError = console.error;
       const originalConsoleWarn = console.warn;
       
       console.error = function(...args) {
+        // First, let our Tap handler process it (it's already set up above)
+        // Then suppress extension errors
         const message = args.join(' ');
         if (message.includes('Unable to parse event message') ||
             message.includes('CGK9cZpr.js') ||
@@ -794,7 +798,8 @@
             message.includes('__NG_DEVTOOLS_EVENT__')) {
           return; // Completely suppress these errors
         }
-        originalConsoleError.apply(console, args);
+        // Call the current console.error (which chains to our Tap handler)
+        currentConsoleError.apply(console, args);
       };
       
       console.warn = function(...args) {
@@ -1755,12 +1760,64 @@
         return;
       }
 
+      // Verify iframe doesn't have sandbox attribute (it might be added by browser or parent)
+      if (paymentIframe.hasAttribute('sandbox')) {
+        console.warn('⚠️ Iframe has sandbox attribute, removing it to allow navigation');
+        paymentIframe.removeAttribute('sandbox');
+      }
+      
+      // Ensure allow attribute is set
+      if (!paymentIframe.hasAttribute('allow')) {
+        paymentIframe.setAttribute('allow', 'payment *; fullscreen');
+      }
+
       // Store the original charge URL and charge data for potential fallback
       window.tapChargeUrl = url;
       window.tapChargeData = paymentData; // Store charge data to fetch payment URL if needed
       
       // Reset redirect flag for new payment attempt
       window.tapRedirectHandled = false;
+      
+      // Set up a direct listener for the SecurityError on the iframe
+      // This is a fallback in case the global handlers don't catch it
+      const iframeErrorHandler = function(event) {
+        if (window.tapRedirectHandled) return;
+        
+        const errorMsg = (event.message || event.error?.message || '').toString();
+        console.log('🔍 Iframe error event:', errorMsg.substring(0, 200));
+        
+        if (errorMsg.includes('Failed to set a named property') ||
+            errorMsg.includes('SecurityError') ||
+            errorMsg.includes('tap_process')) {
+          
+          const urlMatch = errorMsg.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
+                          errorMsg.match(/(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i);
+          
+          if (urlMatch && urlMatch[1] && !window.tapRedirectHandled) {
+            const redirectUrl = urlMatch[1].replace(/['"]+$/, '').trim();
+            if (redirectUrl.includes('tap_process.aspx') || redirectUrl.includes('acceptance')) {
+              window.tapRedirectHandled = true;
+              console.log('🔗 Redirecting from iframe error handler:', redirectUrl);
+              
+              setTimeout(() => {
+                if (window.top && window.top !== window) {
+                  window.top.location.href = redirectUrl;
+                } else {
+                  window.location.href = redirectUrl;
+                }
+              }, 100);
+            }
+          }
+        }
+      };
+      
+      // Try to add error listener to iframe (may not work due to CORS)
+      try {
+        paymentIframe.contentWindow.addEventListener('error', iframeErrorHandler, true);
+      } catch (e) {
+        // Can't access iframe contentWindow due to CORS, that's expected
+        console.debug('Cannot add error listener to iframe (CORS):', e.message);
+      }
 
       // Hide payment container
       const paymentContainer = document.querySelector('.payment-container');
@@ -1893,9 +1950,9 @@
         
         if (redirectHandled) {
           console.log('⚠️ Redirect already handled, ignoring error');
-          return;
-        }
-        
+        return;
+      }
+      
         // Get error message from multiple sources - the error object itself has the full message
         const errorMsg = event.message || event.error?.message || event.error?.toString() || '';
         const errorStr = errorMsg.toString();
@@ -2084,9 +2141,9 @@
                     redirectHandled = true;
                     window.removeEventListener('error', securityErrorHandler, true);
                     
-                    if (window.top && window.top !== window) {
+          if (window.top && window.top !== window) {
                       window.top.location.href = iframeUrl;
-                    } else {
+          } else {
                       window.location.href = iframeUrl;
                     }
                   }
