@@ -14,21 +14,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <style>
-    /* * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
 
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    } */
 
     .payment-container {
       background: transparent;
@@ -724,7 +710,6 @@
     // GoHighLevel iframe communication
     let paymentData = null;
     let isReady = false;
-    let isSafari = false;
     let paymentPopup = null;
 
     // Validate GHL message structure according to documentation
@@ -1024,7 +1009,7 @@
       }
     });
 
-    // Listen for messages from payment redirect page via localStorage (cross-tab communication for Safari)
+    // Listen for messages from payment redirect page via localStorage (cross-tab communication)
     // This handles the case where the payment opens in a new tab instead of an iframe
     window.addEventListener('storage', function(event) {
       try {
@@ -1078,7 +1063,6 @@
     });
 
     // Also poll localStorage periodically as a fallback (storage event may not fire in same-tab scenarios)
-    // This is a backup for Safari edge cases
     let localStoragePollInterval = null;
     const lastProcessedMessages = new Set();
     
@@ -1270,7 +1254,7 @@
         console.log('👤 Customer info received:', data.contact);
       }
       
-      // Hide payment container initially - only show popup for Safari
+      // Hide payment container initially
       const paymentContainer = document.querySelector('.payment-container');
       if (paymentContainer) {
         paymentContainer.style.display = 'none';
@@ -1397,31 +1381,29 @@
     }
 
     function showButton() {
-      // Show payment container for error cases (only Safari)
-      if (isSafari) {
-        const paymentContainer = document.getElementById('payment-container');
-        if (paymentContainer) {
-          paymentContainer.style.display = 'block';
-        }
+      // Show payment container for error cases
+      const paymentContainer = document.getElementById('payment-container');
+      if (paymentContainer) {
+        paymentContainer.style.display = 'block';
+      }
+      
+      const paymentBody = document.querySelector('.payment-body');
+      if (paymentBody) {
+        paymentBody.innerHTML = `
+          <div class="popup-payment-content">
+            <div class="error-message" id="error-message" style="display: block; margin-bottom: 20px;"></div>
+            <button id="retry-btn" type="button" class="proceed-payment-button">
+              <span class="button-text">Retry Payment</span>
+            </button>
+          </div>
+        `;
         
-        const paymentBody = document.querySelector('.payment-body');
-        if (paymentBody) {
-          paymentBody.innerHTML = `
-            <div class="popup-payment-content">
-              <div class="error-message" id="error-message" style="display: block; margin-bottom: 20px;"></div>
-              <button id="retry-btn" type="button" class="proceed-payment-button">
-                <span class="button-text">Retry Payment</span>
-              </button>
-            </div>
-          `;
-          
-          // Add retry button event listener
-          const retryBtn = document.getElementById('retry-btn');
-          if (retryBtn) {
-            retryBtn.addEventListener('click', () => {
-              createCharge();
-            });
-          }
+        // Add retry button event listener
+        const retryBtn = document.getElementById('retry-btn');
+        if (retryBtn) {
+          retryBtn.addEventListener('click', () => {
+            createCharge();
+          });
         }
       }
     }
@@ -1578,29 +1560,14 @@
         if (tapResponse.ok && result.success && result.charge) {
           console.log('✅ Tap charge created successfully:', result.charge);
           
-          // Handle payment redirect based on browser
+          // Handle payment redirect
           if (result.charge.transaction?.url) {
             console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
-            
-            // Double-check Safari detection before showing popup
-            const currentSafariCheck = detectSafari();
-            if (currentSafariCheck) {
-              // Use popup ONLY for Safari (desktop and mobile) to avoid iframe payment restrictions
-              console.log('🍎 Safari detected (desktop/mobile) - showing proceed payment popup');
-              console.log('📱 User Agent:', navigator.userAgent);
-              const paymentContainer = document.querySelector('.payment-container');
-              if (paymentContainer) {
-                paymentContainer.style.display = 'block';
-              }
-              showProceedPaymentPopup(result.charge.transaction.url);
-            } else {
-              // Direct redirect for all other browsers - NO POPUP
-              console.log('🌐 Non-Safari browser detected - using direct redirect (NO POPUP)');
-              console.log('🌐 User Agent:', navigator.userAgent);
-              setTimeout(() => {
-                window.location.href = result.charge.transaction.url;
-              }, 500);
-            }
+            console.log('🌐 User Agent:', navigator.userAgent);
+            // Direct redirect for all browsers
+            setTimeout(() => {
+              window.location.href = result.charge.transaction.url;
+            }, 500);
           } else {
             showError('No checkout URL received from Tap');
             showButton();
@@ -1623,144 +1590,17 @@
       }
     }
 
-    // Detect Safari browser (desktop and mobile)
-    function detectSafari() {
-      const userAgent = navigator.userAgent;
-      
-      // Check for Chrome first (Chrome on iOS reports as Safari but has Chrome in userAgent)
-      if (/Chrome/.test(userAgent) && !/Chromium/.test(userAgent)) {
-        // Chrome browser (desktop or mobile)
-        return false;
-      }
-      
-      // Check for Firefox
-      if (/Firefox/.test(userAgent)) {
-        return false;
-      }
-      
-      // Check for Edge
-      if (/Edg/.test(userAgent) || /Edge/.test(userAgent)) {
-        return false;
-      }
-      
-      // Check for Opera
-      if (/Opera/.test(userAgent) || /OPR/.test(userAgent)) {
-        return false;
-      }
-      
-      // iOS devices (iPhone, iPad, iPod) - all use Safari
-      const isIOS = /iPad|iPhone|iPod/.test(userAgent);
-      if (isIOS) {
-        // Additional check: iPad on iOS 13+ might report as Mac, so check for touch
-        if (/Macintosh/.test(userAgent) && 'ontouchend' in document) {
-          return true; // iPad running iOS 13+
-        }
-        return true; // iPhone/iPod/iPad (iOS < 13)
-      }
-      
-      // macOS Safari (desktop) - must have Safari but not Chrome
-      const isMac = /Macintosh/.test(userAgent);
-      const hasSafari = /Safari/.test(userAgent);
-      const noChrome = !/Chrome/.test(userAgent) && !/Chromium/.test(userAgent);
-      
-      if (isMac && hasSafari && noChrome) {
-        return true; // macOS Safari
-      }
-      
-      // Additional Safari detection for older versions or edge cases
-      if (/^((?!chrome|android).)*safari/i.test(userAgent)) {
-        // Make sure it's not Chrome by checking vendor
-        const isChrome = /Google Inc/.test(navigator.vendor);
-        if (!isChrome) {
-          return true;
-        }
-      }
-      
-      return false;
-    }
-
-    // Show proceed payment popup for Safari only
-    function showProceedPaymentPopup(url) {
-      // Final safety check - ensure this is Safari
-      const finalSafariCheck = detectSafari();
-      if (!finalSafariCheck) {
-        console.error('❌ Security: showProceedPaymentPopup called but not Safari! Redirecting instead.');
-        setTimeout(() => {
-          window.location.href = url;
-        }, 500);
-        return;
-      }
-      
-      console.log('🔗 Showing proceed payment popup for Safari:', url);
-      console.log('🔍 Final Safari verification:', {
-        userAgent: navigator.userAgent,
-        platform: navigator.platform,
-        isMobile: /iPhone|iPad|iPod/.test(navigator.userAgent) || ('ontouchend' in document)
-      });
-      
-      const paymentBody = document.querySelector('.payment-body');
-      const paymentContainer = document.querySelector('.payment-container');
-      
-      if (paymentBody && paymentContainer) {
-        // Show popup content directly without any card before
-        paymentBody.innerHTML = `
-          <div class="popup-payment-content">
-            <!-- Loading Spinner -->
-            <div class="loading-spinner-container">
-              <div class="payment-loading-spinner"></div>
-            </div>
-            
-            <!-- Proceed Payment Button -->
-            <button id="proceed-payment-btn" class="proceed-payment-button">
-              <span class="button-arrow">→</span>
-              <span class="button-text">الذهاب لصفحة الدفع</span>
-            </button>
-            
-            <!-- Payment Methods -->
-            <div class="payment-methods-logos">
-            <img src="{{ asset('https://images.leadconnectorhq.com/image/f_webp/q_80/r_1200/u_https://assets.cdn.filesafe.space/xAN9Y8iZDOugbNvKBKad/media/6901e4a9a412c65d60fb7f4b.png') }}" alt="Tap" class="payment-logo">
-          </div>
-        `;
-      }
-      
-      // Store URL for button click
-      window.openPaymentUrl = url;
-      
-      // Update button to open in parent window
-      const proceedBtn = document.getElementById('proceed-payment-btn');
-      if (proceedBtn) {
-        proceedBtn.onclick = function() {
-          // Open in parent window (if in iframe) or top window
-          if (window.top && window.top !== window) {
-            window.top.location.href = url;
-          } else if (window.parent && window.parent !== window) {
-            window.parent.location.href = url;
-          } else {
-            window.location.href = url;
-          }
-        };
-      }
-    }
 
     // Initialize when page loads
     document.addEventListener('DOMContentLoaded', function() {
       console.log('🚀 Charge API Integration Loaded Successfully');
       
-      // Detect Safari (desktop and mobile)
-      isSafari = detectSafari();
-      console.log('🔍 Browser detection:', {
-        isSafari: isSafari,
+      console.log('🔍 Browser info:', {
         userAgent: navigator.userAgent,
         platform: navigator.platform,
         vendor: navigator.vendor,
         hasTouch: 'ontouchend' in document
       });
-      
-      if (isSafari) {
-        console.log('✅ Safari detected - Popup will be shown for payment');
-      } else {
-        console.log('✅ Non-Safari browser detected - Direct redirect will be used');
-      }
       
       console.log('🔍 Window context:', {
         isIframe: window !== window.top,
