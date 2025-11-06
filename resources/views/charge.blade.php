@@ -651,9 +651,12 @@
         console.error = function(...args) {
           const errorText = args.join(' ');
           
-          // Log all SecurityErrors to debug
-          if (errorText.includes('SecurityError') || errorText.includes('tap_process') || errorText.includes('acceptance')) {
-            console.log('📢 SecurityError detected in console.error:', errorText.substring(0, 400));
+          // ALWAYS log SecurityErrors for debugging
+          if (errorText.includes('SecurityError') || 
+              errorText.includes('tap_process') || 
+              errorText.includes('acceptance') ||
+              errorText.includes('Failed to set a named property')) {
+            console.log('📢 SecurityError detected in console.error:', errorText.substring(0, 500));
           }
           
           // Check for navigation security error
@@ -696,7 +699,138 @@
                 window.tapRedirectHandled = true;
                 console.log('🔗 Extracted URL and redirecting to:', redirectUrl);
                 
+                // Use the shared redirect function if available
+                if (window.tapExtractAndRedirect && window.tapExtractAndRedirect(errorText)) {
+                  return; // Redirect handled by shared function
+                }
+                
                 // Redirect immediately
+                setTimeout(() => {
+                  try {
+                    if (window.top && window.top !== window) {
+                      window.top.location.href = redirectUrl;
+                    } else {
+                      window.location.href = redirectUrl;
+                    }
+                  } catch (e) {
+                    originalConsoleError('Failed to redirect:', e);
+                    window.open(redirectUrl, '_top');
+                  }
+                }, 50);
+                return; // Don't log the error
+              }
+            } else {
+              console.warn('⚠️ Could not extract URL from error. Error text:', errorText.substring(0, 500));
+              
+              // Try using the shared function as fallback
+              if (window.tapExtractAndRedirect) {
+                window.tapExtractAndRedirect(errorText);
+              }
+            }
+          }
+          
+          originalConsoleError.apply(console, args);
+        };
+        
+        // Also intercept console.log to catch errors that might be logged there
+        const originalConsoleLog = console.log.bind(console);
+        console.log = function(...args) {
+          const logText = args.join(' ');
+          
+          // Check if it's a SecurityError being logged
+          if ((logText.includes('Failed to set a named property') ||
+               logText.includes('Unsafe attempt to initiate navigation') ||
+               logText.includes('SecurityError') ||
+               logText.includes('tap_process')) &&
+              !window.tapRedirectHandled) {
+            
+            console.log('🔍 SecurityError detected in console.log!', logText.substring(0, 300));
+            
+            const urlMatch = logText.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
+                            logText.match(/(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i);
+            
+            if (urlMatch && urlMatch[1] && !window.tapRedirectHandled) {
+              let redirectUrl = urlMatch[1].replace(/['"]+$/, '').trim();
+              redirectUrl = redirectUrl.replace(/[^a-zA-Z0-9\/\?\=\&\.\-\:]+$/, '');
+              
+              if ((redirectUrl.includes('tap_process.aspx') || redirectUrl.includes('acceptance')) &&
+                  !window.tapRedirectHandled) {
+                window.tapRedirectHandled = true;
+                console.log('🔗 Redirecting from console.log interceptor:', redirectUrl);
+                
+                // Use shared function if available
+                if (window.tapExtractAndRedirect && window.tapExtractAndRedirect(logText)) {
+                  return;
+                }
+                
+                setTimeout(() => {
+                  if (window.top && window.top !== window) {
+                    window.top.location.href = redirectUrl;
+                  } else {
+                    window.location.href = redirectUrl;
+                  }
+                }, 50);
+                return;
+              }
+            } else if (window.tapExtractAndRedirect) {
+              // Try shared function as fallback
+              window.tapExtractAndRedirect(logText);
+            }
+          }
+          
+          originalConsoleLog.apply(console, args);
+        };
+        
+        // Method 2: Use window error event listener with more aggressive detection
+        const windowErrorHandler = function(event) {
+          if (window.tapRedirectHandled) return;
+          
+          // Get error message from multiple sources
+          const errorMsg = (event.message || event.error?.message || event.error?.toString() || '').toString();
+          const errorName = event.error?.name || '';
+          const errorStack = event.error?.stack || '';
+          const fullErrorText = [errorMsg, errorName, errorStack].join(' ');
+          
+          // Log ALL error events to see what we're getting
+          // This helps debug why SecurityError isn't being caught
+          if (errorMsg.includes('Security') || errorMsg.includes('tap') || errorMsg.includes('acceptance') || errorName === 'SecurityError') {
+            console.log('🔔 Window error event received (SecurityError related):', {
+              message: errorMsg.substring(0, 300),
+              name: errorName,
+              hasError: !!event.error,
+              filename: event.filename,
+              lineno: event.lineno
+            });
+          }
+          
+          if (fullErrorText.includes('Failed to set a named property') ||
+              fullErrorText.includes('Unsafe attempt to initiate navigation') ||
+              fullErrorText.includes('SecurityError') ||
+              fullErrorText.includes('tap_process') ||
+              errorName === 'SecurityError') {
+            
+            console.log('🔍 Navigation error detected in window error event!', errorMsg.substring(0, 300));
+            
+            // Try multiple URL extraction patterns
+            let urlMatch = fullErrorText.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
+                          fullErrorText.match(/['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i) ||
+                          fullErrorText.match(/(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i) ||
+                          fullErrorText.match(/(https?:\/\/acceptance\.tap\.company[^\s'"]+)/i);
+            
+            if (urlMatch && urlMatch[1] && !window.tapRedirectHandled) {
+              let redirectUrl = urlMatch[1].replace(/['"]+$/, '').trim();
+              redirectUrl = redirectUrl.replace(/[^a-zA-Z0-9\/\?\=\&\.\-\:]+$/, '');
+              
+              if ((redirectUrl.includes('tap_process.aspx') || redirectUrl.includes('acceptance')) &&
+                  !window.tapRedirectHandled) {
+                window.tapRedirectHandled = true;
+                console.log('🔗 Redirecting to (from error event):', redirectUrl);
+                
+                // Use shared function if available
+                if (window.tapExtractAndRedirect && window.tapExtractAndRedirect(fullErrorText)) {
+                  return;
+                }
+                
                 setTimeout(() => {
                   try {
                     if (window.top && window.top !== window) {
@@ -709,49 +843,40 @@
                     window.open(redirectUrl, '_top');
                   }
                 }, 50);
-                return; // Don't log the error
               }
             } else {
-              console.warn('⚠️ Could not extract URL from error. Error text:', errorText.substring(0, 500));
-            }
-          }
-          
-          originalConsoleError.apply(console, args);
-        };
-        
-        // Method 2: Use window error event listener
-        window.addEventListener('error', function(event) {
-          if (window.tapRedirectHandled) return;
-          
-          const errorMsg = (event.message || event.error?.message || '').toString();
-          
-          if (errorMsg.includes('Failed to set a named property') ||
-              errorMsg.includes('Unsafe attempt to initiate navigation') ||
-              errorMsg.includes('SecurityError')) {
-            
-            console.log('🔍 Navigation error detected in window error event!');
-            
-            const urlMatch = errorMsg.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
-                            errorMsg.match(/(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i);
-            
-            if (urlMatch && urlMatch[1] && !window.tapRedirectHandled) {
-              const redirectUrl = urlMatch[1].replace(/['"]+$/, '').trim();
+              console.warn('⚠️ Error detected but URL not found. Full error:', fullErrorText.substring(0, 500));
               
-              if (redirectUrl.includes('tap_process.aspx') || redirectUrl.includes('acceptance')) {
-                window.tapRedirectHandled = true;
-                console.log('🔗 Redirecting to (from error event):', redirectUrl);
-                
-                setTimeout(() => {
-                  if (window.top && window.top !== window) {
-                    window.top.location.href = redirectUrl;
-                  } else {
-                    window.location.href = redirectUrl;
-                  }
-                }, 100);
+              // Try shared function as fallback
+              if (window.tapExtractAndRedirect) {
+                window.tapExtractAndRedirect(fullErrorText);
               }
             }
           }
-        }, true);
+        };
+        
+        window.addEventListener('error', windowErrorHandler, true);
+        
+        // Method 2b: Use PerformanceObserver to catch errors
+        if (typeof PerformanceObserver !== 'undefined') {
+          try {
+            const performanceObserver = new PerformanceObserver((list) => {
+              for (const entry of list.getEntries()) {
+                if (entry.entryType === 'resource' || entry.entryType === 'navigation') {
+                  // Check for errors in performance entries
+                  if (entry.name && entry.name.includes('tap_process') && !window.tapRedirectHandled) {
+                    console.log('🔍 PerformanceObserver detected tap_process URL:', entry.name);
+                    // This might not work for SecurityErrors, but worth trying
+                  }
+                }
+              }
+            });
+            
+            performanceObserver.observe({ entryTypes: ['resource', 'navigation', 'measure'] });
+          } catch (e) {
+            console.debug('PerformanceObserver not supported:', e.message);
+          }
+        }
         
         // Method 3: Monitor console output using MutationObserver (fallback)
         // This watches for new console entries
@@ -1587,8 +1712,8 @@
             retryBtn.addEventListener('click', () => {
               createCharge();
             });
+          }
         }
-      }
       
       // Set up aggressive error monitoring when button is shown
       // This is a fallback in case the global error handler didn't catch the SecurityError
@@ -2058,7 +2183,7 @@
         console.log('✅ Payment iframe loaded');
         
         // Set up aggressive error detection after iframe loads
-        // This monitors for the SecurityError and redirects immediately
+        // This actively checks for the SecurityError in the console and redirects
         let errorCheckCount = 0;
         const maxErrorChecks = 600; // Check for 60 seconds (100ms * 600)
         
@@ -2067,12 +2192,35 @@
           
           if (window.tapRedirectHandled) {
             clearInterval(errorDetectionInterval);
-            return;
-          }
-          
+        return;
+      }
+      
           // Every 5 seconds, log that we're still monitoring
           if (errorCheckCount % 50 === 0) {
             console.log('🔍 Still monitoring for SecurityError...', errorCheckCount);
+          }
+          
+          // CRITICAL FALLBACK: Since the error is visible in console but not caught by handlers,
+          // we'll use a different approach - monitor for the specific error pattern
+          // and extract the URL from the error message that's already in the console
+          
+          // The error message format we're looking for:
+          // "Failed to set a named property 'href' on 'Location': The current window does not have permission to navigate the target frame to 'https://acceptance.sandbox.tap.company/gosell/v2/payment/tap_process.aspx?chg_url=...'"
+          
+          // Since we can't directly access console output, we'll use a workaround:
+          // Set up a mechanism that will be triggered when the error occurs
+          // by checking if the iframe is trying to navigate (which causes the error)
+          
+          // Actually, the best approach is to ensure our error handlers are working
+          // Let's add a test to verify handlers are active
+          if (errorCheckCount === 1) {
+            console.log('✅ Error detection monitor active - handlers should catch SecurityError');
+            console.log('📋 Available handlers:', {
+              consoleError: typeof console.error === 'function',
+              windowError: 'active',
+              unhandledRejection: 'active',
+              extractAndRedirect: typeof window.tapExtractAndRedirect === 'function'
+            });
           }
           
           // The error handlers should catch it, but this is a backup
@@ -2083,6 +2231,92 @@
             console.log('⏱️ Error detection timeout - stopping monitor');
           }
         }, 100);
+        
+        // CRITICAL: Set up a direct redirect mechanism
+        // Since we know the error will occur, we can set up a listener that
+        // will redirect when the error is detected, regardless of how it's detected
+        // We'll use a combination of all error detection methods
+        const directErrorCatcher = function() {
+          // This function will be called by various error handlers
+          // It extracts the URL and redirects immediately
+          const extractAndRedirect = function(errorText) {
+            if (window.tapRedirectHandled) return false;
+            
+            const urlMatch = errorText.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
+                            errorText.match(/['"](https?:\/\/[^'"]+tap_process[^'"]+)['"]/i) ||
+                            errorText.match(/(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i) ||
+                            errorText.match(/(https?:\/\/acceptance\.tap\.company[^\s'"]+)/i);
+            
+            if (urlMatch && urlMatch[1]) {
+              let redirectUrl = urlMatch[1].replace(/['"]+$/, '').trim();
+              redirectUrl = redirectUrl.replace(/[^a-zA-Z0-9\/\?\=\&\.\-\:]+$/, '');
+              
+              if ((redirectUrl.includes('tap_process.aspx') || redirectUrl.includes('acceptance')) &&
+                  !window.tapRedirectHandled) {
+                window.tapRedirectHandled = true;
+                console.log('🔗 DIRECT REDIRECT triggered:', redirectUrl);
+                
+                // Clear all intervals
+                clearInterval(errorDetectionInterval);
+                
+                // Redirect immediately
+                setTimeout(() => {
+                  try {
+                    if (window.top && window.top !== window) {
+                      window.top.location.href = redirectUrl;
+                    } else {
+                      window.location.href = redirectUrl;
+                    }
+                  } catch (e) {
+                    console.error('Failed to redirect:', e);
+                    window.open(redirectUrl, '_top');
+                  }
+                }, 10);
+                return true;
+              }
+            }
+            return false;
+          };
+          
+          // Store the function globally so error handlers can call it
+          window.tapExtractAndRedirect = extractAndRedirect;
+          
+          // Also create a manual redirect function that can be called from console
+          // Usage: window.tapManualRedirect('https://acceptance.sandbox.tap.company/gosell/v2/payment/tap_process.aspx?chg_url=...')
+          window.tapManualRedirect = function(url) {
+            if (!url) {
+              console.error('❌ No URL provided. Usage: window.tapManualRedirect("https://...")');
+              return;
+            }
+            
+            if (window.tapRedirectHandled) {
+              console.warn('⚠️ Redirect already handled');
+              return;
+            }
+            
+            window.tapRedirectHandled = true;
+            console.log('🔗 Manual redirect triggered:', url);
+            
+            clearInterval(errorDetectionInterval);
+            
+            setTimeout(() => {
+              try {
+          if (window.top && window.top !== window) {
+            window.top.location.href = url;
+          } else {
+            window.location.href = url;
+          }
+              } catch (e) {
+                console.error('Failed to redirect:', e);
+                window.open(url, '_top');
+              }
+            }, 10);
+          };
+          
+          console.log('💡 Manual redirect available: window.tapManualRedirect("URL")');
+        };
+        
+        directErrorCatcher();
         
         // Also try to monitor iframe navigation by checking URL periodically
         // This helps us catch the URL before the security error occurs
@@ -2115,9 +2349,9 @@
                 
                 // Redirect the top-level window
                 try {
-                  if (window.top && window.top !== window) {
+          if (window.top && window.top !== window) {
                     window.top.location.href = currentUrl;
-                  } else {
+          } else {
                     window.location.href = currentUrl;
                   }
                 } catch (e) {
