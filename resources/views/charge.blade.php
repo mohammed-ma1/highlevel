@@ -1662,7 +1662,6 @@
             class="checkout-iframe" 
             src="${url}"
             allow="payment; camera; microphone"
-            sandbox="allow-forms allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-top-navigation allow-top-navigation-by-user-activation"
             title="Tap Payment Checkout"
           ></iframe>
         </div>
@@ -1677,6 +1676,23 @@
           const loadingEl = document.getElementById('iframe-loading');
           if (loadingEl) {
             loadingEl.classList.add('hidden');
+          }
+          
+          // Try to detect if iframe has navigated to our redirect URL
+          // Note: This may fail due to same-origin policy, but will work if redirect is to our domain
+          try {
+            const iframeSrc = checkoutIframe.contentWindow.location.href;
+            console.log('🔍 Iframe current URL:', iframeSrc);
+            
+            // Check if iframe has navigated to our redirect URL
+            if (iframeSrc && iframeSrc.includes('/charge/redirect')) {
+              console.log('✅ Iframe navigated to redirect URL - waiting for message from redirect page');
+              // The redirect page will send a message, which we'll handle in the message handler
+            }
+          } catch (e) {
+            // Cross-origin restriction - this is expected when iframe is on tap.company domain
+            // We'll rely on postMessage from the redirect page instead
+            console.log('🔒 Cannot access iframe URL (cross-origin restriction) - will rely on postMessage');
           }
         });
         
@@ -1703,36 +1719,55 @@
           }
         }
         
-        // Handle messages from redirect page (our redirect URL)
+        // Handle messages from redirect page (our redirect URL - same domain)
+        // Also accept from Tap checkout domain
+        const isFromOurDomain = event.origin && (
+          event.origin.includes(window.location.hostname) || 
+          event.origin.includes('mediasolution.io') ||
+          event.origin.includes(location.hostname)
+        );
+        const isFromTapDomain = event.origin && event.origin.includes('tap.company');
+        
         if (parsedData && typeof parsedData === 'object') {
           // Check for redirect page messages (custom_element_*_response)
-          if (parsedData.type === 'custom_element_success_response') {
-            console.log('✅ Payment successful from redirect page:', parsedData);
-            const chargeId = parsedData.chargeId || 'completed';
-            sendSuccessResponse(chargeId);
-            // Remove iframe after successful payment
-            if (checkoutIframe && checkoutIframe.parentElement) {
-              checkoutIframe.parentElement.innerHTML = '<div style="text-align: center; padding: 40px;"><p style="color: #16a34a; font-size: 18px;">✅ Payment successful!</p></div>';
+          // These come from our redirect URL which loads in the iframe
+          // Accept messages from our domain or Tap domain
+          const isRedirectMessage = parsedData.type === 'custom_element_success_response' ||
+                                    parsedData.type === 'custom_element_error_response' ||
+                                    parsedData.type === 'custom_element_close_response';
+          
+          if (isRedirectMessage && (isFromOurDomain || isFromTapDomain)) {
+            if (parsedData.type === 'custom_element_success_response') {
+              console.log('✅ Payment successful from redirect page:', parsedData);
+              console.log('📥 Message origin:', event.origin);
+              const chargeId = parsedData.chargeId || 'completed';
+              sendSuccessResponse(chargeId);
+              // Remove iframe after successful payment
+              if (checkoutIframe && checkoutIframe.parentElement) {
+                checkoutIframe.parentElement.innerHTML = '<div style="text-align: center; padding: 40px;"><p style="color: #16a34a; font-size: 18px;">✅ Payment successful!</p></div>';
+              }
+              // Remove event listener after handling
+              window.removeEventListener('message', iframeMessageHandler);
+              return;
+            } else if (parsedData.type === 'custom_element_error_response') {
+              console.log('❌ Payment error from redirect page:', parsedData);
+              console.log('📥 Message origin:', event.origin);
+              const errorMsg = parsedData.error?.description || parsedData.error || 'Payment failed';
+              sendErrorResponse(errorMsg);
+              window.removeEventListener('message', iframeMessageHandler);
+              return;
+            } else if (parsedData.type === 'custom_element_close_response') {
+              console.log('🚪 Payment canceled from redirect page');
+              console.log('📥 Message origin:', event.origin);
+              sendErrorResponse('Payment was canceled');
+              window.removeEventListener('message', iframeMessageHandler);
+              return;
             }
-            // Remove event listener after handling
-            window.removeEventListener('message', iframeMessageHandler);
-            return;
-          } else if (parsedData.type === 'custom_element_error_response') {
-            console.log('❌ Payment error from redirect page:', parsedData);
-            const errorMsg = parsedData.error?.description || parsedData.error || 'Payment failed';
-            sendErrorResponse(errorMsg);
-            window.removeEventListener('message', iframeMessageHandler);
-            return;
-          } else if (parsedData.type === 'custom_element_close_response') {
-            console.log('🚪 Payment canceled from redirect page');
-            sendErrorResponse('Payment was canceled');
-            window.removeEventListener('message', iframeMessageHandler);
-            return;
           }
         }
         
         // Handle messages from Tap checkout domain (if Tap sends any)
-        if (event.origin && event.origin.includes('tap.company')) {
+        if (isFromTapDomain) {
           console.log('📥 Message from Tap checkout:', parsedData);
           
           // Handle payment success/error messages from Tap
