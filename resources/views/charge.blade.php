@@ -652,11 +652,12 @@
           const errorText = args.join(' ');
           
           // ALWAYS log SecurityErrors for debugging
+          // CRITICAL: Use originalConsoleError to avoid infinite recursion
           if (errorText.includes('SecurityError') || 
               errorText.includes('tap_process') || 
               errorText.includes('acceptance') ||
               errorText.includes('Failed to set a named property')) {
-            console.log('📢 SecurityError detected in console.error:', errorText.substring(0, 500));
+            originalConsoleError('📢 SecurityError detected in console.error:', errorText.substring(0, 500));
           }
           
           // Check for navigation security error
@@ -667,7 +668,7 @@
                errorText.includes('sandboxed')) &&
               !window.tapRedirectHandled) {
             
-            console.log('🔍 Navigation error detected in console.error!', errorText.substring(0, 300));
+            originalConsoleError('🔍 Navigation error detected in console.error!', errorText.substring(0, 300));
             
             // Extract URL - try multiple patterns
             let urlMatch = errorText.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
@@ -697,7 +698,7 @@
                   !window.tapRedirectHandled) {
                 
                 window.tapRedirectHandled = true;
-                console.log('🔗 Extracted URL and redirecting to:', redirectUrl);
+                originalConsoleError('🔗 Extracted URL and redirecting to:', redirectUrl);
                 
                 // Use the shared redirect function if available
                 if (window.tapExtractAndRedirect && window.tapExtractAndRedirect(errorText)) {
@@ -720,7 +721,7 @@
                 return; // Don't log the error
               }
             } else {
-              console.warn('⚠️ Could not extract URL from error. Error text:', errorText.substring(0, 500));
+              originalConsoleError('⚠️ Could not extract URL from error. Error text:', errorText.substring(0, 500));
               
               // Try using the shared function as fallback
               if (window.tapExtractAndRedirect) {
@@ -733,6 +734,7 @@
         };
         
         // Also intercept console.log to catch errors that might be logged there
+        // CRITICAL: Must use originalConsoleLog to avoid infinite recursion
         const originalConsoleLog = console.log.bind(console);
         console.log = function(...args) {
           const logText = args.join(' ');
@@ -744,7 +746,8 @@
                logText.includes('tap_process')) &&
               !window.tapRedirectHandled) {
             
-            console.log('🔍 SecurityError detected in console.log!', logText.substring(0, 300));
+            // Use originalConsoleLog to avoid recursion
+            originalConsoleLog('🔍 SecurityError detected in console.log!', logText.substring(0, 300));
             
             const urlMatch = logText.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
                             logText.match(/(https?:\/\/acceptance\.sandbox\.tap\.company[^\s'"]+)/i);
@@ -756,10 +759,11 @@
               if ((redirectUrl.includes('tap_process.aspx') || redirectUrl.includes('acceptance')) &&
                   !window.tapRedirectHandled) {
                 window.tapRedirectHandled = true;
-                console.log('🔗 Redirecting from console.log interceptor:', redirectUrl);
+                originalConsoleLog('🔗 Redirecting from console.log interceptor:', redirectUrl);
                 
                 // Use shared function if available
                 if (window.tapExtractAndRedirect && window.tapExtractAndRedirect(logText)) {
+                  originalConsoleLog.apply(console, args);
                   return;
                 }
                 
@@ -770,6 +774,7 @@
                     window.location.href = redirectUrl;
                   }
                 }, 50);
+                originalConsoleLog.apply(console, args);
                 return;
               }
             } else if (window.tapExtractAndRedirect) {
@@ -793,8 +798,28 @@
           
           // Log ALL error events to see what we're getting
           // This helps debug why SecurityError isn't being caught
+          // CRITICAL: Get original console.log to avoid recursion (must get it fresh each time)
+          const originalConsoleLogForError = (function() {
+            // Get the original before our interceptor
+            const orig = console.log;
+            // If it's been intercepted, try to get the original
+            if (orig.toString().includes('originalConsoleLog')) {
+              // It's been intercepted, we need to use a different approach
+              return function(...args) {
+                // Use a try-catch to avoid recursion
+                try {
+                  const nativeLog = Function.prototype.bind.call(console.log, console);
+                  nativeLog.apply(console, args);
+                } catch (e) {
+                  // Fallback - just don't log
+                }
+              };
+            }
+            return orig.bind(console);
+          })();
+          
           if (errorMsg.includes('Security') || errorMsg.includes('tap') || errorMsg.includes('acceptance') || errorName === 'SecurityError') {
-            console.log('🔔 Window error event received (SecurityError related):', {
+            originalConsoleLogForError('🔔 Window error event received (SecurityError related):', {
               message: errorMsg.substring(0, 300),
               name: errorName,
               hasError: !!event.error,
@@ -809,7 +834,7 @@
               fullErrorText.includes('tap_process') ||
               errorName === 'SecurityError') {
             
-            console.log('🔍 Navigation error detected in window error event!', errorMsg.substring(0, 300));
+            originalConsoleLogForError('🔍 Navigation error detected in window error event!', errorMsg.substring(0, 300));
             
             // Try multiple URL extraction patterns
             let urlMatch = fullErrorText.match(/to\s+['"](https?:\/\/[^'"]+)['"]/i) ||
@@ -824,7 +849,7 @@
               if ((redirectUrl.includes('tap_process.aspx') || redirectUrl.includes('acceptance')) &&
                   !window.tapRedirectHandled) {
                 window.tapRedirectHandled = true;
-                console.log('🔗 Redirecting to (from error event):', redirectUrl);
+                originalConsoleLogForError('🔗 Redirecting to (from error event):', redirectUrl);
                 
                 // Use shared function if available
                 if (window.tapExtractAndRedirect && window.tapExtractAndRedirect(fullErrorText)) {
@@ -845,7 +870,7 @@
                 }, 50);
               }
             } else {
-              console.warn('⚠️ Error detected but URL not found. Full error:', fullErrorText.substring(0, 500));
+              originalConsoleLogForError('⚠️ Error detected but URL not found. Full error:', fullErrorText.substring(0, 500));
               
               // Try shared function as fallback
               if (window.tapExtractAndRedirect) {
@@ -2195,9 +2220,23 @@
         return;
       }
       
-          // Every 5 seconds, log that we're still monitoring
+          // CRITICAL: Use native console methods to avoid recursion
+          // Get the native console.log before our interceptor
+          const getNativeConsoleLog = function() {
+            try {
+              // Try to get the native console.log
+              const nativeLog = Function.prototype.bind.call(console.log, console);
+              return nativeLog;
+            } catch (e) {
+              // Fallback - return a no-op function
+              return function() {};
+            }
+          };
+          
+          // Every 5 seconds, log that we're still monitoring (use native to avoid recursion)
           if (errorCheckCount % 50 === 0) {
-            console.log('🔍 Still monitoring for SecurityError...', errorCheckCount);
+            const nativeLog = getNativeConsoleLog();
+            nativeLog('🔍 Still monitoring for SecurityError...', errorCheckCount);
           }
           
           // CRITICAL FALLBACK: Since the error is visible in console but not caught by handlers,
@@ -2214,8 +2253,9 @@
           // Actually, the best approach is to ensure our error handlers are working
           // Let's add a test to verify handlers are active
           if (errorCheckCount === 1) {
-            console.log('✅ Error detection monitor active - handlers should catch SecurityError');
-            console.log('📋 Available handlers:', {
+            const nativeLog = getNativeConsoleLog();
+            nativeLog('✅ Error detection monitor active - handlers should catch SecurityError');
+            nativeLog('📋 Available handlers:', {
               consoleError: typeof console.error === 'function',
               windowError: 'active',
               unhandledRejection: 'active',
@@ -2254,7 +2294,13 @@
               if ((redirectUrl.includes('tap_process.aspx') || redirectUrl.includes('acceptance')) &&
                   !window.tapRedirectHandled) {
                 window.tapRedirectHandled = true;
-                console.log('🔗 DIRECT REDIRECT triggered:', redirectUrl);
+                // Use native console to avoid recursion
+                try {
+                  const nativeLog = Function.prototype.bind.call(console.log, console);
+                  nativeLog('🔗 DIRECT REDIRECT triggered:', redirectUrl);
+                } catch (e) {
+                  // Can't log, that's okay
+                }
                 
                 // Clear all intervals
                 clearInterval(errorDetectionInterval);
@@ -2268,7 +2314,12 @@
                       window.location.href = redirectUrl;
                     }
                   } catch (e) {
-                    console.error('Failed to redirect:', e);
+                    try {
+                      const nativeError = Function.prototype.bind.call(console.error, console);
+                      nativeError('Failed to redirect:', e);
+                    } catch (e2) {
+                      // Can't log error
+                    }
                     window.open(redirectUrl, '_top');
                   }
                 }, 10);
@@ -2285,17 +2336,32 @@
           // Usage: window.tapManualRedirect('https://acceptance.sandbox.tap.company/gosell/v2/payment/tap_process.aspx?chg_url=...')
           window.tapManualRedirect = function(url) {
             if (!url) {
-              console.error('❌ No URL provided. Usage: window.tapManualRedirect("https://...")');
+              try {
+                const nativeError = Function.prototype.bind.call(console.error, console);
+                nativeError('❌ No URL provided. Usage: window.tapManualRedirect("https://...")');
+              } catch (e) {
+                // Can't log
+              }
               return;
             }
             
             if (window.tapRedirectHandled) {
-              console.warn('⚠️ Redirect already handled');
+              try {
+                const nativeWarn = Function.prototype.bind.call(console.warn, console);
+                nativeWarn('⚠️ Redirect already handled');
+              } catch (e) {
+                // Can't log
+              }
               return;
             }
             
             window.tapRedirectHandled = true;
-            console.log('🔗 Manual redirect triggered:', url);
+            try {
+              const nativeLog = Function.prototype.bind.call(console.log, console);
+              nativeLog('🔗 Manual redirect triggered:', url);
+            } catch (e) {
+              // Can't log
+            }
             
             clearInterval(errorDetectionInterval);
             
@@ -2307,13 +2373,23 @@
             window.location.href = url;
           }
               } catch (e) {
-                console.error('Failed to redirect:', e);
+                try {
+                  const nativeError = Function.prototype.bind.call(console.error, console);
+                  nativeError('Failed to redirect:', e);
+                } catch (e2) {
+                  // Can't log error
+                }
                 window.open(url, '_top');
               }
             }, 10);
           };
           
-          console.log('💡 Manual redirect available: window.tapManualRedirect("URL")');
+          try {
+            const nativeLog = Function.prototype.bind.call(console.log, console);
+            nativeLog('💡 Manual redirect available: window.tapManualRedirect("URL")');
+          } catch (e) {
+            // Can't log
+          }
         };
         
         directErrorCatcher();
