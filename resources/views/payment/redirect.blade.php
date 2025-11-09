@@ -156,9 +156,16 @@
       console.log('✅ Sending success response to GHL:', successEvent);
       sendMessageToGHL(successEvent);
       
+      // Only redirect on success - close popup if opened as popup, otherwise stay on page
+      if (window.opener && window.opener !== window) {
+        // This was opened as a popup, close it after sending message
+        setTimeout(() => {
+          window.close();
+        }, 500);
+      }
     }
 
-    // Send error response to GoHighLevel
+    // Send error response to GoHighLevel - NO REDIRECT
     function sendErrorToGHL(errorMessage) {
       const errorEvent = {
         type: 'custom_element_error_response',
@@ -169,9 +176,17 @@
       
       console.log('❌ Sending error response to GHL:', errorEvent);
       sendMessageToGHL(errorEvent);
+      
+      // DO NOT REDIRECT on error - close popup if opened as popup, otherwise stay on page
+      if (window.opener && window.opener !== window) {
+        // This was opened as a popup, close it after sending message
+        setTimeout(() => {
+          window.close();
+        }, 500);
+      }
     }
 
-    // Send close response to GoHighLevel (for canceled payments)
+    // Send close response to GoHighLevel (for canceled payments) - NO REDIRECT
     function sendCloseToGHL() {
       const closeEvent = {
         type: 'custom_element_close_response'
@@ -179,6 +194,14 @@
       
       console.log('🚪 Sending close response to GHL (payment canceled):', closeEvent);
       sendMessageToGHL(closeEvent);
+      
+      // DO NOT REDIRECT on cancel - close popup if opened as popup, otherwise stay on page
+      if (window.opener && window.opener !== window) {
+        // This was opened as a popup, close it after sending message
+        setTimeout(() => {
+          window.close();
+        }, 500);
+      }
     }
 
     // Process payment status
