@@ -42,7 +42,10 @@
         console.log('🔍 Fetching charge status for tap_id:', tapId);
         
         const urlParams = new URLSearchParams(window.location.search);
-        const locationId = urlParams.get('locationId') || 'xAN9Y8iZDOugbNvKBKad';
+        const locationId = urlParams.get('locationId');
+        if (!locationId) {
+          throw new Error('Location ID is required');
+        }
         
         const response = await fetch(`/charge/status?tap_id=${encodeURIComponent(tapId)}&locationId=${encodeURIComponent(locationId)}`, {
           method: 'GET',
@@ -74,21 +77,30 @@
     function sendMessageToGHL(message) {
       try {
         console.log('📤 Sending message to GHL:', message);
+        console.log('🔍 Window context:', {
+          hasOpener: !!(window.opener && window.opener !== window),
+          hasParent: !!(window.parent && window.parent !== window),
+          hasTop: !!(window.top && window.top !== window && window.top !== window.parent),
+          isPopup: !!(window.opener && window.opener !== window)
+        });
         
         let messageSent = false;
         
-        // Try postMessage for popup scenarios (Safari workaround)
+        // PRIORITY 1: Try postMessage for popup scenarios (Safari workaround)
+        // This is the primary method when opened in a popup window
         if (window.opener && window.opener !== window) {
           try {
             window.opener.postMessage(JSON.stringify(message), '*');
             messageSent = true;
             console.log('✅ Message sent via window.opener.postMessage (popup)');
+            // If we successfully sent via opener, we're done (don't try other methods)
+            return;
           } catch (error) {
             console.warn('⚠️ Could not send message via window.opener:', error.message);
           }
         }
         
-        // Try postMessage for iframe scenarios
+        // PRIORITY 2: Try postMessage for iframe scenarios
         if (window.parent && window.parent !== window) {
           try {
             window.parent.postMessage(JSON.stringify(message), '*');
@@ -109,8 +121,8 @@
           }
         }
         
-        // Fallback: Use localStorage for cross-tab communication (Safari new tab scenario)
-        // This works when the page is opened in a new tab instead of an iframe
+        // PRIORITY 3: Fallback: Use localStorage for cross-tab communication (Safari new tab scenario)
+        // This works when the page is opened in a new tab instead of an iframe or popup
         if (!messageSent || window.parent === window) {
           try {
             const storageKey = 'ghl_payment_message_' + Date.now();
@@ -156,16 +168,9 @@
       console.log('✅ Sending success response to GHL:', successEvent);
       sendMessageToGHL(successEvent);
       
-      // Only redirect on success - close popup if opened as popup, otherwise stay on page
-      if (window.opener && window.opener !== window) {
-        // This was opened as a popup, close it after sending message
-        setTimeout(() => {
-          window.close();
-        }, 500);
-      }
     }
 
-    // Send error response to GoHighLevel - NO REDIRECT
+    // Send error response to GoHighLevel
     function sendErrorToGHL(errorMessage) {
       const errorEvent = {
         type: 'custom_element_error_response',
@@ -176,17 +181,9 @@
       
       console.log('❌ Sending error response to GHL:', errorEvent);
       sendMessageToGHL(errorEvent);
-      
-      // DO NOT REDIRECT on error - close popup if opened as popup, otherwise stay on page
-      if (window.opener && window.opener !== window) {
-        // This was opened as a popup, close it after sending message
-        setTimeout(() => {
-          window.close();
-        }, 500);
-      }
     }
 
-    // Send close response to GoHighLevel (for canceled payments) - NO REDIRECT
+    // Send close response to GoHighLevel (for canceled payments)
     function sendCloseToGHL() {
       const closeEvent = {
         type: 'custom_element_close_response'
@@ -194,14 +191,6 @@
       
       console.log('🚪 Sending close response to GHL (payment canceled):', closeEvent);
       sendMessageToGHL(closeEvent);
-      
-      // DO NOT REDIRECT on cancel - close popup if opened as popup, otherwise stay on page
-      if (window.opener && window.opener !== window) {
-        // This was opened as a popup, close it after sending message
-        setTimeout(() => {
-          window.close();
-        }, 500);
-      }
     }
 
     // Process payment status

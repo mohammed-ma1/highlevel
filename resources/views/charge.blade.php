@@ -1024,6 +1024,67 @@
       }
     });
 
+    // Listen for messages from popup window (Safari payment flow)
+    // This handles messages sent via window.opener.postMessage() from the redirect page
+    window.addEventListener('message', function(event) {
+      try {
+        // Skip if this is a GHL message (handled by other listeners)
+        let parsedData = event.data;
+        if (typeof event.data === 'string') {
+          try {
+            parsedData = JSON.parse(event.data);
+          } catch (e) {
+            return; // Not JSON, skip
+          }
+        }
+        
+        // Skip GHL messages - they're handled by other listeners
+        if (parsedData && typeof parsedData === 'object' && 
+            (parsedData.type === 'payment_initiate_props' || parsedData.type === 'setup_initiate_props')) {
+          return; // Let other handlers process GHL messages
+        }
+        
+        // Only process payment redirect messages (not GHL messages)
+        if (parsedData && typeof parsedData === 'object' && 
+            (parsedData.type === 'custom_element_success_response' || 
+             parsedData.type === 'custom_element_error_response' || 
+             parsedData.type === 'custom_element_close_response')) {
+          
+          // Check if this message is from our payment popup
+          // We verify by checking if we have an open popup
+          if (paymentPopup && !paymentPopup.closed) {
+            console.log('📥 Received message from payment popup:', parsedData.type);
+            
+            // Close the popup
+            try {
+              paymentPopup.close();
+              if (window.paymentPopupCheckInterval) {
+                clearInterval(window.paymentPopupCheckInterval);
+                window.paymentPopupCheckInterval = null;
+              }
+            } catch (e) {
+              console.warn('⚠️ Could not close popup:', e.message);
+            }
+            
+            // Process the message
+            if (parsedData.type === 'custom_element_success_response') {
+              console.log('✅ Payment successful from popup:', parsedData.chargeId);
+              sendSuccessResponse(parsedData.chargeId);
+            } else if (parsedData.type === 'custom_element_error_response') {
+              console.log('❌ Payment error from popup:', parsedData.error);
+              const errorMsg = parsedData.error?.description || 'Payment failed';
+              sendErrorResponse(errorMsg);
+            } else if (parsedData.type === 'custom_element_close_response') {
+              console.log('🚪 Payment canceled from popup');
+              sendCloseResponse();
+            }
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error processing popup message:', error);
+      }
+    });
+
     // Listen for messages from payment redirect page via localStorage (cross-tab communication for Safari)
     // This handles the case where the payment opens in a new tab instead of an iframe
     window.addEventListener('storage', function(event) {
@@ -1372,6 +1433,27 @@
         }
       } catch (error) {
         console.warn('⚠️ Could not send error response to parent:', error.message);
+      }
+    }
+
+    // Send close response to GoHighLevel
+    function sendCloseResponse() {
+      const closeEvent = {
+        type: 'custom_element_close_response'
+      };
+      
+      console.log('🚪 Sending close response to GHL:', closeEvent);
+      
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(JSON.stringify(closeEvent), '*');
+        }
+        
+        if (window.top && window.top !== window && window.top !== window.parent) {
+          window.top.postMessage(JSON.stringify(closeEvent), '*');
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not send close response to parent:', error.message);
       }
     }
 
@@ -1726,18 +1808,44 @@
       // Store URL for button click
       window.openPaymentUrl = url;
       
-      // Update button to open in parent window
+      // Update button to open in a proper popup window (not redirect parent)
       const proceedBtn = document.getElementById('proceed-payment-btn');
       if (proceedBtn) {
         proceedBtn.onclick = function() {
-          // Open in parent window (if in iframe) or top window
-          if (window.top && window.top !== window) {
-            window.top.location.href = url;
-          } else if (window.parent && window.parent !== window) {
-            window.parent.location.href = url;
-          } else {
-            window.location.href = url;
+          console.log('🔗 Opening payment URL in popup window for Safari');
+          
+          // Open payment URL in a popup window
+          // This preserves the iframe context so redirect can communicate back
+          const popupFeatures = 'width=800,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no';
+          paymentPopup = window.open(url, 'tap_payment', popupFeatures);
+          
+          if (!paymentPopup) {
+            console.error('❌ Popup blocked! Falling back to redirect.');
+            // Fallback: if popup is blocked, try redirect (but this will break communication)
+            if (window.top && window.top !== window) {
+              window.top.location.href = url;
+            } else if (window.parent && window.parent !== window) {
+              window.parent.location.href = url;
+            } else {
+              window.location.href = url;
+            }
+            return;
           }
+          
+          console.log('✅ Payment popup opened successfully');
+          
+          // Monitor popup for closure (user might close it manually)
+          const checkClosed = setInterval(() => {
+            if (paymentPopup.closed) {
+              clearInterval(checkClosed);
+              console.log('🚪 Payment popup was closed by user');
+              // Optionally send close message to GHL
+              sendCloseResponse();
+            }
+          }, 1000);
+          
+          // Store interval for cleanup
+          window.paymentPopupCheckInterval = checkClosed;
         };
       }
     }
