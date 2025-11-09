@@ -471,6 +471,39 @@
                     }
                 }
                 
+                // Check if we're in success state and dispatch custom_provider_ready event
+                @if (session('success'))
+                    // Dispatch custom_provider_ready event to notify HighLevel that integration is ready
+                    function dispatchProviderReadyEvent() {
+                        const readyEvent = {
+                            type: 'custom_provider_ready',
+                            loaded: true,
+                            addCardOnFileSupported: true
+                        };
+                        
+                        console.log('📤 Sending custom_provider_ready event to HighLevel:', readyEvent);
+                        
+                        try {
+                            // Try to send to parent window (HighLevel iframe)
+                            if (window.parent && window.parent !== window) {
+                                window.parent.postMessage(readyEvent, '*');
+                                console.log('✅ Sent ready event to parent window');
+                            }
+                            
+                            // Also try to send to top window if different from parent
+                            if (window.top && window.top !== window && window.top !== window.parent) {
+                                window.top.postMessage(readyEvent, '*');
+                                console.log('✅ Sent ready event to top window');
+                            }
+                        } catch (error) {
+                            console.warn('⚠️ Could not send ready event to parent:', error.message);
+                        }
+                    }
+                    
+                    // Dispatch the event after a short delay to ensure the page is fully loaded
+                    setTimeout(dispatchProviderReadyEvent, 500);
+                @endif
+                
                 // Add form validation (only if form is visible, not in success state)
                 const form = document.getElementById('paymentForm');
                 const connectBtn = form.querySelector('button[value="connect"]');

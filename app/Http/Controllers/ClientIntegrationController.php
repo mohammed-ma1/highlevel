@@ -409,8 +409,10 @@ class ClientIntegrationController extends Controller
             $request->validate([
                 'live_apiKey'          => ['required_without:test_apiKey', 'string'],
                 'live_publishableKey'  => ['required_without:test_publishableKey', 'string'],
+                'live_secretKey'       => ['nullable', 'string'],
                 'test_apiKey'          => ['required_without:live_apiKey', 'string'],
                 'test_publishableKey'  => ['required_without:live_publishableKey', 'string'],
+                'test_secretKey'       => ['nullable', 'string'],
             ]);
 
             // Save API keys to user
@@ -420,11 +422,17 @@ class ClientIntegrationController extends Controller
             if ($request->has('live_publishableKey')) {
                 $user->lead_live_publishable_key = $request->input('live_publishableKey');
             }
+            if ($request->has('live_secretKey')) {
+                $user->lead_live_secret_key = $request->input('live_secretKey');
+            }
             if ($request->has('test_apiKey')) {
                 $user->lead_test_api_key = $request->input('test_apiKey');
             }
             if ($request->has('test_publishableKey')) {
                 $user->lead_test_publishable_key = $request->input('test_publishableKey');
+            }
+            if ($request->has('test_secretKey')) {
+                $user->lead_test_secret_key = $request->input('test_secretKey');
             }
             $user->save();
         }
