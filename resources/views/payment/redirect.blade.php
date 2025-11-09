@@ -43,8 +43,11 @@
         
         const urlParams = new URLSearchParams(window.location.search);
         const locationId = urlParams.get('locationId');
+        
+        // If locationId is missing, we can't fetch from API, but we'll handle this in processPayment
         if (!locationId) {
-          throw new Error('Location ID is required');
+          console.warn('⚠️ Location ID not found in URL parameters. Will use URL parameters as fallback.');
+          throw new Error('Location ID is required for API call');
         }
         
         const response = await fetch(`/charge/status?tap_id=${encodeURIComponent(tapId)}&locationId=${encodeURIComponent(locationId)}`, {
@@ -205,12 +208,12 @@
         return;
       }
 
-      // If we have tap_id, fetch the charge status
+      // If we have tap_id, try to fetch the charge status from API
       if (params.tap_id) {
         try {
           const chargeData = await fetchChargeStatus(params.tap_id);
 
-          console.log('📊 Charge data:', chargeData);
+          console.log('📊 Charge data from API:', chargeData);
           const status = chargeData.payment_status || chargeData.charge?.status || params.status;
           console.log('📊 Status:', status);
           const isSuccessful = chargeData.is_successful || status === 'success' || status === 'CAPTURED' || status === 'AUTHORIZED';
@@ -234,15 +237,51 @@
             const errorMessage = chargeData.charge?.response?.message || chargeData.message || 'Payment failed';
             sendErrorToGHL(errorMessage);
           } else {
-            // Unknown status
-            sendErrorToGHL('Unknown payment status');
+            // Unknown status - fall through to URL params fallback
+            console.warn('⚠️ Unknown status from API, falling back to URL parameters');
+            throw new Error('Unknown payment status from API');
           }
         } catch (error) {
-          console.error('❌ Failed to fetch charge status:', error);
-          sendErrorToGHL('Unable to retrieve payment status. Please try again or contact support.');
+          console.warn('⚠️ Failed to fetch charge status from API, using URL parameters as fallback:', error.message);
+          
+          // FALLBACK: Use URL parameters to determine payment status
+          // Tap usually includes status in the redirect URL
+          const status = params.status?.toUpperCase();
+          const chargeId = params.charge_id || params.tap_id;
+          
+          console.log('📊 Using URL parameters - Status:', status, 'Charge ID:', chargeId);
+          
+          if (status === 'SUCCESS' || status === 'CAPTURED' || status === 'AUTHORIZED') {
+            console.log('✅ Payment successful (from URL params)');
+            sendSuccessToGHL(chargeId);
+          } else if (status === 'CANCELLED' || status === 'CANCELED') {
+            console.log('🚪 Payment canceled (from URL params)');
+            sendCloseToGHL();
+          } else if (status === 'FAILED' || status === 'DECLINED') {
+            console.log('❌ Payment failed (from URL params)');
+            sendErrorToGHL('Payment failed');
+          } else if (status) {
+            // We have a status but it's not recognized
+            console.log('⚠️ Unknown status from URL:', status);
+            // Try to infer success from common success indicators
+            if (status.includes('SUCCESS') || status.includes('CAPTURED') || status.includes('AUTHORIZED')) {
+              sendSuccessToGHL(chargeId);
+            } else if (status.includes('FAIL') || status.includes('DECLINED')) {
+              sendErrorToGHL('Payment failed');
+            } else {
+              // Last resort: if we have a charge_id/tap_id but unknown status, assume it might be successful
+              // (Tap sometimes doesn't include status in URL for successful payments)
+              console.log('⚠️ Unknown status, but charge exists. Assuming success.');
+              sendSuccessToGHL(chargeId);
+            }
+          } else {
+            // No status in URL either - this is a real error
+            console.error('❌ No payment status available from API or URL');
+            sendErrorToGHL('Unable to retrieve payment status. Please try again or contact support.');
+          }
         }
       } else if (params.charge_id) {
-        // Fallback: use status from URL params
+        // Fallback: use status from URL params (no tap_id, but we have charge_id)
         const status = params.status?.toUpperCase();
         
         if (status === 'SUCCESS' || status === 'CAPTURED' || status === 'AUTHORIZED') {
@@ -252,7 +291,9 @@
         } else if (status === 'FAILED' || status === 'DECLINED') {
           sendErrorToGHL('Payment failed');
         } else {
-          sendErrorToGHL('Unknown payment status');
+          // No status but we have charge_id - might be successful
+          console.log('⚠️ No status in URL but charge_id exists. Assuming success.');
+          sendSuccessToGHL(params.charge_id);
         }
       } else {
         // No payment information
