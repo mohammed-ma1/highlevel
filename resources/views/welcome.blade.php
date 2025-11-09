@@ -369,29 +369,18 @@
                                 
                                 <div class="form-grid">
                                     <div class="form-group">
-                                        <label class="form-label">Live API Key</label>
+                                        <label class="form-label">Test - Secret</label>
                                         <input 
-                                            name="live_apiKey" 
-                                            type="text" 
-                                            value="{{ old('live_apiKey') }}" 
-                                            placeholder="live_xxx" 
+                                            name="test_secretKey" 
+                                            type="password" 
+                                            value="{{ old('test_secretKey') }}" 
+                                            placeholder="sk_test_xxx" 
                                             class="form-input"
                                         />
                                     </div>
                                     
                                     <div class="form-group">
-                                        <label class="form-label">Live Publishable Key</label>
-                                        <input 
-                                            name="live_publishableKey" 
-                                            type="text" 
-                                            value="{{ old('live_publishableKey') }}" 
-                                            placeholder="pk_live_xxx" 
-                                            class="form-input"
-                                        />
-                                    </div>
-                                    
-                                    <div class="form-group">
-                                        <label class="form-label">Live Secret Key</label>
+                                        <label class="form-label">Prod - Secret</label>
                                         <input 
                                             name="live_secretKey" 
                                             type="password" 
@@ -402,18 +391,7 @@
                                     </div>
                                     
                                     <div class="form-group">
-                                        <label class="form-label">Test API Key</label>
-                                        <input 
-                                            name="test_apiKey" 
-                                            type="text" 
-                                            value="{{ old('test_apiKey') }}" 
-                                            placeholder="test_xxx" 
-                                            class="form-input"
-                                        />
-                                    </div>
-                                    
-                                    <div class="form-group">
-                                        <label class="form-label">Test Publishable Key</label>
+                                        <label class="form-label">Test - Public</label>
                                         <input 
                                             name="test_publishableKey" 
                                             type="text" 
@@ -424,12 +402,34 @@
                                     </div>
                                     
                                     <div class="form-group">
-                                        <label class="form-label">Test Secret Key</label>
+                                        <label class="form-label">Prod - Public Key</label>
                                         <input 
-                                            name="test_secretKey" 
-                                            type="password" 
-                                            value="{{ old('test_secretKey') }}" 
-                                            placeholder="sk_test_xxx" 
+                                            name="live_publishableKey" 
+                                            type="text" 
+                                            value="{{ old('live_publishableKey') }}" 
+                                            placeholder="pk_live_xxx" 
+                                            class="form-input"
+                                        />
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label class="form-label">Test - API Key</label>
+                                        <input 
+                                            name="test_apiKey" 
+                                            type="text" 
+                                            value="{{ old('test_apiKey') }}" 
+                                            placeholder="test_xxx" 
+                                            class="form-input"
+                                        />
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label class="form-label">Prod - API Key</label>
+                                        <input 
+                                            name="live_apiKey" 
+                                            type="text" 
+                                            value="{{ old('live_apiKey') }}" 
+                                            placeholder="live_xxx" 
                                             class="form-input"
                                         />
                                     </div>
