@@ -715,40 +715,47 @@ class ClientIntegrationController extends Controller
             
             $data = $request->all();
             
-            // Get locationId from request to find user
-            $locationId = $data['locationId'] ?? null;
+            // Get merchant_id from request (required) - can be from merchant_id field or merchant.id
+            $merchantId = $data['merchant_id'] ?? ($data['merchant']['id'] ?? null);
+            $user = null;
             
-            if (!$locationId) {
+            if ($merchantId) {
+                // Find user by merchant_id
+                $user = User::where('tap_merchant_id', $merchantId)->first();
+            }
+            
+            // If merchant_id not provided or user not found, try to get from locationId
+            if (!$user && isset($data['locationId'])) {
+                $locationId = $data['locationId'];
+                $user = User::where('lead_location_id', $locationId)->first();
+                
+                if ($user && $user->tap_merchant_id) {
+                    $merchantId = $user->tap_merchant_id;
+                }
+            }
+            
+            // Validate that we have merchant_id
+            if (!$merchantId) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'locationId is required'
+                    'message' => 'merchant_id is required. Please provide merchant_id or locationId.'
                 ], 400)->header('Access-Control-Allow-Origin', '*')
                   ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             }
             
-            $user = User::where('lead_location_id', $locationId)->first();
-            
+            // Validate that we found a user
             if (!$user) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'User not found for locationId: ' . $locationId
+                    'message' => 'User not found for merchant_id: ' . $merchantId
                 ], 404)->header('Access-Control-Allow-Origin', '*')
                   ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             }
-
-            // Get merchant ID from database
-            $merchantId = $user->tap_merchant_id;
             
-            if (!$merchantId) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Merchant ID not configured for this location'
-                ], 500)->header('Access-Control-Allow-Origin', '*')
-                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-            }
+            // Get locationId from user for redirect URL (optional, can be from request or user)
+            $locationId = $data['locationId'] ?? $user->lead_location_id;
 
             // Use the secret key based on the user's stored tap_mode
             $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
@@ -756,8 +763,8 @@ class ClientIntegrationController extends Controller
 
             // Log the secret key
             Log::info('Using secret key for createTapCharge', [
-                'locationId' => $locationId,
                 'merchantId' => $merchantId,
+                'locationId' => $locationId,
                 'tap_mode' => $user->tap_mode,
                 'is_live' => $isLive,
                 'secretKey' => $secretKey,
@@ -813,6 +820,7 @@ class ClientIntegrationController extends Controller
             Log::info('JSON body being sent', ['jsonBody' => $jsonBody]);
             
             Log::info('API key debug for charge creation', [
+                'merchantId' => $merchantId,
                 'locationId' => $locationId,
                 'user_tap_mode' => $user->tap_mode,
                 'secret_key_prefix' => substr($secretKey, 0, 15) . '...',
