@@ -1584,6 +1584,30 @@
 
         console.log('🚀 Creating charge with data:', chargeData);
 
+        // First, get merchant_id from locationId
+        console.log('🔍 Getting merchant_id from locationId...');
+        const merchantResponse = await fetch(`/api/merchant-id?locationId=${encodeURIComponent(paymentData.locationId)}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+          }
+        });
+
+        let merchantId;
+        if (merchantResponse.ok) {
+          const merchantData = await merchantResponse.json();
+          if (merchantData.success && merchantData.merchant_id) {
+            merchantId = merchantData.merchant_id;
+            console.log('✅ Got merchant_id:', merchantId);
+          } else {
+            throw new Error('Failed to get merchant_id: ' + (merchantData.message || 'Unknown error'));
+          }
+        } else {
+          const errorData = await merchantResponse.json().catch(() => ({ message: 'Failed to get merchant_id' }));
+          throw new Error('Failed to get merchant_id: ' + (errorData.message || 'Unknown error'));
+        }
+
         // Call Tap Payments API directly
         console.log('🚀 Calling Laravel API to create Tap charge...');
         
@@ -1594,7 +1618,9 @@
             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
           },
           body: JSON.stringify({
-            locationId: paymentData.locationId, // Backend will look up merchant_id from this and add merchant object
+            merchant: {
+              id: merchantId // Send merchant.id instead of locationId
+            },
             amount: paymentData.amount,
             currency: paymentData.currency,
             customer_initiated: true,
