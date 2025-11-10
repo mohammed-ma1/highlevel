@@ -1584,6 +1584,30 @@
 
         console.log('🚀 Creating charge with data:', chargeData);
 
+        // First, get merchant_id from locationId
+        console.log('🔍 Getting merchant_id from locationId...');
+        const merchantResponse = await fetch(`/api/merchant-id?locationId=${encodeURIComponent(paymentData.locationId)}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+          }
+        });
+
+        let merchantId;
+        if (merchantResponse.ok) {
+          const merchantData = await merchantResponse.json();
+          if (merchantData.success && merchantData.merchant_id) {
+            merchantId = merchantData.merchant_id;
+            console.log('✅ Got merchant_id:', merchantId);
+          } else {
+            throw new Error('Failed to get merchant_id: ' + (merchantData.message || 'Unknown error'));
+          }
+        } else {
+          const errorData = await merchantResponse.json().catch(() => ({ message: 'Failed to get merchant_id' }));
+          throw new Error('Failed to get merchant_id: ' + (errorData.message || 'Unknown error'));
+        }
+
         // Call Tap Payments API directly
         console.log('🚀 Calling Laravel API to create Tap charge...');
         
@@ -1594,9 +1618,10 @@
             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
           },
           body: JSON.stringify({
-            // Don't send merchant_id if we don't have it - let backend look it up from locationId
-            // merchant_id: paymentData.merchantId, // Only send if we actually have merchantId
-            locationId: paymentData.locationId, // Backend will use this to find merchant_id from database
+            merchant_id: merchantId, // Send merchant_id (required)
+            merchant: {
+              id: merchantId // Also include in merchant object
+            },
             amount: paymentData.amount,
             currency: paymentData.currency,
             customer_initiated: true,

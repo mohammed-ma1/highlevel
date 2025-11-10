@@ -642,6 +642,52 @@ class ClientIntegrationController extends Controller
         }
 
         /**
+         * Get merchant_id from locationId
+         */
+        public function getMerchantId(Request $request)
+        {
+            try {
+                $locationId = $request->input('locationId');
+                
+                if (!$locationId) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'locationId is required'
+                    ], 400);
+                }
+                
+                $user = User::where('lead_location_id', $locationId)->first();
+                
+                if (!$user) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'User not found for locationId: ' . $locationId
+                    ], 404);
+                }
+                
+                if (!$user->tap_merchant_id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Merchant ID not configured for this location'
+                    ], 404);
+                }
+                
+                return response()->json([
+                    'success' => true,
+                    'merchant_id' => $user->tap_merchant_id,
+                    'locationId' => $locationId
+                ]);
+                
+            } catch (\Exception $e) {
+                Log::error('Get merchant_id failed', ['error' => $e->getMessage()]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to get merchant_id'
+                ], 500);
+            }
+        }
+
+        /**
          * Create a charge using src_all (all payment methods)
          * This replaces the Card SDK approach with a hosted payment page
          */
@@ -717,32 +763,19 @@ class ClientIntegrationController extends Controller
             
             // Get merchant_id from request (required) - can be from merchant_id field or merchant.id
             $merchantId = $data['merchant_id'] ?? ($data['merchant']['id'] ?? null);
-            $user = null;
             
-            if ($merchantId) {
-                // Find user by merchant_id
-                $user = User::where('tap_merchant_id', $merchantId)->first();
-            }
-            
-            // If merchant_id not provided or user not found, try to get from locationId
-            if (!$user && isset($data['locationId'])) {
-                $locationId = $data['locationId'];
-                $user = User::where('lead_location_id', $locationId)->first();
-                
-                if ($user && $user->tap_merchant_id) {
-                    $merchantId = $user->tap_merchant_id;
-                }
-            }
-            
-            // Validate that we have merchant_id
+            // Validate that merchant_id is provided
             if (!$merchantId) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'merchant_id is required. Please provide merchant_id or locationId.'
+                    'message' => 'merchant_id is required. Please provide merchant_id in the request.'
                 ], 400)->header('Access-Control-Allow-Origin', '*')
                   ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             }
+            
+            // Find user by merchant_id
+            $user = User::where('tap_merchant_id', $merchantId)->first();
             
             // Validate that we found a user
             if (!$user) {

@@ -9,6 +9,7 @@ Route::get('/test', function () {
     return response()->json(['message' => 'API routes are working!']);
 });
 
+Route::get('/merchant-id', [ClientIntegrationController::class, 'getMerchantId']);
 Route::post('/charge/create-tap', [ClientIntegrationController::class, 'createTapCharge'])
     ->name('api.charge.create.tap');
 
