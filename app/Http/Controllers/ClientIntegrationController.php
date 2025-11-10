@@ -409,6 +409,7 @@ class ClientIntegrationController extends Controller
             $request->validate([
                 'merchant_id'          => ['required', 'string'],
                 'apiKey'               => ['required', 'string'],
+                'tap_mode'             => ['required', 'in:test,live'],
                 'live_publishableKey'  => ['required_without:test_publishableKey', 'string'],
                 'live_secretKey'       => ['nullable', 'string'],
                 'test_publishableKey'  => ['required_without:live_publishableKey', 'string'],
@@ -417,6 +418,9 @@ class ClientIntegrationController extends Controller
 
             // Save merchant ID
             $user->tap_merchant_id = $request->input('merchant_id');
+            
+            // Save tap mode (test or live)
+            $user->tap_mode = $request->input('tap_mode', 'test');
             
             // Save API key (use same for both test and live)
             $apiKey = $request->input('apiKey');

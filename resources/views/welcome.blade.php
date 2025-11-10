@@ -362,6 +362,23 @@
                                 </div>
                             </div>
 
+                            {{-- Mode Selector --}}
+                            <div class="section">
+                                <h2 class="section-title">Payment Mode</h2>
+                                <p class="help-text">Select whether you want to use Live or Test mode for payments.</p>
+                                
+                                <div class="mode-selector">
+                                    <div class="mode-option">
+                                        <input type="radio" id="mode_test" name="tap_mode" value="test" {{ old('tap_mode', 'test') === 'test' ? 'checked' : '' }}>
+                                        <label for="mode_test">🧪 Test Mode</label>
+                                    </div>
+                                    <div class="mode-option">
+                                        <input type="radio" id="mode_live" name="tap_mode" value="live" {{ old('tap_mode') === 'live' ? 'checked' : '' }}>
+                                        <label for="mode_live">🚀 Live Mode</label>
+                                    </div>
+                                </div>
+                            </div>
+
                             {{-- API Keys Section --}}
                             <div class="section">
                                 <h2 class="section-title">API Configuration</h2>
