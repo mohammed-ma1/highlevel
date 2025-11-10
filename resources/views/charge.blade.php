@@ -1595,6 +1595,9 @@
           },
           body: JSON.stringify({
             locationId: paymentData.locationId, // Backend will look up merchant_id from this
+            merchant: {
+              id: '' // Backend will override this with merchant_id from database
+            },
             amount: paymentData.amount,
             currency: paymentData.currency,
             customer_initiated: true,
