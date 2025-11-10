@@ -407,29 +407,33 @@ class ClientIntegrationController extends Controller
         // 4) Validate inputs if action=connect
         if ($action === 'connect') {
             $request->validate([
-                'live_apiKey'          => ['required_without:test_apiKey', 'string'],
+                'merchant_id'          => ['required', 'string'],
+                'apiKey'               => ['required', 'string'],
                 'live_publishableKey'  => ['required_without:test_publishableKey', 'string'],
                 'live_secretKey'       => ['nullable', 'string'],
-                'test_apiKey'          => ['required_without:live_apiKey', 'string'],
                 'test_publishableKey'  => ['required_without:live_publishableKey', 'string'],
                 'test_secretKey'       => ['nullable', 'string'],
             ]);
 
-            // Save API keys to user
-            if ($request->has('live_apiKey')) {
-                $user->lead_live_api_key = $request->input('live_apiKey');
-            }
+            // Save merchant ID
+            $user->tap_merchant_id = $request->input('merchant_id');
+            
+            // Save API key (use same for both test and live)
+            $apiKey = $request->input('apiKey');
+            $user->lead_live_api_key = $apiKey;
+            $user->lead_test_api_key = $apiKey;
+            
+            // Save publishable keys
             if ($request->has('live_publishableKey')) {
                 $user->lead_live_publishable_key = $request->input('live_publishableKey');
             }
-            if ($request->has('live_secretKey')) {
-                $user->lead_live_secret_key = $request->input('live_secretKey');
-            }
-            if ($request->has('test_apiKey')) {
-                $user->lead_test_api_key = $request->input('test_apiKey');
-            }
             if ($request->has('test_publishableKey')) {
                 $user->lead_test_publishable_key = $request->input('test_publishableKey');
+            }
+            
+            // Save secret keys
+            if ($request->has('live_secretKey')) {
+                $user->lead_live_secret_key = $request->input('live_secretKey');
             }
             if ($request->has('test_secretKey')) {
                 $user->lead_test_secret_key = $request->input('test_secretKey');
@@ -452,11 +456,11 @@ class ClientIntegrationController extends Controller
                 'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
 
                 'live' => [
-                    'apiKey'         => $request->input('live_apiKey'),
+                    'apiKey'         => $request->input('apiKey'),
                     'publishableKey' => $request->input('live_publishableKey'),
                 ],
                 'test' => [
-                    'apiKey'         => $request->input('test_apiKey'),
+                    'apiKey'         => $request->input('apiKey'),
                     'publishableKey' => $request->input('test_publishableKey'),
                 ],
             ];
@@ -711,6 +715,65 @@ class ClientIntegrationController extends Controller
             
             $data = $request->all();
             
+            // Get locationId from request to find user
+            $locationId = $data['locationId'] ?? null;
+            
+            if (!$locationId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'locationId is required'
+                ], 400)->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+            }
+            
+            $user = User::where('lead_location_id', $locationId)->first();
+            
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not found for locationId: ' . $locationId
+                ], 404)->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+            }
+
+            // Get merchant ID from database
+            $merchantId = $user->tap_merchant_id;
+            
+            if (!$merchantId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Merchant ID not configured for this location'
+                ], 500)->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+            }
+
+            // Use the secret key based on the user's stored tap_mode
+            $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
+            $isLive = $user->tap_mode === 'live';
+
+            // Log the secret key
+            Log::info('Using secret key for createTapCharge', [
+                'locationId' => $locationId,
+                'merchantId' => $merchantId,
+                'tap_mode' => $user->tap_mode,
+                'is_live' => $isLive,
+                'secretKey' => $secretKey,
+                'secret_key_prefix' => substr($secretKey, 0, 15) . '...',
+                'secret_key_length' => strlen($secretKey)
+            ]);
+
+            if (!$secretKey) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Secret key not configured for ' . $user->tap_mode . ' mode'
+                ], 500)->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+            }
+            
             // Prepare the Tap API request using exact format from documentation
             $tapData = [
                 'amount' => $data['amount'] ?? 1,
@@ -729,43 +792,17 @@ class ClientIntegrationController extends Controller
                     'email' => 'test@test.com',
                     'phone' => ['country_code' => 965, 'number' => 51234567]
                 ],
-                'merchant' => $data['merchant'] ?? ['id' => '61000786'],
+                'merchant' => ['id' => $merchantId], // Use merchant_id from database
                 'source' => $data['source'] ?? ['id' => 'src_all'], // Use src_all for all payment methods
                 'post' => $data['post'] ?? ['url' => config('app.url') . '/charge/webhook'],
                 'redirect' => $data['redirect'] ?? ['url' => config('app.url') . '/payment/redirect']
             ];
-
-            // Get user and API keys based on locationId
-            $locationId = $data['merchant']['id'] ?? null;
             
             // Add locationId to redirect URL so it's available when Tap redirects back
             if ($locationId && isset($tapData['redirect']['url'])) {
                 $redirectUrl = $tapData['redirect']['url'];
                 $separator = strpos($redirectUrl, '?') !== false ? '&' : '?';
                 $tapData['redirect']['url'] = $redirectUrl . $separator . 'locationId=' . urlencode($locationId);
-            }
-            $user = User::where('lead_location_id', $locationId)->first();
-            
-            if (!$user) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'User not found for locationId: ' . $locationId
-                ], 404)->header('Access-Control-Allow-Origin', '*')
-                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-            }
-
-            // Use the secret key based on the user's stored tap_mode
-            $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
-            $isLive = $user->tap_mode === 'live';
-
-            if (!$secretKey) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Secret key not configured for ' . $user->tap_mode . ' mode'
-                ], 500)->header('Access-Control-Allow-Origin', '*')
-                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             }
 
             // Call Tap Payments API using exact format from documentation

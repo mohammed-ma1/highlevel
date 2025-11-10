@@ -413,12 +413,12 @@
                                     </div>
                                     
                                     <div class="form-group">
-                                        <label class="form-label">Test - API Key</label>
+                                        <label class="form-label">Merchant ID</label>
                                         <input 
-                                            name="test_apiKey" 
+                                            name="merchant_id" 
                                             type="text" 
-                                            value="{{ old('test_apiKey') }}" 
-                                            placeholder="test_xxx" 
+                                            value="{{ old('merchant_id') }}" 
+                                            placeholder="Enter your Tap Merchant ID" 
                                             class="form-input"
                                         />
                                     </div>
@@ -426,10 +426,10 @@
                                     <div class="form-group">
                                         <label class="form-label">Prod - API Key</label>
                                         <input 
-                                            name="live_apiKey" 
+                                            name="apiKey" 
                                             type="text" 
-                                            value="{{ old('live_apiKey') }}" 
-                                            placeholder="live_xxx" 
+                                            value="{{ old('apiKey') }}" 
+                                            placeholder="live_xxx or test_xxx" 
                                             class="form-input"
                                         />
                                     </div>
@@ -515,20 +515,26 @@
                 
                 // Connect button validation
                 connectBtn.addEventListener('click', function(e) {
-                    const liveApiKey = form.querySelector('input[name="live_apiKey"]').value;
+                    const merchantId = form.querySelector('input[name="merchant_id"]').value;
+                    const apiKey = form.querySelector('input[name="apiKey"]').value;
                     const livePubKey = form.querySelector('input[name="live_publishableKey"]').value;
                     const liveSecretKey = form.querySelector('input[name="live_secretKey"]').value;
-                    const testApiKey = form.querySelector('input[name="test_apiKey"]').value;
                     const testPubKey = form.querySelector('input[name="test_publishableKey"]').value;
                     const testSecretKey = form.querySelector('input[name="test_secretKey"]').value;
                     
-                    // Require at least one set of keys (live or test)
-                    const hasLiveKeys = liveApiKey && livePubKey && liveSecretKey;
-                    const hasTestKeys = testApiKey && testPubKey && testSecretKey;
+                    // Require merchant ID and at least one set of keys (live or test)
+                    const hasLiveKeys = apiKey && livePubKey && liveSecretKey;
+                    const hasTestKeys = apiKey && testPubKey && testSecretKey;
+                    
+                    if (!merchantId) {
+                        e.preventDefault();
+                        alert('Please enter your Merchant ID.');
+                        return false;
+                    }
                     
                     if (!hasLiveKeys && !hasTestKeys) {
                         e.preventDefault();
-                        alert('Please enter at least one set of API keys (Live or Test).');
+                        alert('Please enter API Key and at least one set of publishable and secret keys (Live or Test).');
                         return false;
                     }
                 });
