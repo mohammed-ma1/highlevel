@@ -1594,10 +1594,7 @@
             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
           },
           body: JSON.stringify({
-            locationId: paymentData.locationId, // Backend will look up merchant_id from this
-            merchant: {
-              id: '' // Backend will override this with merchant_id from database
-            },
+            locationId: paymentData.locationId, // Backend will look up merchant_id from this and add merchant object
             amount: paymentData.amount,
             currency: paymentData.currency,
             customer_initiated: true,

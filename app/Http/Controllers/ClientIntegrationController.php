@@ -823,6 +823,7 @@ class ClientIntegrationController extends Controller
             }
             
             // Prepare the Tap API request using exact format from documentation
+            // Always use merchant_id from database, ignore any merchant.id from request
             $tapData = [
                 'amount' => $data['amount'] ?? 1,
                 'currency' => $data['currency'] ?? 'KWD',
@@ -840,11 +841,17 @@ class ClientIntegrationController extends Controller
                     'email' => 'test@test.com',
                     'phone' => ['country_code' => 965, 'number' => 51234567]
                 ],
-                'merchant' => ['id' => $merchantId], // Use merchant_id from database
+                'merchant' => ['id' => $merchantId], // Always use merchant_id from database (not from request)
                 'source' => $data['source'] ?? ['id' => 'src_all'], // Use src_all for all payment methods
                 'post' => $data['post'] ?? ['url' => config('app.url') . '/charge/webhook'],
                 'redirect' => $data['redirect'] ?? ['url' => config('app.url') . '/payment/redirect']
             ];
+            
+            // Log to verify merchant_id is correct
+            Log::info('Tap API request merchant_id', [
+                'merchant_id_from_db' => $merchantId,
+                'merchant_in_tapData' => $tapData['merchant']
+            ]);
             
             // Add locationId to redirect URL so it's available when Tap redirects back
             if ($locationId && isset($tapData['redirect']['url'])) {
