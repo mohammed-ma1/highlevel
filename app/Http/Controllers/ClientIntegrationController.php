@@ -747,6 +747,46 @@ class ClientIntegrationController extends Controller
             // Prepare the source object - use source.id format
             $source = ['id' => $sourceId ?? 'src_all'];
             
+            // Prepare customer object
+            // For KNET payments with KFAST: use customer ID format {"id": "cus_xxx"} instead of full details
+            // This enables KFAST (card saving) functionality on KNET page
+            // Reference: https://developers.tap.company/docs/kfast
+            $customer = null;
+            if ($isKnetPayment) {
+                // Check if customer ID is provided (either in customer.id or as separate customer_id field)
+                $customerId = null;
+                if (isset($data['customer']) && is_array($data['customer']) && isset($data['customer']['id'])) {
+                    $customerId = $data['customer']['id'];
+                } elseif (isset($data['customer_id'])) {
+                    $customerId = $data['customer_id'];
+                }
+                
+                if ($customerId) {
+                    // For KNET with KFAST: use simplified customer format with just ID
+                    $customer = ['id' => $customerId];
+                    Log::info('KFAST enabled for KNET payment', ['customer_id' => $customerId]);
+                } else {
+                    // If no customer ID provided, use full customer details (KFAST won't be available)
+                    $customer = $data['customer'] ?? [
+                        'first_name' => 'test',
+                        'middle_name' => 'test', 
+                        'last_name' => 'test',
+                        'email' => 'test@test.com',
+                        'phone' => ['country_code' => 965, 'number' => 51234567]
+                    ];
+                    Log::info('KNET payment without customer ID - KFAST not enabled');
+                }
+            } else {
+                // For non-KNET payments, use full customer details
+                $customer = $data['customer'] ?? [
+                    'first_name' => 'test',
+                    'middle_name' => 'test', 
+                    'last_name' => 'test',
+                    'email' => 'test@test.com',
+                    'phone' => ['country_code' => 965, 'number' => 51234567]
+                ];
+            }
+            
             // Prepare the Tap API request using exact format from documentation
             $tapData = [
                 'amount' => $data['amount'] ?? 1,
@@ -758,13 +798,7 @@ class ClientIntegrationController extends Controller
                 'metadata' => $data['metadata'] ?? ['udf1' => 'Metadata 1'],
                 'receipt' => $data['receipt'] ?? ['email' => false, 'sms' => false],
                 'reference' => $data['reference'] ?? ['transaction' => 'txn_01', 'order' => 'ord_01'],
-                'customer' => $data['customer'] ?? [
-                    'first_name' => 'test',
-                    'middle_name' => 'test', 
-                    'last_name' => 'test',
-                    'email' => 'test@test.com',
-                    'phone' => ['country_code' => 965, 'number' => 51234567]
-                ],
+                'customer' => $customer,
                 'merchant' => $data['merchant'] ?? ['id' => '1234'],
                 'source' => $source, // Use source.id format (token id or src_kw.knet for KNET)
                 'post' => $data['post'] ?? ['url' => config('app.url') . '/charge/webhook'],
@@ -773,10 +807,13 @@ class ClientIntegrationController extends Controller
             
             // Log Knet payment detection for debugging
             if ($isKnetPayment) {
+                $kfastEnabled = isset($customer['id']) && !isset($customer['first_name']);
                 Log::info('Knet payment detected', [
                     'source_id' => $sourceId,
                     'customer_initiated' => $customerInitiated,
-                    'threeDSecure' => $threeDSecure
+                    'threeDSecure' => $threeDSecure,
+                    'kfast_enabled' => $kfastEnabled,
+                    'customer_format' => $kfastEnabled ? 'id_only' : 'full_details'
                 ]);
             }
 
