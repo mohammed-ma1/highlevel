@@ -730,7 +730,7 @@ class ClientIntegrationController extends Controller
                     'phone' => ['country_code' => 965, 'number' => 51234567]
                 ],
                 'merchant' => $data['merchant'] ?? ['id' => '1234'],
-                'source' => $data['source'] ?? ['id' => 'src_all'], // Use src_all for all payment methods
+                'source' => $data['source'] ?? ['id' => 'src_kw.knet'], // Use src_all for all payment methods
                 'post' => $data['post'] ?? ['url' => config('app.url') . '/charge/webhook'],
                 'redirect' => $data['redirect'] ?? ['url' => config('app.url') . '/payment/redirect']
             ];
