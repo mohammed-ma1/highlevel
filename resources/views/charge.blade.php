@@ -1594,8 +1594,9 @@
             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
           },
           body: JSON.stringify({
-            merchant_id: paymentData.merchantId || paymentData.locationId, // merchant_id is required
-            locationId: paymentData.locationId, // Optional, for redirect URL
+            // Don't send merchant_id if we don't have it - let backend look it up from locationId
+            // merchant_id: paymentData.merchantId, // Only send if we actually have merchantId
+            locationId: paymentData.locationId, // Backend will use this to find merchant_id from database
             amount: paymentData.amount,
             currency: paymentData.currency,
             customer_initiated: true,
@@ -1633,9 +1634,10 @@
                 number: 790000000
               }
             },
-            merchant: {
-              id: paymentData.merchantId || paymentData.locationId || '1234'
-            },
+            // merchant.id will be set by backend from database - don't send it here
+            // merchant: {
+            //   id: paymentData.merchantId || paymentData.locationId || '1234'
+            // },
             post: {
               url: window.location.origin + '/charge/webhook'
             },
