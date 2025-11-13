@@ -573,9 +573,10 @@ class ClientIntegrationController extends Controller
          * This should be called BEFORE verifying with Tap API
          */
         private function sendWebhookToLeadConnector(Request $request, User $user): bool
+        
         {
             dd($request->all());
-        {
+
             try {
                 $event = $request->input('event');
                 $locationId = $request->input('locationId');
