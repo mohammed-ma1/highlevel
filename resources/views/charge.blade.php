@@ -1584,8 +1584,8 @@
 
         console.log('🚀 Creating charge with data:', chargeData);
 
-        // First, get merchant_id from locationId
-        console.log('🔍 Getting merchant_id from locationId...');
+        // Get merchant_id and tap_mode from locationId
+        console.log('🔍 Getting merchant_id and tap_mode from locationId...');
         const merchantResponse = await fetch(`/api/merchant-id?locationId=${encodeURIComponent(paymentData.locationId)}`, {
           method: 'GET',
           headers: {
@@ -1594,12 +1594,18 @@
           }
         });
 
-        let merchantId;
+        let merchantId = '';
+        let tapMode = '';
         if (merchantResponse.ok) {
           const merchantData = await merchantResponse.json();
-          if (merchantData.success && merchantData.merchant_id) {
-            merchantId = merchantData.merchant_id;
-            console.log('✅ Got merchant_id:', merchantId);
+          if (merchantData.success) {
+            tapMode = merchantData.tap_mode || '';
+            if (tapMode === 'live' && merchantData.merchant_id) {
+              merchantId = merchantData.merchant_id;
+              console.log('✅ Got merchant_id:', merchantId, 'tap_mode:', tapMode);
+            } else {
+              console.log('🔍 tap_mode is not live - merchant_id will be empty. tap_mode:', tapMode);
+            }
           } else {
             throw new Error('Failed to get merchant_id: ' + (merchantData.message || 'Unknown error'));
           }
@@ -1611,16 +1617,8 @@
         // Call Tap Payments API directly
         console.log('🚀 Calling Laravel API to create Tap charge...');
         
-        const tapResponse = await fetch('/api/charge/create-tap', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
-          },
-          body: JSON.stringify({
-            merchant: {
-              id: merchantId // Send merchant.id instead of locationId
-            },
+        // Build request body
+        const requestBody = {
             amount: paymentData.amount,
             currency: paymentData.currency,
             customer_initiated: true,
@@ -1658,17 +1656,34 @@
                 number: 790000000
               }
             },
-            // merchant.id will be set by backend from database - don't send it here
-            // merchant: {
-            //   id: paymentData.merchantId || paymentData.locationId || '1234'
-            // },
             post: {
               url: window.location.origin + '/charge/webhook'
             },
             redirect: {
               url: window.location.origin + '/payment/redirect?locationId=' + encodeURIComponent(paymentData.locationId || '')
             }
-          })
+          };
+
+        // Add merchant.id only if tap_mode is "live"
+        if (tapMode === 'live' && merchantId) {
+          requestBody.merchant = {
+            id: merchantId
+          };
+          console.log('✅ Sending merchant_id:', merchantId, 'for tap_mode:', tapMode);
+        } else {
+          requestBody.merchant = {
+            id: ''
+          };
+          console.log('🔍 Sending empty merchant_id for tap_mode:', tapMode);
+        }
+        
+        const tapResponse = await fetch('/api/charge/create-tap', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+          },
+          body: JSON.stringify(requestBody)
         });
 
         console.log('📡 Response status:', tapResponse.status);

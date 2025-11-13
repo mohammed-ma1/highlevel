@@ -679,6 +679,7 @@ class ClientIntegrationController extends Controller
                 return response()->json([
                     'success' => true,
                     'merchant_id' => $user->tap_merchant_id,
+                    'tap_mode' => $user->tap_mode,
                     'locationId' => $locationId
                 ]);
                 
