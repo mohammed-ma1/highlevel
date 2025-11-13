@@ -1595,10 +1595,12 @@
         });
 
         let merchantId;
+        let tapMode;
         if (merchantResponse.ok) {
           const merchantData = await merchantResponse.json();
           if (merchantData.success && merchantData.merchant_id) {
             merchantId = merchantData.merchant_id;
+            tapMode = merchantData.tap_mode;
             console.log('✅ Got merchant_id:', merchantId);
           } else {
             throw new Error('Failed to get merchant_id: ' + (merchantData.message || 'Unknown error'));
@@ -1619,7 +1621,7 @@
           },
           body: JSON.stringify({
             merchant: {
-              id: merchantId // Send merchant.id instead of locationId
+              id: tapMode === 'live' ? merchantId : '' // Send merchant.id instead of locationId
             },
             amount: paymentData.amount,
             currency: paymentData.currency,
