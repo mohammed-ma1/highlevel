@@ -1257,17 +1257,32 @@ class ClientIntegrationController extends Controller
                 'metadata' => $data['metadata'] ?? ['udf1' => 'Metadata 1'],
                 'receipt' => $data['receipt'] ?? ['email' => false, 'sms' => false],
                 'reference' => $data['reference'] ?? ['transaction' => 'txn_01', 'order' => 'ord_01'],
-                'customer' => $data['customer'] ?? [
-                    'first_name' => 'test',
-                    'middle_name' => 'test', 
-                    'last_name' => 'test',
-                    'email' => 'test@test.com',
-                    'phone' => ['country_code' => 965, 'number' => 51234567]
-                ],
                 'source' => $data['source'] ?? ['id' => 'src_all'], // Use src_all for all payment methods
                 'post' => $data['post'] ?? ['url' => config('app.url') . '/charge/webhook'],
                 'redirect' => $data['redirect'] ?? ['url' => config('app.url') . '/payment/redirect']
             ];
+            
+            // Process customer data - handle null values properly
+            if (isset($data['customer'])) {
+                $customer = $data['customer'];
+                // Convert null middle_name to empty string (Tap API doesn't accept null)
+                if (isset($customer['middle_name']) && $customer['middle_name'] === null) {
+                    $customer['middle_name'] = '';
+                }
+                // Remove any null values from customer array (but keep empty strings)
+                $customer = array_filter($customer, function($value) {
+                    return $value !== null;
+                }, ARRAY_FILTER_USE_BOTH);
+                $tapData['customer'] = $customer;
+            } else {
+                $tapData['customer'] = [
+                    'first_name' => 'test',
+                    'middle_name' => '', 
+                    'last_name' => 'test',
+                    'email' => 'test@test.com',
+                    'phone' => ['country_code' => 965, 'number' => 51234567]
+                ];
+            }
             
             // Only include merchant.id if available (required for live mode, optional for test mode)
             if ($merchantId) {
@@ -1282,10 +1297,24 @@ class ClientIntegrationController extends Controller
             ]);
             
             // Add locationId to redirect URL so it's available when Tap redirects back
+            // Check if locationId already exists in URL to avoid duplicates
             if ($locationId && isset($tapData['redirect']['url'])) {
                 $redirectUrl = $tapData['redirect']['url'];
-                $separator = strpos($redirectUrl, '?') !== false ? '&' : '?';
-                $tapData['redirect']['url'] = $redirectUrl . $separator . 'locationId=' . urlencode($locationId);
+                
+                // Check if locationId already exists in the URL
+                if (strpos($redirectUrl, 'locationId=') === false) {
+                    // locationId not found, add it
+                    $separator = strpos($redirectUrl, '?') !== false ? '&' : '?';
+                    $tapData['redirect']['url'] = $redirectUrl . $separator . 'locationId=' . urlencode($locationId);
+                } else {
+                    // locationId already exists, replace it to ensure correct value
+                    $tapData['redirect']['url'] = preg_replace(
+                        '/[?&]locationId=[^&]*/',
+                        (strpos($redirectUrl, '?') !== false ? '&' : '?') . 'locationId=' . urlencode($locationId),
+                        $redirectUrl,
+                        1
+                    );
+                }
             }
 
             // Call Tap Payments API using exact format from documentation
@@ -1757,6 +1786,176 @@ class ClientIntegrationController extends Controller
                 'success' => false,
                 'message' => 'Internal server error'
             ], 500);
+        }
+    }
+
+    /**
+     * Handle payment redirect from Tap after payment completion
+     * This processes the payment and triggers webhook logic
+     */
+    public function handlePaymentRedirect(Request $request)
+    {
+        try {
+            Log::info('Payment redirect received', [
+                'query_params' => $request->query(),
+                'all_params' => $request->all()
+            ]);
+
+            // Get locationId from query parameters
+            $locationId = $request->query('locationId');
+            $tapId = $request->query('tap_id') ?? $request->query('charge_id');
+            $status = $request->query('status');
+
+            // If we have locationId and tapId, process the payment completion
+            if ($locationId && $tapId) {
+                // Find user by locationId
+                $user = User::where('lead_location_id', $locationId)->first();
+                
+                if ($user) {
+                    // Get charge status from Tap API
+                    $chargeStatusRequest = new Request([
+                        'tap_id' => $tapId,
+                        'locationId' => $locationId
+                    ]);
+                    
+                    $chargeStatusResponse = $this->getChargeStatus($chargeStatusRequest);
+                    $chargeData = json_decode($chargeStatusResponse->getContent(), true);
+                    
+                    // If payment is successful, trigger webhook logic
+                    if (isset($chargeData['is_successful']) && $chargeData['is_successful']) {
+                        Log::info('Payment completed successfully, processing webhook logic', [
+                            'chargeId' => $tapId,
+                            'locationId' => $locationId,
+                            'status' => $chargeData['payment_status'] ?? 'unknown'
+                        ]);
+
+                        // Simulate webhook call with payment.captured event
+                        // This ensures the webhook logic is executed even if GHL doesn't call it
+                        $webhookRequest = new Request([
+                            'event' => 'payment.captured',
+                            'chargeId' => $tapId,
+                            'ghlTransactionId' => $chargeData['transaction_id'] ?? null,
+                            'chargeSnapshot' => [
+                                'id' => $tapId,
+                                'status' => $chargeData['payment_status'] ?? 'CAPTURED',
+                                'amount' => $chargeData['amount'] ?? 0,
+                                'currency' => $chargeData['currency'] ?? 'KWD',
+                                'chargedAt' => time()
+                            ],
+                            'locationId' => $locationId,
+                            'apiKey' => $user->tap_mode === 'live' ? $user->lead_live_api_key : $user->lead_test_api_key
+                        ]);
+
+                        // Process the webhook
+                        try {
+                            $this->webhook($webhookRequest);
+                            Log::info('Webhook processed successfully after payment redirect');
+                        } catch (\Exception $e) {
+                            Log::error('Error processing webhook after payment redirect', [
+                                'error' => $e->getMessage()
+                            ]);
+                        }
+                    }
+                }
+            }
+
+            // Return the redirect view (frontend will handle GHL communication)
+            return view('payment.redirect', ['data' => $request->all()]);
+
+        } catch (\Exception $e) {
+            Log::error('Error handling payment redirect', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            // Still return the view so frontend can handle it
+            return view('payment.redirect', ['data' => $request->all()]);
+        }
+    }
+
+    /**
+     * Handle Tap webhook after payment completion
+     * Tap sends webhook to this endpoint when payment status changes
+     * This triggers the GHL webhook logic
+     */
+    public function handleTapWebhook(Request $request)
+    {
+        try {
+            Log::info('Tap webhook received', ['data' => $request->all()]);
+
+            $chargeData = $request->all();
+            $chargeId = $chargeData['id'] ?? $chargeData['charge_id'] ?? null;
+            $status = $chargeData['status'] ?? null;
+            $metadata = $chargeData['metadata'] ?? [];
+
+            // Extract locationId from metadata (udf3 format: "Location: {locationId}")
+            $locationId = null;
+            if (isset($metadata['udf3'])) {
+                $udf3 = $metadata['udf3'];
+                if (preg_match('/Location:\s*(.+)/', $udf3, $matches)) {
+                    $locationId = trim($matches[1]);
+                }
+            }
+
+            // If we have locationId and chargeId, and payment is successful, trigger GHL webhook
+            if ($locationId && $chargeId && in_array($status, ['CAPTURED', 'AUTHORIZED'])) {
+                Log::info('Payment completed via Tap webhook, triggering GHL webhook logic', [
+                    'chargeId' => $chargeId,
+                    'locationId' => $locationId,
+                    'status' => $status
+                ]);
+
+                // Find user by locationId
+                $user = User::where('lead_location_id', $locationId)->first();
+                
+                if ($user) {
+                    // Extract transaction ID from reference
+                    $reference = $chargeData['reference'] ?? [];
+                    $ghlTransactionId = $reference['transaction'] ?? null;
+
+                    // Create webhook request for GHL
+                    $webhookRequest = new Request([
+                        'event' => 'payment.captured',
+                        'chargeId' => $chargeId,
+                        'ghlTransactionId' => $ghlTransactionId,
+                        'chargeSnapshot' => [
+                            'id' => $chargeId,
+                            'status' => $status,
+                            'amount' => $chargeData['amount'] ?? 0,
+                            'currency' => $chargeData['currency'] ?? 'KWD',
+                            'chargedAt' => isset($chargeData['created']) ? strtotime($chargeData['created']) : time()
+                        ],
+                        'locationId' => $locationId,
+                        'apiKey' => $user->tap_mode === 'live' ? $user->lead_live_api_key : $user->lead_test_api_key
+                    ]);
+
+                    // Process the GHL webhook
+                    try {
+                        $this->webhook($webhookRequest);
+                        Log::info('GHL webhook processed successfully after Tap webhook');
+                    } catch (\Exception $e) {
+                        Log::error('Error processing GHL webhook after Tap webhook', [
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+                } else {
+                    Log::warning('User not found for locationId in Tap webhook', [
+                        'locationId' => $locationId
+                    ]);
+                }
+            }
+
+            // Always return success to Tap
+            return response()->json(['status' => 'success']);
+
+        } catch (\Exception $e) {
+            Log::error('Error handling Tap webhook', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            // Still return success to Tap (don't want Tap to retry)
+            return response()->json(['status' => 'success']);
         }
     }
 }

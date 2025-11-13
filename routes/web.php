@@ -76,15 +76,12 @@ Route::get('/test-charge-status/{tapId}', function ($tapId) {
 })->name('test.charge.status');
 
 
-Route::get('/payment/redirect', function () {
-    return view('payment.redirect');
-})->name('payment.redirect');
+Route::get('/payment/redirect', [ClientIntegrationController::class, 'handlePaymentRedirect'])
+    ->name('payment.redirect');
 
 // Webhook route for Tap charge completion
-Route::post('/charge/webhook', function (Request $request) {
-    \Log::info('Tap webhook received', ['data' => $request->all()]);
-    return response()->json(['status' => 'success']);
-})->name('charge.webhook');
+Route::post('/charge/webhook', [ClientIntegrationController::class, 'handleTapWebhook'])
+    ->name('charge.webhook');
 
 // Redirect route for Tap charge completion
 Route::get('/charge/redirect', function (Request $request) {

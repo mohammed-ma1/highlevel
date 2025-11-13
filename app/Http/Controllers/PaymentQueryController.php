@@ -21,15 +21,34 @@ class PaymentQueryController extends Controller
             $type = $request->input('type');
             $locationId = $request->input('locationId');
             $apiKey = $request->input('apiKey');
+            $chargeId = $request->input('chargeId');
             
             Log::info('Payment query received', [
                 'type' => $type,
                 'locationId' => $locationId,
+                'chargeId' => $chargeId,
                 'request_data' => $request->all()
             ]);
 
+            // If locationId is not provided, try to extract it from chargeId metadata
+            if (!$locationId && $chargeId) {
+                $locationId = $this->extractLocationIdFromCharge($chargeId);
+                if ($locationId) {
+                    Log::info('Extracted locationId from charge metadata', [
+                        'chargeId' => $chargeId,
+                        'locationId' => $locationId
+                    ]);
+                }
+            }
+
             // Validate required parameters - Always return HTTP 200 per GHL requirements
             if (!$type || !$locationId || !$apiKey) {
+                Log::warning('Payment query missing required parameters', [
+                    'type' => $type,
+                    'has_locationId' => !empty($locationId),
+                    'has_apiKey' => !empty($apiKey),
+                    'has_chargeId' => !empty($chargeId)
+                ]);
                 return response()->json([
                     'success' => false
                 ], 200);
@@ -38,6 +57,10 @@ class PaymentQueryController extends Controller
             // Find user by location ID
             $user = User::where('lead_location_id', $locationId)->first();
             if (!$user) {
+                Log::warning('User not found for locationId in payment query', [
+                    'locationId' => $locationId,
+                    'type' => $type
+                ]);
                 return response()->json([
                     'success' => false
                 ], 200);
@@ -510,5 +533,106 @@ class PaymentQueryController extends Controller
                 'chargedAt' => strtotime($charge['created'])
             ]
         ]);
+    }
+    
+    /**
+     * Try to extract locationId from charge metadata
+     * This is a fallback when locationId is not provided in the request
+     */
+    private function extractLocationIdFromCharge($chargeId)
+    {
+        try {
+            // Try to find locationId by querying Tap API with available users
+            // Start with test mode users (most common)
+            $users = User::whereNotNull('lead_test_secret_key')
+                ->orderBy('updated_at', 'desc')
+                ->limit(10)
+                ->get();
+            
+            foreach ($users as $user) {
+                try {
+                    $secretKey = $user->lead_test_secret_key;
+                    $response = Http::timeout(5)
+                        ->withHeaders([
+                            'Authorization' => 'Bearer ' . $secretKey,
+                            'accept' => 'application/json',
+                        ])->get('https://api.tap.company/v2/charges/' . $chargeId);
+                    
+                    if ($response->successful()) {
+                        $chargeData = $response->json();
+                        $metadata = $chargeData['metadata'] ?? [];
+                        
+                        // Extract locationId from udf3 (format: "Location: {locationId}")
+                        if (isset($metadata['udf3'])) {
+                            $udf3 = $metadata['udf3'];
+                            if (preg_match('/Location:\s*(.+)/', $udf3, $matches)) {
+                                $locationId = trim($matches[1]);
+                                Log::info('Successfully extracted locationId from charge metadata', [
+                                    'chargeId' => $chargeId,
+                                    'locationId' => $locationId,
+                                    'user_id' => $user->id
+                                ]);
+                                return $locationId;
+                            }
+                        }
+                    }
+                } catch (\Exception $e) {
+                    // Continue to next user
+                    continue;
+                }
+            }
+            
+            // If not found with test keys, try live keys
+            $liveUsers = User::whereNotNull('lead_live_secret_key')
+                ->orderBy('updated_at', 'desc')
+                ->limit(10)
+                ->get();
+            
+            foreach ($liveUsers as $user) {
+                try {
+                    $secretKey = $user->lead_live_secret_key;
+                    $response = Http::timeout(5)
+                        ->withHeaders([
+                            'Authorization' => 'Bearer ' . $secretKey,
+                            'accept' => 'application/json',
+                        ])->get('https://api.tap.company/v2/charges/' . $chargeId);
+                    
+                    if ($response->successful()) {
+                        $chargeData = $response->json();
+                        $metadata = $chargeData['metadata'] ?? [];
+                        
+                        // Extract locationId from udf3 (format: "Location: {locationId}")
+                        if (isset($metadata['udf3'])) {
+                            $udf3 = $metadata['udf3'];
+                            if (preg_match('/Location:\s*(.+)/', $udf3, $matches)) {
+                                $locationId = trim($matches[1]);
+                                Log::info('Successfully extracted locationId from charge metadata (live)', [
+                                    'chargeId' => $chargeId,
+                                    'locationId' => $locationId,
+                                    'user_id' => $user->id
+                                ]);
+                                return $locationId;
+                            }
+                        }
+                    }
+                } catch (\Exception $e) {
+                    // Continue to next user
+                    continue;
+                }
+            }
+            
+            Log::warning('Could not extract locationId from charge metadata', [
+                'chargeId' => $chargeId
+            ]);
+            
+            return null;
+            
+        } catch (\Exception $e) {
+            Log::error('Error extracting locationId from charge', [
+                'chargeId' => $chargeId,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
     }
 }
