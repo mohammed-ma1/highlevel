@@ -25,19 +25,49 @@ class PaymentQueryController extends Controller
             Log::info('Payment query received', [
                 'type' => $type,
                 'locationId' => $locationId,
+                'has_apiKey' => !empty($apiKey),
                 'request_data' => $request->all()
             ]);
 
             // Validate required parameters - Always return HTTP 200 per GHL requirements
-            if (!$type || !$locationId || !$apiKey) {
+            if (!$type || !$apiKey) {
+                Log::warning('Payment query missing required fields', [
+                    'has_type' => !empty($type),
+                    'has_apiKey' => !empty($apiKey),
+                    'has_locationId' => !empty($locationId)
+                ]);
                 return response()->json([
                     'success' => false
                 ], 200);
             }
 
-            // Find user by location ID
-            $user = User::where('lead_location_id', $locationId)->first();
+            // Find user by API key first (locationId might be null in some requests)
+            $user = null;
+            if ($apiKey) {
+                $user = User::where('lead_test_api_key', $apiKey)
+                          ->orWhere('lead_live_api_key', $apiKey)
+                          ->first();
+            }
+            
+            // If locationId provided, try to find by locationId as well (for validation)
+            if ($locationId && !$user) {
+                $user = User::where('lead_location_id', $locationId)->first();
+            }
+            
+            // If we found user by API key but locationId was null, use user's locationId
+            if ($user && !$locationId) {
+                $locationId = $user->lead_location_id;
+                Log::info('LocationId retrieved from user', [
+                    'locationId' => $locationId,
+                    'user_id' => $user->id
+                ]);
+            }
+            
             if (!$user) {
+                Log::warning('User not found for payment query', [
+                    'locationId' => $locationId,
+                    'has_apiKey' => !empty($apiKey)
+                ]);
                 return response()->json([
                     'success' => false
                 ], 200);
@@ -48,6 +78,7 @@ class PaymentQueryController extends Controller
             if ($apiKey !== $userApiKey) {
                 Log::warning('API key validation failed', [
                     'locationId' => $locationId,
+                    'user_id' => $user->id,
                     'provided_key_length' => strlen($apiKey ?? ''),
                     'expected_key_length' => strlen($userApiKey ?? '')
                 ]);
@@ -166,8 +197,23 @@ class PaymentQueryController extends Controller
                 'chargeId' => $tapChargeId,
                 'status' => $status,
                 'subscriptionId' => $subscriptionId,
-                'response_code' => $chargeData['response']['code'] ?? 'unknown'
+                'response_code' => $chargeData['response']['code'] ?? 'unknown',
+                'locationId' => $user->lead_location_id
             ]);
+
+            // IMPORTANT: Send webhook event to LeadConnector BEFORE returning verification result
+            // This ensures products are updated before verification completes
+            if (in_array($status, ['CAPTURED', 'AUTHORIZED'])) {
+                Log::info('Payment verified as successful, sending webhook to LeadConnector', [
+                    'chargeId' => $tapChargeId,
+                    'transactionId' => $transactionId,
+                    'status' => $status,
+                    'locationId' => $user->lead_location_id
+                ]);
+                
+                // Send payment.captured webhook event to LeadConnector
+                $this->sendPaymentCapturedWebhook($request, $user, $tapChargeId, $transactionId, $chargeData);
+            }
 
             // Return response according to GHL documentation
             // Always return HTTP 200 per requirements
@@ -510,5 +556,103 @@ class PaymentQueryController extends Controller
                 'chargedAt' => strtotime($charge['created'])
             ]
         ]);
+    }
+
+    /**
+     * Send payment.captured webhook event to LeadConnector backend
+     * This should be called when a payment is verified as successful
+     */
+    private function sendPaymentCapturedWebhook(Request $request, User $user, string $chargeId, string $transactionId, array $chargeData)
+    {
+        try {
+            $locationId = $user->lead_location_id;
+            $apiKey = $user->tap_mode === 'live' ? $user->lead_live_api_key : $user->lead_test_api_key;
+            
+            Log::info('=== SENDING payment.captured WEBHOOK TO LEADCONNECTOR ===', [
+                'chargeId' => $chargeId,
+                'transactionId' => $transactionId,
+                'locationId' => $locationId,
+                'status' => $chargeData['status'] ?? 'UNKNOWN',
+                'timestamp' => now()->toIso8601String()
+            ]);
+            
+            // Build chargeSnapshot from Tap API charge data
+            $chargeSnapshot = [
+                'id' => $chargeId,
+                'status' => strtolower($chargeData['status'] ?? 'unknown'),
+                'amount' => $chargeData['amount'] ?? 0,
+                'currency' => $chargeData['currency'] ?? 'KWD',
+                'created' => $chargeData['transaction']['created'] ?? time() * 1000,
+                'response' => [
+                    'code' => $chargeData['response']['code'] ?? 'unknown',
+                    'message' => $chargeData['response']['message'] ?? 'unknown'
+                ]
+            ];
+            
+            // Build webhook payload for payment.captured event
+            $payload = [
+                'event' => 'payment.captured',
+                'chargeId' => $chargeId,
+                'ghlTransactionId' => $transactionId,
+                'chargeSnapshot' => $chargeSnapshot,
+                'locationId' => $locationId,
+                'apiKey' => $apiKey
+            ];
+            
+            Log::info('Webhook payload built for payment.captured', [
+                'chargeId' => $chargeId,
+                'transactionId' => $transactionId,
+                'locationId' => $locationId,
+                'payload_keys' => array_keys($payload),
+                'chargeSnapshot' => $chargeSnapshot
+            ]);
+            
+            // Send webhook to LeadConnector backend
+            $webhookUrl = 'https://backend.leadconnectorhq.com/payments/custom-provider/webhook';
+            
+            $startTime = microtime(true);
+            $response = Http::timeout(30)
+                ->acceptJson()
+                ->post($webhookUrl, $payload);
+            $endTime = microtime(true);
+            $duration = round(($endTime - $startTime) * 1000, 2);
+            
+            if ($response->successful()) {
+                $responseBody = $response->json();
+                Log::info('=== SUCCESS: payment.captured webhook sent to LeadConnector ===', [
+                    'chargeId' => $chargeId,
+                    'transactionId' => $transactionId,
+                    'locationId' => $locationId,
+                    'response_status' => $response->status(),
+                    'response_body' => $responseBody,
+                    'duration_ms' => $duration,
+                    'timestamp' => now()->toIso8601String()
+                ]);
+            } else {
+                $errorResponse = $response->json() ?? $response->body();
+                Log::error('=== FAILED: payment.captured webhook send to LeadConnector ===', [
+                    'chargeId' => $chargeId,
+                    'transactionId' => $transactionId,
+                    'locationId' => $locationId,
+                    'status_code' => $response->status(),
+                    'response_body' => $errorResponse,
+                    'response_raw' => $response->body(),
+                    'duration_ms' => $duration,
+                    'timestamp' => now()->toIso8601String()
+                ]);
+            }
+            
+        } catch (\Exception $e) {
+            Log::error('=== EXCEPTION: Error sending payment.captured webhook ===', [
+                'chargeId' => $chargeId,
+                'transactionId' => $transactionId,
+                'error_message' => $e->getMessage(),
+                'error_code' => $e->getCode(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+                'timestamp' => now()->toIso8601String()
+            ]);
+        }
     }
 }
