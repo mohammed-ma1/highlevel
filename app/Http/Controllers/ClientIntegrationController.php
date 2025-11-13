@@ -569,6 +569,240 @@ class ClientIntegrationController extends Controller
         }
 
         /**
+         * Send webhook event to LeadConnector backend
+         * This should be called BEFORE verifying with Tap API
+         */
+        private function sendWebhookToLeadConnector(Request $request, User $user): bool
+        {
+            try {
+                $event = $request->input('event');
+                $locationId = $request->input('locationId');
+                $apiKey = $request->input('apiKey');
+                
+                Log::info('=== START: Sending webhook to LeadConnector ===', [
+                    'event' => $event,
+                    'locationId' => $locationId,
+                    'user_id' => $user->id,
+                    'tap_mode' => $user->tap_mode,
+                    'timestamp' => now()->toIso8601String()
+                ]);
+                
+                // Build payload based on event type
+                Log::info('Building webhook payload', [
+                    'event' => $event,
+                    'locationId' => $locationId
+                ]);
+                
+                $payload = $this->buildWebhookPayload($request, $event, $locationId, $apiKey);
+                
+                if (!$payload) {
+                    Log::error('Failed to build webhook payload', [
+                        'event' => $event,
+                        'locationId' => $locationId,
+                        'request_keys' => array_keys($request->all())
+                    ]);
+                    return false;
+                }
+                
+                Log::info('Webhook payload built successfully', [
+                    'event' => $event,
+                    'locationId' => $locationId,
+                    'payload_keys' => array_keys($payload),
+                    'payload_size' => strlen(json_encode($payload)),
+                    'has_chargeId' => isset($payload['chargeId']),
+                    'has_ghlTransactionId' => isset($payload['ghlTransactionId']),
+                    'has_ghlSubscriptionId' => isset($payload['ghlSubscriptionId']),
+                    'has_chargeSnapshot' => isset($payload['chargeSnapshot']),
+                    'has_subscriptionSnapshot' => isset($payload['subscriptionSnapshot']),
+                    'has_marketplaceAppId' => isset($payload['marketplaceAppId'])
+                ]);
+                
+                // Log full payload for debugging (be careful with sensitive data)
+                Log::debug('Full webhook payload (sanitized)', [
+                    'event' => $payload['event'],
+                    'locationId' => $payload['locationId'],
+                    'apiKey_prefix' => substr($payload['apiKey'] ?? '', 0, 10) . '...',
+                    'chargeId' => $payload['chargeId'] ?? null,
+                    'ghlTransactionId' => $payload['ghlTransactionId'] ?? null,
+                    'ghlSubscriptionId' => $payload['ghlSubscriptionId'] ?? null,
+                    'marketplaceAppId' => $payload['marketplaceAppId'] ?? null,
+                    'chargeSnapshot_keys' => isset($payload['chargeSnapshot']) ? array_keys($payload['chargeSnapshot']) : null,
+                    'subscriptionSnapshot_keys' => isset($payload['subscriptionSnapshot']) ? array_keys($payload['subscriptionSnapshot']) : null
+                ]);
+                
+                // Send webhook to LeadConnector backend
+                $webhookUrl = 'https://backend.leadconnectorhq.com/payments/custom-provider/webhook';
+                
+                Log::info('Sending HTTP POST request to LeadConnector', [
+                    'url' => $webhookUrl,
+                    'event' => $event,
+                    'locationId' => $locationId,
+                    'timeout' => 30
+                ]);
+                
+                $startTime = microtime(true);
+                $response = Http::timeout(30)
+                    ->acceptJson()
+                    ->post($webhookUrl, $payload);
+                $endTime = microtime(true);
+                $duration = round(($endTime - $startTime) * 1000, 2); // milliseconds
+                
+                Log::info('LeadConnector webhook response received', [
+                    'event' => $event,
+                    'locationId' => $locationId,
+                    'status_code' => $response->status(),
+                    'successful' => $response->successful(),
+                    'duration_ms' => $duration,
+                    'response_headers' => $response->headers()
+                ]);
+                
+                if ($response->successful()) {
+                    $responseBody = $response->json();
+                    Log::info('=== SUCCESS: Webhook sent to LeadConnector ===', [
+                        'event' => $event,
+                        'locationId' => $locationId,
+                        'response_status' => $response->status(),
+                        'response_body' => $responseBody,
+                        'duration_ms' => $duration,
+                        'timestamp' => now()->toIso8601String()
+                    ]);
+                    return true;
+                } else {
+                    $errorResponse = $response->json() ?? $response->body();
+                    Log::error('=== FAILED: Webhook send to LeadConnector ===', [
+                        'event' => $event,
+                        'locationId' => $locationId,
+                        'status_code' => $response->status(),
+                        'response_body' => $errorResponse,
+                        'response_raw' => $response->body(),
+                        'duration_ms' => $duration,
+                        'timestamp' => now()->toIso8601String()
+                    ]);
+                    return false;
+                }
+                
+            } catch (\Exception $e) {
+                Log::error('=== EXCEPTION: Error sending webhook to LeadConnector ===', [
+                    'error_message' => $e->getMessage(),
+                    'error_code' => $e->getCode(),
+                    'error_file' => $e->getFile(),
+                    'error_line' => $e->getLine(),
+                    'event' => $request->input('event'),
+                    'locationId' => $request->input('locationId'),
+                    'trace' => $e->getTraceAsString(),
+                    'timestamp' => now()->toIso8601String()
+                ]);
+                return false;
+            }
+        }
+        
+        /**
+         * Build webhook payload based on event type
+         */
+        private function buildWebhookPayload(Request $request, string $event, string $locationId, string $apiKey): ?array
+        {
+            Log::debug('Building webhook payload', [
+                'event' => $event,
+                'locationId' => $locationId,
+                'available_request_keys' => array_keys($request->all())
+            ]);
+            
+            $payload = [
+                'event' => $event,
+                'locationId' => $locationId,
+                'apiKey' => $apiKey,
+            ];
+            
+            switch ($event) {
+                case 'payment.captured':
+                    // Required: event, chargeId, ghlTransactionId, chargeSnapshot, locationId, apiKey
+                    $payload['chargeId'] = $request->input('chargeId');
+                    $payload['ghlTransactionId'] = $request->input('ghlTransactionId');
+                    $payload['chargeSnapshot'] = $request->input('chargeSnapshot', []);
+                    
+                    Log::debug('Built payment.captured payload', [
+                        'chargeId' => $payload['chargeId'],
+                        'ghlTransactionId' => $payload['ghlTransactionId'],
+                        'chargeSnapshot_size' => is_array($payload['chargeSnapshot']) ? count($payload['chargeSnapshot']) : 0
+                    ]);
+                    break;
+                    
+                case 'subscription.updated':
+                    // Required: event, ghlSubscriptionId, subscriptionSnapshot, locationId, apiKey
+                    $payload['ghlSubscriptionId'] = $request->input('ghlSubscriptionId');
+                    $payload['subscriptionSnapshot'] = $request->input('subscriptionSnapshot', []);
+                    
+                    Log::debug('Built subscription.updated payload', [
+                        'ghlSubscriptionId' => $payload['ghlSubscriptionId'],
+                        'subscriptionSnapshot_size' => is_array($payload['subscriptionSnapshot']) ? count($payload['subscriptionSnapshot']) : 0
+                    ]);
+                    break;
+                    
+                case 'subscription.trialing':
+                case 'subscription.active':
+                    // Required: event, chargeId, ghlTransactionId, ghlSubscriptionId, marketplaceAppId, locationId, apiKey
+                    $payload['chargeId'] = $request->input('chargeId');
+                    $payload['ghlTransactionId'] = $request->input('ghlTransactionId');
+                    $payload['ghlSubscriptionId'] = $request->input('ghlSubscriptionId');
+                    $payload['marketplaceAppId'] = $request->input('marketplaceAppId');
+                    
+                    Log::debug('Built ' . $event . ' payload', [
+                        'chargeId' => $payload['chargeId'],
+                        'ghlTransactionId' => $payload['ghlTransactionId'],
+                        'ghlSubscriptionId' => $payload['ghlSubscriptionId'],
+                        'marketplaceAppId' => $payload['marketplaceAppId']
+                    ]);
+                    break;
+                    
+                case 'subscription.charged':
+                    // Required: event, chargeId, ghlSubscriptionId, subscriptionSnapshot, chargeSnapshot, locationId, apiKey
+                    $payload['chargeId'] = $request->input('chargeId');
+                    $payload['ghlSubscriptionId'] = $request->input('ghlSubscriptionId');
+                    $payload['subscriptionSnapshot'] = $request->input('subscriptionSnapshot', []);
+                    $payload['chargeSnapshot'] = $request->input('chargeSnapshot', []);
+                    
+                    Log::debug('Built subscription.charged payload', [
+                        'chargeId' => $payload['chargeId'],
+                        'ghlSubscriptionId' => $payload['ghlSubscriptionId'],
+                        'subscriptionSnapshot_size' => is_array($payload['subscriptionSnapshot']) ? count($payload['subscriptionSnapshot']) : 0,
+                        'chargeSnapshot_size' => is_array($payload['chargeSnapshot']) ? count($payload['chargeSnapshot']) : 0
+                    ]);
+                    break;
+                    
+                default:
+                    Log::warning('Unknown event type for webhook payload', [
+                        'event' => $event,
+                        'locationId' => $locationId
+                    ]);
+                    return null;
+            }
+            
+            // Validate required fields are present
+            $missingFields = [];
+            foreach ($payload as $key => $value) {
+                if ($value === null || $value === '') {
+                    $missingFields[] = $key;
+                }
+            }
+            
+            if (!empty($missingFields)) {
+                Log::warning('Webhook payload has missing/empty fields', [
+                    'event' => $event,
+                    'missing_fields' => $missingFields,
+                    'payload' => $payload
+                ]);
+            }
+            
+            Log::info('Webhook payload built', [
+                'event' => $event,
+                'payload_fields' => array_keys($payload),
+                'has_missing_fields' => !empty($missingFields)
+            ]);
+            
+            return $payload;
+        }
+        
+        /**
          * Handle webhook events from GoHighLevel
          * Endpoint: https://backend.leadconnectorhq.com/payments/custom-provider/webhook
          * 
@@ -581,11 +815,31 @@ class ClientIntegrationController extends Controller
          */
         public function webhook(Request $request)
         {
+            $startTime = microtime(true);
+            $requestId = uniqid('webhook_', true);
+            
             try {
-                Log::info('GoHighLevel webhook received', [
+                Log::info('=== WEBHOOK REQUEST RECEIVED ===', [
+                    'request_id' => $requestId,
                     'event' => $request->input('event'),
                     'locationId' => $request->input('locationId'),
-                    'request_data' => $request->all()
+                    'method' => $request->method(),
+                    'url' => $request->fullUrl(),
+                    'ip' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                    'timestamp' => now()->toIso8601String(),
+                    'request_headers' => $request->headers->all(),
+                    'request_data_keys' => array_keys($request->all())
+                ]);
+                
+                // Log full request data for debugging (be careful with sensitive data)
+                $requestData = $request->all();
+                if (isset($requestData['apiKey'])) {
+                    $requestData['apiKey'] = substr($requestData['apiKey'], 0, 10) . '...';
+                }
+                Log::debug('Webhook request data (sanitized)', [
+                    'request_id' => $requestId,
+                    'data' => $requestData
                 ]);
                 
                 $event = $request->input('event');
@@ -593,8 +847,18 @@ class ClientIntegrationController extends Controller
                 $apiKey = $request->input('apiKey');
                 
                 // Validate required fields for all events
+                Log::info('Step 1: Validating required fields', [
+                    'request_id' => $requestId,
+                    'has_event' => !empty($event),
+                    'has_locationId' => !empty($locationId),
+                    'has_apiKey' => !empty($apiKey)
+                ]);
+                
                 if (!$event) {
-                    Log::warning('Webhook missing event field', ['request' => $request->all()]);
+                    Log::warning('VALIDATION FAILED: Missing event field', [
+                        'request_id' => $requestId,
+                        'request_data' => $request->all()
+                    ]);
                     return response()->json([
                         'success' => false,
                         'message' => 'Event field is required'
@@ -602,7 +866,10 @@ class ClientIntegrationController extends Controller
                 }
                 
                 if (!$locationId) {
-                    Log::warning('Webhook missing locationId', ['event' => $event]);
+                    Log::warning('VALIDATION FAILED: Missing locationId', [
+                        'request_id' => $requestId,
+                        'event' => $event
+                    ]);
                     return response()->json([
                         'success' => false,
                         'message' => 'locationId is required'
@@ -610,7 +877,11 @@ class ClientIntegrationController extends Controller
                 }
                 
                 if (!$apiKey) {
-                    Log::warning('Webhook missing apiKey', ['event' => $event, 'locationId' => $locationId]);
+                    Log::warning('VALIDATION FAILED: Missing apiKey', [
+                        'request_id' => $requestId,
+                        'event' => $event,
+                        'locationId' => $locationId
+                    ]);
                     return response()->json([
                         'success' => false,
                         'message' => 'apiKey is required'
@@ -618,9 +889,15 @@ class ClientIntegrationController extends Controller
                 }
                 
                 // Find user by location ID
+                Log::info('Step 2: Looking up user by locationId', [
+                    'request_id' => $requestId,
+                    'locationId' => $locationId
+                ]);
+                
                 $user = User::where('lead_location_id', $locationId)->first();
                 if (!$user) {
-                    Log::warning('User not found for location', [
+                    Log::warning('VALIDATION FAILED: User not found for location', [
+                        'request_id' => $requestId,
                         'locationId' => $locationId,
                         'event' => $event
                     ]);
@@ -630,12 +907,31 @@ class ClientIntegrationController extends Controller
                     ], 404);
                 }
                 
+                Log::info('User found', [
+                    'request_id' => $requestId,
+                    'user_id' => $user->id,
+                    'locationId' => $locationId,
+                    'tap_mode' => $user->tap_mode
+                ]);
+                
                 // Validate API key matches user's configured key
                 $userApiKey = $user->tap_mode === 'live' ? $user->lead_live_api_key : $user->lead_test_api_key;
+                
+                Log::info('Step 3: Validating API key', [
+                    'request_id' => $requestId,
+                    'tap_mode' => $user->tap_mode,
+                    'provided_key_length' => strlen($apiKey ?? ''),
+                    'expected_key_length' => strlen($userApiKey ?? ''),
+                    'keys_match' => $apiKey === $userApiKey
+                ]);
+                
                 if ($apiKey !== $userApiKey) {
-                    Log::warning('API key validation failed for webhook', [
+                    Log::warning('VALIDATION FAILED: API key mismatch', [
+                        'request_id' => $requestId,
                         'locationId' => $locationId,
                         'event' => $event,
+                        'provided_key_prefix' => substr($apiKey ?? '', 0, 10),
+                        'expected_key_prefix' => substr($userApiKey ?? '', 0, 10),
                         'provided_key_length' => strlen($apiKey ?? ''),
                         'expected_key_length' => strlen($userApiKey ?? '')
                     ]);
@@ -646,11 +942,18 @@ class ClientIntegrationController extends Controller
                 }
                 
                 // Validate event-specific required fields and handle event
+                Log::info('Step 4: Validating event-specific fields', [
+                    'request_id' => $requestId,
+                    'event' => $event
+                ]);
+                
                 $validationResult = $this->validateWebhookEvent($request, $event);
                 if (!$validationResult['valid']) {
-                    Log::warning('Webhook validation failed', [
+                    Log::warning('VALIDATION FAILED: Event-specific validation failed', [
+                        'request_id' => $requestId,
                         'event' => $event,
-                        'errors' => $validationResult['errors']
+                        'errors' => $validationResult['errors'],
+                        'request_data' => $request->all()
                     ]);
                     return response()->json([
                         'success' => false,
@@ -659,52 +962,113 @@ class ClientIntegrationController extends Controller
                     ], 400);
                 }
                 
-                // Handle different webhook events
+                Log::info('All validations passed', [
+                    'request_id' => $requestId,
+                    'event' => $event,
+                    'locationId' => $locationId
+                ]);
+                
+                // IMPORTANT: Send webhook event to LeadConnector backend BEFORE verification
+                Log::info('Step 5: Sending webhook to LeadConnector backend (BEFORE verification)', [
+                    'request_id' => $requestId,
+                    'event' => $event,
+                    'locationId' => $locationId
+                ]);
+                
+                $webhookSent = $this->sendWebhookToLeadConnector($request, $user);
+                if (!$webhookSent) {
+                    Log::warning('Webhook send to LeadConnector failed, but continuing with verification', [
+                        'request_id' => $requestId,
+                        'event' => $event,
+                        'locationId' => $locationId
+                    ]);
+                    // Continue processing even if webhook send fails (non-blocking)
+                } else {
+                    Log::info('Webhook successfully sent to LeadConnector', [
+                        'request_id' => $requestId,
+                        'event' => $event,
+                        'locationId' => $locationId
+                    ]);
+                }
+                
+                // Handle different webhook events (this will verify with Tap API)
+                Log::info('Step 6: Processing event handler and verifying with Tap API', [
+                    'request_id' => $requestId,
+                    'event' => $event,
+                    'locationId' => $locationId
+                ]);
+                
                 switch ($event) {
                     case 'payment.captured':
+                        Log::info('Handling payment.captured event', ['request_id' => $requestId]);
                         $this->handlePaymentCaptured($request, $user);
                         break;
                     case 'subscription.charged':
+                        Log::info('Handling subscription.charged event', ['request_id' => $requestId]);
                         $this->handleSubscriptionCharged($request, $user);
                         break;
                     case 'subscription.trialing':
+                        Log::info('Handling subscription.trialing event', ['request_id' => $requestId]);
                         $this->handleSubscriptionTrialing($request, $user);
                         break;
                     case 'subscription.active':
+                        Log::info('Handling subscription.active event', ['request_id' => $requestId]);
                         $this->handleSubscriptionActive($request, $user);
                         break;
                     case 'subscription.updated':
+                        Log::info('Handling subscription.updated event', ['request_id' => $requestId]);
                         $this->handleSubscriptionUpdated($request, $user);
                         break;
                     default:
-                        Log::warning('Unhandled webhook event', ['event' => $event]);
+                        Log::warning('Unhandled webhook event', [
+                            'request_id' => $requestId,
+                            'event' => $event
+                        ]);
                         return response()->json([
                             'success' => false,
                             'message' => 'Unhandled event type: ' . $event
                         ], 400);
                 }
                 
-                Log::info('Webhook processed successfully', [
+                $endTime = microtime(true);
+                $duration = round(($endTime - $startTime) * 1000, 2); // milliseconds
+                
+                Log::info('=== WEBHOOK PROCESSED SUCCESSFULLY ===', [
+                    'request_id' => $requestId,
                     'event' => $event,
-                    'locationId' => $locationId
+                    'locationId' => $locationId,
+                    'duration_ms' => $duration,
+                    'webhook_sent_to_leadconnector' => $webhookSent,
+                    'timestamp' => now()->toIso8601String()
                 ]);
                 
                 return response()->json([
                     'success' => true,
                     'message' => 'Webhook processed successfully',
-                    'event' => $event
+                    'event' => $event,
+                    'request_id' => $requestId
                 ]);
                 
             } catch (\Exception $e) {
-                Log::error('Webhook processing error', [
-                    'error' => $e->getMessage(),
+                $endTime = microtime(true);
+                $duration = round(($endTime - $startTime) * 1000, 2);
+                
+                Log::error('=== WEBHOOK PROCESSING ERROR ===', [
+                    'request_id' => $requestId ?? 'unknown',
+                    'error_message' => $e->getMessage(),
+                    'error_code' => $e->getCode(),
+                    'error_file' => $e->getFile(),
+                    'error_line' => $e->getLine(),
                     'trace' => $e->getTraceAsString(),
-                    'request_data' => $request->all()
+                    'request_data' => $request->all(),
+                    'duration_ms' => $duration,
+                    'timestamp' => now()->toIso8601String()
                 ]);
                 
                 return response()->json([
                     'success' => false,
-                    'message' => 'Internal server error processing webhook'
+                    'message' => 'Internal server error processing webhook',
+                    'request_id' => $requestId ?? 'unknown'
                 ], 500);
             }
         }
@@ -792,11 +1156,13 @@ class ClientIntegrationController extends Controller
                 $chargeSnapshot = $request->input('chargeSnapshot', []);
                 $locationId = $request->input('locationId');
                 
-                Log::info('Processing payment.captured event', [
+                Log::info('=== Processing payment.captured event ===', [
                     'chargeId' => $chargeId,
                     'ghlTransactionId' => $ghlTransactionId,
                     'locationId' => $locationId,
-                    'chargeSnapshot' => $chargeSnapshot
+                    'user_id' => $user->id,
+                    'tap_mode' => $user->tap_mode,
+                    'chargeSnapshot_keys' => array_keys($chargeSnapshot)
                 ]);
                 
                 // Extract charge details from snapshot
@@ -804,12 +1170,36 @@ class ClientIntegrationController extends Controller
                 $currency = $chargeSnapshot['currency'] ?? null;
                 $status = $chargeSnapshot['status'] ?? null;
                 
+                Log::info('Extracted charge details from snapshot', [
+                    'chargeId' => $chargeId,
+                    'amount' => $amount,
+                    'currency' => $currency,
+                    'status' => $status
+                ]);
+                
                 // Verify the charge with Tap API if chargeId is available
                 if ($chargeId) {
-                    $isVerified = $this->verifyChargeWithTap($chargeId, $user);
-                    Log::info('Charge verification result', [
+                    Log::info('Verifying charge with Tap API', [
                         'chargeId' => $chargeId,
-                        'verified' => $isVerified
+                        'user_id' => $user->id,
+                        'tap_mode' => $user->tap_mode
+                    ]);
+                    
+                    $verifyStartTime = microtime(true);
+                    $isVerified = $this->verifyChargeWithTap($chargeId, $user);
+                    $verifyEndTime = microtime(true);
+                    $verifyDuration = round(($verifyEndTime - $verifyStartTime) * 1000, 2);
+                    
+                    Log::info('=== Charge verification completed ===', [
+                        'chargeId' => $chargeId,
+                        'verified' => $isVerified,
+                        'verification_duration_ms' => $verifyDuration,
+                        'timestamp' => now()->toIso8601String()
+                    ]);
+                } else {
+                    Log::warning('No chargeId provided, skipping Tap API verification', [
+                        'ghlTransactionId' => $ghlTransactionId,
+                        'locationId' => $locationId
                     ]);
                 }
                 
@@ -848,12 +1238,14 @@ class ClientIntegrationController extends Controller
                 $chargeSnapshot = $request->input('chargeSnapshot', []);
                 $locationId = $request->input('locationId');
                 
-                Log::info('Processing subscription.charged event', [
+                Log::info('=== Processing subscription.charged event ===', [
                     'chargeId' => $chargeId,
                     'ghlSubscriptionId' => $ghlSubscriptionId,
                     'locationId' => $locationId,
-                    'subscriptionSnapshot' => $subscriptionSnapshot,
-                    'chargeSnapshot' => $chargeSnapshot
+                    'user_id' => $user->id,
+                    'tap_mode' => $user->tap_mode,
+                    'subscriptionSnapshot_keys' => array_keys($subscriptionSnapshot),
+                    'chargeSnapshot_keys' => array_keys($chargeSnapshot)
                 ]);
                 
                 // Extract subscription details
@@ -865,12 +1257,39 @@ class ClientIntegrationController extends Controller
                 $currency = $chargeSnapshot['currency'] ?? null;
                 $chargeStatus = $chargeSnapshot['status'] ?? null;
                 
+                Log::info('Extracted subscription and charge details', [
+                    'subscriptionStatus' => $subscriptionStatus,
+                    'subscriptionPlan' => $subscriptionPlan,
+                    'amount' => $amount,
+                    'currency' => $currency,
+                    'chargeStatus' => $chargeStatus
+                ]);
+                
                 // Verify the charge with Tap API if chargeId is available
                 if ($chargeId) {
-                    $isVerified = $this->verifyChargeWithTap($chargeId, $user);
-                    Log::info('Subscription charge verification result', [
+                    Log::info('Verifying subscription charge with Tap API', [
                         'chargeId' => $chargeId,
-                        'verified' => $isVerified
+                        'ghlSubscriptionId' => $ghlSubscriptionId,
+                        'user_id' => $user->id,
+                        'tap_mode' => $user->tap_mode
+                    ]);
+                    
+                    $verifyStartTime = microtime(true);
+                    $isVerified = $this->verifyChargeWithTap($chargeId, $user);
+                    $verifyEndTime = microtime(true);
+                    $verifyDuration = round(($verifyEndTime - $verifyStartTime) * 1000, 2);
+                    
+                    Log::info('=== Subscription charge verification completed ===', [
+                        'chargeId' => $chargeId,
+                        'ghlSubscriptionId' => $ghlSubscriptionId,
+                        'verified' => $isVerified,
+                        'verification_duration_ms' => $verifyDuration,
+                        'timestamp' => now()->toIso8601String()
+                    ]);
+                } else {
+                    Log::warning('No chargeId provided, skipping Tap API verification', [
+                        'ghlSubscriptionId' => $ghlSubscriptionId,
+                        'locationId' => $locationId
                     ]);
                 }
                 
@@ -1635,9 +2054,18 @@ class ClientIntegrationController extends Controller
     private function verifyChargeWithTap($chargeId, $user = null)
     {
         try {
+            Log::info('=== START: Tap API Charge Verification ===', [
+                'chargeId' => $chargeId,
+                'user_id' => $user?->id,
+                'tap_mode' => $user?->tap_mode,
+                'timestamp' => now()->toIso8601String()
+            ]);
+            
             // If no user provided, we can't verify with Tap API
             if (!$user) {
-                Log::warning('Cannot verify charge without user context', ['chargeId' => $chargeId]);
+                Log::error('VERIFICATION FAILED: Cannot verify charge without user context', [
+                    'chargeId' => $chargeId
+                ]);
                 return false;
             }
 
@@ -1645,40 +2073,90 @@ class ClientIntegrationController extends Controller
             $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
 
             if (!$secretKey) {
-                Log::error('No secret key available for user', ['userId' => $user->id, 'tap_mode' => $user->tap_mode]);
+                Log::error('VERIFICATION FAILED: No secret key available for user', [
+                    'userId' => $user->id,
+                    'tap_mode' => $user->tap_mode,
+                    'has_live_key' => !empty($user->lead_live_secret_key),
+                    'has_test_key' => !empty($user->lead_test_secret_key)
+                ]);
                 return false;
             }
 
+            Log::info('Preparing Tap API request', [
+                'chargeId' => $chargeId,
+                'tap_mode' => $user->tap_mode,
+                'secret_key_prefix' => substr($secretKey, 0, 15) . '...',
+                'api_url' => 'https://api.tap.company/v2/charges/' . $chargeId
+            ]);
+
             // Call Tap API to get charge details
+            $apiStartTime = microtime(true);
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $secretKey,
                 'accept' => 'application/json',
             ])->get('https://api.tap.company/v2/charges/' . $chargeId);
+            $apiEndTime = microtime(true);
+            $apiDuration = round(($apiEndTime - $apiStartTime) * 1000, 2);
+
+            Log::info('Tap API response received', [
+                'chargeId' => $chargeId,
+                'status_code' => $response->status(),
+                'successful' => $response->successful(),
+                'api_duration_ms' => $apiDuration,
+                'response_headers' => $response->headers()
+            ]);
 
             if (!$response->successful()) {
-                Log::error('Tap API verification failed', [
-                    'status' => $response->status(),
-                    'response' => $response->json()
+                $errorResponse = $response->json() ?? $response->body();
+                Log::error('=== VERIFICATION FAILED: Tap API error ===', [
+                    'chargeId' => $chargeId,
+                    'status_code' => $response->status(),
+                    'response_body' => $errorResponse,
+                    'api_duration_ms' => $apiDuration,
+                    'timestamp' => now()->toIso8601String()
                 ]);
                 return false;
             }
 
             $chargeData = $response->json();
             $status = $chargeData['status'] ?? 'UNKNOWN';
+            $responseCode = $chargeData['response']['code'] ?? 'unknown';
+            $responseMessage = $chargeData['response']['message'] ?? 'unknown';
 
-            Log::info('Tap charge verification result', [
+            Log::info('Tap API charge data retrieved', [
                 'chargeId' => $chargeId,
                 'status' => $status,
-                'response_code' => $chargeData['response']['code'] ?? 'unknown'
+                'response_code' => $responseCode,
+                'response_message' => $responseMessage,
+                'amount' => $chargeData['amount'] ?? null,
+                'currency' => $chargeData['currency'] ?? null,
+                'api_duration_ms' => $apiDuration
             ]);
 
             // Consider payment successful if status is CAPTURED or AUTHORIZED
-            return in_array($status, ['CAPTURED', 'AUTHORIZED']);
+            $isVerified = in_array($status, ['CAPTURED', 'AUTHORIZED']);
+            
+            Log::info('=== END: Tap API Charge Verification ===', [
+                'chargeId' => $chargeId,
+                'status' => $status,
+                'verified' => $isVerified,
+                'is_captured' => $status === 'CAPTURED',
+                'is_authorized' => $status === 'AUTHORIZED',
+                'api_duration_ms' => $apiDuration,
+                'timestamp' => now()->toIso8601String()
+            ]);
+
+            return $isVerified;
 
         } catch (\Exception $e) {
-            Log::error('Error verifying charge with Tap API', [
+            Log::error('=== EXCEPTION: Error verifying charge with Tap API ===', [
                 'chargeId' => $chargeId,
-                'error' => $e->getMessage()
+                'error_message' => $e->getMessage(),
+                'error_code' => $e->getCode(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+                'timestamp' => now()->toIso8601String()
             ]);
             return false;
         }
