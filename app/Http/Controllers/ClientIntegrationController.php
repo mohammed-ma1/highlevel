@@ -766,33 +766,80 @@ class ClientIntegrationController extends Controller
             
             $data = $request->all();
             
-            // Get merchant_id from request (required) - from merchant.id field
-            $merchantId = $data['merchant']['id'] ?? null;
+            // Get merchant_id from request (optional - only required for live mode)
+            // Treat empty strings as null
+            $merchantId = !empty($data['merchant']['id']) ? $data['merchant']['id'] : null;
             
-            if (!$merchantId) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'merchant.id is required'
-                ], 400)->header('Access-Control-Allow-Origin', '*')
-                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+            // Try to get locationId from metadata or redirect URL to find user
+            $locationId = null;
+            if (isset($data['metadata']['udf3'])) {
+                // Extract locationId from metadata (format: "Location: {locationId}")
+                $udf3 = $data['metadata']['udf3'];
+                if (preg_match('/Location:\s*(.+)/', $udf3, $matches)) {
+                    $locationId = trim($matches[1]);
+                }
             }
             
-            // Find user by merchant_id
-            $user = User::where('tap_merchant_id', $merchantId)->first();
+            // If locationId not in metadata, try to get from redirect URL
+            if (!$locationId && isset($data['redirect']['url'])) {
+                $redirectUrl = $data['redirect']['url'];
+                if (preg_match('/locationId=([^&]+)/', $redirectUrl, $matches)) {
+                    $locationId = urldecode($matches[1]);
+                }
+            }
+            
+            // Find user - try by merchant_id first, then by locationId
+            $user = null;
+            if ($merchantId) {
+                $user = User::where('tap_merchant_id', $merchantId)->first();
+            }
+            
+            // If user not found by merchant_id, try by locationId
+            if (!$user && $locationId) {
+                $user = User::where('lead_location_id', $locationId)->first();
+            }
             
             // Validate that we found a user
             if (!$user) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'User not found for merchant_id: ' . $merchantId
+                    'message' => 'User not found. Please provide merchant.id or ensure locationId is in metadata.'
                 ], 404)->header('Access-Control-Allow-Origin', '*')
                   ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             }
             
-            // Get locationId from user for redirect URL
-            $locationId = $user->lead_location_id;
+            // Get locationId from user if not already set
+            if (!$locationId) {
+                $locationId = $user->lead_location_id;
+            }
+            
+            // Check tap_mode - merchant.id is only required for live mode
+            $tapMode = $user->tap_mode ?? 'test';
+            
+            // For live mode: require merchant.id (from request or database)
+            if ($tapMode === 'live') {
+                // If not provided in request, try to get from database
+                if (!$merchantId) {
+                    $merchantId = $user->tap_merchant_id;
+                }
+                
+                // If still not available, return error
+                if (!$merchantId) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'merchant.id is required when tapMode is live'
+                    ], 400)->header('Access-Control-Allow-Origin', '*')
+                      ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                      ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+                }
+            } else {
+                // For test mode: try to use merchant.id if available, but don't require it
+                if (!$merchantId) {
+                    $merchantId = $user->tap_merchant_id;
+                }
+                // If still not available, we'll proceed without it (Tap API may handle it)
+            }
 
             // Use the secret key based on the user's stored tap_mode
             $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
@@ -819,7 +866,6 @@ class ClientIntegrationController extends Controller
             }
             
             // Prepare the Tap API request using exact format from documentation
-            // Always use merchant_id from database, ignore any merchant.id from request
             $tapData = [
                 'amount' => $data['amount'] ?? 1,
                 'currency' => $data['currency'] ?? 'KWD',
@@ -837,16 +883,21 @@ class ClientIntegrationController extends Controller
                     'email' => 'test@test.com',
                     'phone' => ['country_code' => 965, 'number' => 51234567]
                 ],
-                'merchant' => ['id' => $merchantId], // Always use merchant_id from database (not from request)
                 'source' => $data['source'] ?? ['id' => 'src_all'], // Use src_all for all payment methods
                 'post' => $data['post'] ?? ['url' => config('app.url') . '/charge/webhook'],
                 'redirect' => $data['redirect'] ?? ['url' => config('app.url') . '/payment/redirect']
             ];
             
+            // Only include merchant.id if available (required for live mode, optional for test mode)
+            if ($merchantId) {
+                $tapData['merchant'] = ['id' => $merchantId];
+            }
+            
             // Log to verify merchant_id is correct
             Log::info('Tap API request merchant_id', [
-                'merchant_id_from_db' => $merchantId,
-                'merchant_in_tapData' => $tapData['merchant']
+                'merchant_id' => $merchantId,
+                'tap_mode' => $tapMode,
+                'merchant_in_tapData' => $tapData['merchant'] ?? 'not included'
             ]);
             
             // Add locationId to redirect URL so it's available when Tap redirects back
