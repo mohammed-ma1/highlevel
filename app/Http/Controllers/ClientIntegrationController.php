@@ -574,6 +574,8 @@ class ClientIntegrationController extends Controller
          */
         private function sendWebhookToLeadConnector(Request $request, User $user): bool
         {
+            dd($request->all());
+        {
             try {
                 $event = $request->input('event');
                 $locationId = $request->input('locationId');

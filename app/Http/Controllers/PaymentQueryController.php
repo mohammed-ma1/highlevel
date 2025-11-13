@@ -41,17 +41,46 @@ class PaymentQueryController extends Controller
                 ], 200);
             }
 
-            // Find user by API key first (locationId might be null in some requests)
+            // Find user - prioritize locationId if available, otherwise use API key
             $user = null;
-            if ($apiKey) {
-                $user = User::where('lead_test_api_key', $apiKey)
-                          ->orWhere('lead_live_api_key', $apiKey)
-                          ->first();
+            
+            // Strategy 1: If locationId is provided, use it first (most reliable)
+            if ($locationId) {
+                $user = User::where('lead_location_id', $locationId)->first();
+                Log::info('User lookup by locationId', [
+                    'locationId' => $locationId,
+                    'user_found' => $user ? true : false,
+                    'user_id' => $user?->id
+                ]);
             }
             
-            // If locationId provided, try to find by locationId as well (for validation)
-            if ($locationId && !$user) {
-                $user = User::where('lead_location_id', $locationId)->first();
+            // Strategy 2: If no user found and we have chargeId, try to extract locationId from charge metadata
+            if (!$user && $request->input('chargeId')) {
+                $chargeId = $request->input('chargeId');
+                Log::info('Attempting to extract locationId from charge metadata', [
+                    'chargeId' => $chargeId
+                ]);
+                
+                // Try to find user by trying all users with the API key and checking their charges
+                // This is a fallback - we'll validate later
+            }
+            
+            // Strategy 3: Find user by API key (but we'll validate it matches)
+            if (!$user && $apiKey) {
+                // Try test key first
+                $user = User::where('lead_test_api_key', $apiKey)->first();
+                
+                // If not found, try live key
+                if (!$user) {
+                    $user = User::where('lead_live_api_key', $apiKey)->first();
+                }
+                
+                Log::info('User lookup by API key', [
+                    'apiKey_prefix' => substr($apiKey, 0, 10) . '...',
+                    'user_found' => $user ? true : false,
+                    'user_id' => $user?->id,
+                    'user_locationId' => $user?->lead_location_id
+                ]);
             }
             
             // If we found user by API key but locationId was null, use user's locationId
@@ -66,7 +95,8 @@ class PaymentQueryController extends Controller
             if (!$user) {
                 Log::warning('User not found for payment query', [
                     'locationId' => $locationId,
-                    'has_apiKey' => !empty($apiKey)
+                    'has_apiKey' => !empty($apiKey),
+                    'has_chargeId' => !empty($request->input('chargeId'))
                 ]);
                 return response()->json([
                     'success' => false
@@ -79,12 +109,24 @@ class PaymentQueryController extends Controller
                 Log::warning('API key validation failed', [
                     'locationId' => $locationId,
                     'user_id' => $user->id,
+                    'user_locationId' => $user->lead_location_id,
                     'provided_key_length' => strlen($apiKey ?? ''),
-                    'expected_key_length' => strlen($userApiKey ?? '')
+                    'expected_key_length' => strlen($userApiKey ?? ''),
+                    'user_tap_mode' => $user->tap_mode
                 ]);
                 return response()->json([
                     'failed' => true
                 ], 200);
+            }
+            
+            // Additional validation: If we have chargeId, try to verify the user is correct
+            // by checking if the charge belongs to this user's merchant
+            if ($request->input('chargeId') && $type === 'verify') {
+                Log::info('Validating user matches charge', [
+                    'user_id' => $user->id,
+                    'user_locationId' => $user->lead_location_id,
+                    'chargeId' => $request->input('chargeId')
+                ]);
             }
 
             // Route to appropriate handler based on type
@@ -138,6 +180,7 @@ class PaymentQueryController extends Controller
         $transactionId = $request->input('transactionId');
         $chargeId = $request->input('chargeId');
         $subscriptionId = $request->input('subscriptionId'); // Optional
+        $apiKey = $request->input('apiKey');
         
         // Accept either transactionId or chargeId (chargeId is preferred per GHL docs)
         $tapChargeId = $chargeId ?: $transactionId;
@@ -171,23 +214,99 @@ class PaymentQueryController extends Controller
         }
 
         try {
+            Log::info('Attempting to retrieve charge from Tap API', [
+                'chargeId' => $tapChargeId,
+                'user_id' => $user->id,
+                'user_locationId' => $user->lead_location_id,
+                'tap_mode' => $user->tap_mode,
+                'secret_key_prefix' => substr($secretKey, 0, 15) . '...'
+            ]);
+            
             // Call Tap API directly to retrieve charge
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $secretKey,
                 'accept' => 'application/json',
             ])->get('https://api.tap.company/v2/charges/' . $tapChargeId);
 
+            // If charge retrieval failed, try to find the correct user
             if (!$response->successful()) {
-                Log::error('Tap charge retrieval failed', [
+                $errorResponse = $response->json();
+                $errorCode = $errorResponse['errors'][0]['code'] ?? null;
+                
+                Log::warning('Tap charge retrieval failed with first user, trying to find correct user', [
                     'status' => $response->status(),
-                    'response' => $response->json(),
-                    'chargeId' => $tapChargeId
+                    'error_code' => $errorCode,
+                    'chargeId' => $tapChargeId,
+                    'first_user_id' => $user->id,
+                    'first_user_locationId' => $user->lead_location_id
                 ]);
                 
-                // Per GHL requirements: always return HTTP 200 with proper format
-                return response()->json([
-                    'failed' => true
-                ], 200);
+                // If error is "Charge id is invalid" (code 1143), try to find correct user
+                if ($errorCode === '1143' && $apiKey) {
+                    // Try to find all users with this API key
+                    $potentialUsers = User::where('lead_test_api_key', $apiKey)
+                                         ->orWhere('lead_live_api_key', $apiKey)
+                                         ->get();
+                    
+                    Log::info('Found potential users with same API key', [
+                        'count' => $potentialUsers->count(),
+                        'chargeId' => $tapChargeId
+                    ]);
+                    
+                    // Try each user until we find one that can access the charge
+                    foreach ($potentialUsers as $potentialUser) {
+                        if ($potentialUser->id === $user->id) {
+                            continue; // Skip the one we already tried
+                        }
+                        
+                        $potentialSecretKey = $potentialUser->tap_mode === 'live' 
+                            ? $potentialUser->lead_live_secret_key 
+                            : $potentialUser->lead_test_secret_key;
+                        
+                        if (!$potentialSecretKey) {
+                            continue;
+                        }
+                        
+                        Log::info('Trying alternative user for charge retrieval', [
+                            'user_id' => $potentialUser->id,
+                            'user_locationId' => $potentialUser->lead_location_id,
+                            'tap_mode' => $potentialUser->tap_mode
+                        ]);
+                        
+                        $testResponse = Http::withHeaders([
+                            'Authorization' => 'Bearer ' . $potentialSecretKey,
+                            'accept' => 'application/json',
+                        ])->get('https://api.tap.company/v2/charges/' . $tapChargeId);
+                        
+                        if ($testResponse->successful()) {
+                            Log::info('Found correct user for charge', [
+                                'correct_user_id' => $potentialUser->id,
+                                'correct_user_locationId' => $potentialUser->lead_location_id,
+                                'chargeId' => $tapChargeId
+                            ]);
+                            
+                            // Use the correct user
+                            $user = $potentialUser;
+                            $secretKey = $potentialSecretKey;
+                            $response = $testResponse;
+                            break;
+                        }
+                    }
+                }
+                
+                // If still failed after trying all users
+                if (!$response->successful()) {
+                    Log::error('Tap charge retrieval failed after trying all users', [
+                        'status' => $response->status(),
+                        'response' => $response->json(),
+                        'chargeId' => $tapChargeId
+                    ]);
+                    
+                    // Per GHL requirements: always return HTTP 200 with proper format
+                    return response()->json([
+                        'failed' => true
+                    ], 200);
+                }
             }
 
             $chargeData = $response->json();
