@@ -271,8 +271,8 @@ class ClientIntegrationController extends Controller
                         . '?locationId=' . urlencode($locationId);
                 
               $providerPayload = [
-            'name'        => 'Tap Integration',
-            'description' => 'Supports Visa and MasterCard payments via Tap Card SDK, with secure token generation for each transaction. KNET payments redirect customers to the KNET checkout page. The resulting token or KNET source ID is compatible with the Charge API. Note: PayPal is not supported.',
+            'name'        => 'Tap Payments',
+            'description' => 'Innovating payment acceptance & collection in MENA',
             'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
             'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
             'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
@@ -568,81 +568,462 @@ class ClientIntegrationController extends Controller
             return $resp->json() ?? [];
         }
 
+        /**
+         * Handle webhook events from GoHighLevel
+         * Endpoint: https://backend.leadconnectorhq.com/payments/custom-provider/webhook
+         * 
+         * Supported events:
+         * - payment.captured
+         * - subscription.charged
+         * - subscription.trialing
+         * - subscription.active
+         * - subscription.updated
+         */
         public function webhook(Request $request)
         {
-            Log::info('GoHighLevel webhook received', ['request' => $request->all()]);
-            
-            $event = $request->input('event');
-            $locationId = $request->input('locationId');
-            $apiKey = $request->input('apiKey');
-            
-            // Find user by location ID
-            $user = User::where('lead_location_id', $locationId)->first();
-            if (!$user) {
-                Log::warning('User not found for location', ['locationId' => $locationId]);
-                return response()->json(['message' => 'User not found'], 404);
+            try {
+                Log::info('GoHighLevel webhook received', [
+                    'event' => $request->input('event'),
+                    'locationId' => $request->input('locationId'),
+                    'request_data' => $request->all()
+                ]);
+                
+                $event = $request->input('event');
+                $locationId = $request->input('locationId');
+                $apiKey = $request->input('apiKey');
+                
+                // Validate required fields for all events
+                if (!$event) {
+                    Log::warning('Webhook missing event field', ['request' => $request->all()]);
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Event field is required'
+                    ], 400);
+                }
+                
+                if (!$locationId) {
+                    Log::warning('Webhook missing locationId', ['event' => $event]);
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'locationId is required'
+                    ], 400);
+                }
+                
+                if (!$apiKey) {
+                    Log::warning('Webhook missing apiKey', ['event' => $event, 'locationId' => $locationId]);
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'apiKey is required'
+                    ], 400);
+                }
+                
+                // Find user by location ID
+                $user = User::where('lead_location_id', $locationId)->first();
+                if (!$user) {
+                    Log::warning('User not found for location', [
+                        'locationId' => $locationId,
+                        'event' => $event
+                    ]);
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'User not found for locationId: ' . $locationId
+                    ], 404);
+                }
+                
+                // Validate API key matches user's configured key
+                $userApiKey = $user->tap_mode === 'live' ? $user->lead_live_api_key : $user->lead_test_api_key;
+                if ($apiKey !== $userApiKey) {
+                    Log::warning('API key validation failed for webhook', [
+                        'locationId' => $locationId,
+                        'event' => $event,
+                        'provided_key_length' => strlen($apiKey ?? ''),
+                        'expected_key_length' => strlen($userApiKey ?? '')
+                    ]);
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Invalid API key'
+                    ], 401);
+                }
+                
+                // Validate event-specific required fields and handle event
+                $validationResult = $this->validateWebhookEvent($request, $event);
+                if (!$validationResult['valid']) {
+                    Log::warning('Webhook validation failed', [
+                        'event' => $event,
+                        'errors' => $validationResult['errors']
+                    ]);
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Validation failed',
+                        'errors' => $validationResult['errors']
+                    ], 400);
+                }
+                
+                // Handle different webhook events
+                switch ($event) {
+                    case 'payment.captured':
+                        $this->handlePaymentCaptured($request, $user);
+                        break;
+                    case 'subscription.charged':
+                        $this->handleSubscriptionCharged($request, $user);
+                        break;
+                    case 'subscription.trialing':
+                        $this->handleSubscriptionTrialing($request, $user);
+                        break;
+                    case 'subscription.active':
+                        $this->handleSubscriptionActive($request, $user);
+                        break;
+                    case 'subscription.updated':
+                        $this->handleSubscriptionUpdated($request, $user);
+                        break;
+                    default:
+                        Log::warning('Unhandled webhook event', ['event' => $event]);
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Unhandled event type: ' . $event
+                        ], 400);
+                }
+                
+                Log::info('Webhook processed successfully', [
+                    'event' => $event,
+                    'locationId' => $locationId
+                ]);
+                
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Webhook processed successfully',
+                    'event' => $event
+                ]);
+                
+            } catch (\Exception $e) {
+                Log::error('Webhook processing error', [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                    'request_data' => $request->all()
+                ]);
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Internal server error processing webhook'
+                ], 500);
             }
+        }
+        
+        /**
+         * Validate webhook event payload based on event type
+         */
+        private function validateWebhookEvent(Request $request, string $event): array
+        {
+            $errors = [];
             
-            // Handle different webhook events
             switch ($event) {
-                case 'subscription.charged':
-                    $this->handleSubscriptionCharged($request, $user);
-                    break;
-                case 'subscription.trialing':
-                    $this->handleSubscriptionTrialing($request, $user);
-                    break;
-                case 'subscription.active':
-                    $this->handleSubscriptionActive($request, $user);
-                    break;
-                case 'subscription.updated':
-                    $this->handleSubscriptionUpdated($request, $user);
-                    break;
                 case 'payment.captured':
-                    $this->handlePaymentCaptured($request, $user);
+                    // Required: event, chargeId, ghlTransactionId, chargeSnapshot, locationId, apiKey
+                    if (!$request->has('chargeId')) {
+                        $errors[] = 'chargeId is required for payment.captured event';
+                    }
+                    if (!$request->has('ghlTransactionId')) {
+                        $errors[] = 'ghlTransactionId is required for payment.captured event';
+                    }
+                    if (!$request->has('chargeSnapshot')) {
+                        $errors[] = 'chargeSnapshot is required for payment.captured event';
+                    }
                     break;
-                default:
-                    Log::info('Unhandled webhook event', ['event' => $event]);
+                    
+                case 'subscription.updated':
+                    // Required: event, ghlSubscriptionId, subscriptionSnapshot, locationId, apiKey
+                    if (!$request->has('ghlSubscriptionId')) {
+                        $errors[] = 'ghlSubscriptionId is required for subscription.updated event';
+                    }
+                    if (!$request->has('subscriptionSnapshot')) {
+                        $errors[] = 'subscriptionSnapshot is required for subscription.updated event';
+                    }
+                    break;
+                    
+                case 'subscription.trialing':
+                case 'subscription.active':
+                    // Required: event, chargeId, ghlTransactionId, ghlSubscriptionId, marketplaceAppId, locationId, apiKey
+                    if (!$request->has('chargeId')) {
+                        $errors[] = 'chargeId is required for ' . $event . ' event';
+                    }
+                    if (!$request->has('ghlTransactionId')) {
+                        $errors[] = 'ghlTransactionId is required for ' . $event . ' event';
+                    }
+                    if (!$request->has('ghlSubscriptionId')) {
+                        $errors[] = 'ghlSubscriptionId is required for ' . $event . ' event';
+                    }
+                    if (!$request->has('marketplaceAppId')) {
+                        $errors[] = 'marketplaceAppId is required for ' . $event . ' event';
+                    }
+                    break;
+                    
+                case 'subscription.charged':
+                    // Required: event, chargeId, ghlSubscriptionId, subscriptionSnapshot, chargeSnapshot, locationId, apiKey
+                    if (!$request->has('chargeId')) {
+                        $errors[] = 'chargeId is required for subscription.charged event';
+                    }
+                    if (!$request->has('ghlSubscriptionId')) {
+                        $errors[] = 'ghlSubscriptionId is required for subscription.charged event';
+                    }
+                    if (!$request->has('subscriptionSnapshot')) {
+                        $errors[] = 'subscriptionSnapshot is required for subscription.charged event';
+                    }
+                    if (!$request->has('chargeSnapshot')) {
+                        $errors[] = 'chargeSnapshot is required for subscription.charged event';
+                    }
+                    break;
             }
             
-            return response()->json(['message' => 'Webhook processed']);
+            return [
+                'valid' => empty($errors),
+                'errors' => $errors
+            ];
         }
         
-        private function handleSubscriptionCharged(Request $request, User $user)
-        {
-            Log::info('Subscription charged', [
-                'subscriptionId' => $request->input('ghlSubscriptionId'),
-                'chargeId' => $request->input('chargeId'),
-                'amount' => $request->input('chargeSnapshot.amount')
-            ]);
-        }
-        
-        private function handleSubscriptionTrialing(Request $request, User $user)
-        {
-            Log::info('Subscription trialing', [
-                'subscriptionId' => $request->input('ghlSubscriptionId')
-            ]);
-        }
-        
-        private function handleSubscriptionActive(Request $request, User $user)
-        {
-            Log::info('Subscription active', [
-                'subscriptionId' => $request->input('ghlSubscriptionId')
-            ]);
-        }
-        
-        private function handleSubscriptionUpdated(Request $request, User $user)
-        {
-            Log::info('Subscription updated', [
-                'subscriptionId' => $request->input('ghlSubscriptionId')
-            ]);
-        }
-        
+        /**
+         * Handle payment.captured event
+         * Required fields: event, chargeId, ghlTransactionId, chargeSnapshot, locationId, apiKey
+         */
         private function handlePaymentCaptured(Request $request, User $user)
         {
-            Log::info('Payment captured', [
-                'chargeId' => $request->input('chargeId'),
-                'transactionId' => $request->input('ghlTransactionId')
-            ]);
+            try {
+                $chargeId = $request->input('chargeId');
+                $ghlTransactionId = $request->input('ghlTransactionId');
+                $chargeSnapshot = $request->input('chargeSnapshot', []);
+                $locationId = $request->input('locationId');
+                
+                Log::info('Processing payment.captured event', [
+                    'chargeId' => $chargeId,
+                    'ghlTransactionId' => $ghlTransactionId,
+                    'locationId' => $locationId,
+                    'chargeSnapshot' => $chargeSnapshot
+                ]);
+                
+                // Extract charge details from snapshot
+                $amount = $chargeSnapshot['amount'] ?? null;
+                $currency = $chargeSnapshot['currency'] ?? null;
+                $status = $chargeSnapshot['status'] ?? null;
+                
+                // Verify the charge with Tap API if chargeId is available
+                if ($chargeId) {
+                    $isVerified = $this->verifyChargeWithTap($chargeId, $user);
+                    Log::info('Charge verification result', [
+                        'chargeId' => $chargeId,
+                        'verified' => $isVerified
+                    ]);
+                }
+                
+                // TODO: Implement your business logic here
+                // - Update local database records
+                // - Send notifications
+                // - Update order status
+                // - Trigger other workflows
+                
+                Log::info('Payment captured event processed successfully', [
+                    'chargeId' => $chargeId,
+                    'ghlTransactionId' => $ghlTransactionId
+                ]);
+                
+                return ['success' => true];
+                
+            } catch (\Exception $e) {
+                Log::error('Error processing payment.captured event', [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]);
+                throw $e;
+            }
+        }
+        
+        /**
+         * Handle subscription.charged event
+         * Required fields: event, chargeId, ghlSubscriptionId, subscriptionSnapshot, chargeSnapshot, locationId, apiKey
+         */
+        private function handleSubscriptionCharged(Request $request, User $user)
+        {
+            try {
+                $chargeId = $request->input('chargeId');
+                $ghlSubscriptionId = $request->input('ghlSubscriptionId');
+                $subscriptionSnapshot = $request->input('subscriptionSnapshot', []);
+                $chargeSnapshot = $request->input('chargeSnapshot', []);
+                $locationId = $request->input('locationId');
+                
+                Log::info('Processing subscription.charged event', [
+                    'chargeId' => $chargeId,
+                    'ghlSubscriptionId' => $ghlSubscriptionId,
+                    'locationId' => $locationId,
+                    'subscriptionSnapshot' => $subscriptionSnapshot,
+                    'chargeSnapshot' => $chargeSnapshot
+                ]);
+                
+                // Extract subscription details
+                $subscriptionStatus = $subscriptionSnapshot['status'] ?? null;
+                $subscriptionPlan = $subscriptionSnapshot['plan'] ?? null;
+                
+                // Extract charge details
+                $amount = $chargeSnapshot['amount'] ?? null;
+                $currency = $chargeSnapshot['currency'] ?? null;
+                $chargeStatus = $chargeSnapshot['status'] ?? null;
+                
+                // Verify the charge with Tap API if chargeId is available
+                if ($chargeId) {
+                    $isVerified = $this->verifyChargeWithTap($chargeId, $user);
+                    Log::info('Subscription charge verification result', [
+                        'chargeId' => $chargeId,
+                        'verified' => $isVerified
+                    ]);
+                }
+                
+                // TODO: Implement your business logic here
+                // - Update subscription records
+                // - Process recurring payment
+                // - Send notifications
+                // - Update billing records
+                
+                Log::info('Subscription charged event processed successfully', [
+                    'chargeId' => $chargeId,
+                    'ghlSubscriptionId' => $ghlSubscriptionId
+                ]);
+                
+                return ['success' => true];
+                
+            } catch (\Exception $e) {
+                Log::error('Error processing subscription.charged event', [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]);
+                throw $e;
+            }
+        }
+        
+        /**
+         * Handle subscription.trialing event
+         * Required fields: event, chargeId, ghlTransactionId, ghlSubscriptionId, marketplaceAppId, locationId, apiKey
+         */
+        private function handleSubscriptionTrialing(Request $request, User $user)
+        {
+            try {
+                $chargeId = $request->input('chargeId');
+                $ghlTransactionId = $request->input('ghlTransactionId');
+                $ghlSubscriptionId = $request->input('ghlSubscriptionId');
+                $marketplaceAppId = $request->input('marketplaceAppId');
+                $locationId = $request->input('locationId');
+                
+                Log::info('Processing subscription.trialing event', [
+                    'chargeId' => $chargeId,
+                    'ghlTransactionId' => $ghlTransactionId,
+                    'ghlSubscriptionId' => $ghlSubscriptionId,
+                    'marketplaceAppId' => $marketplaceAppId,
+                    'locationId' => $locationId
+                ]);
+                
+                // TODO: Implement your business logic here
+                // - Activate trial period
+                // - Set trial expiration date
+                // - Send welcome email
+                // - Track trial start
+                
+                Log::info('Subscription trialing event processed successfully', [
+                    'ghlSubscriptionId' => $ghlSubscriptionId
+                ]);
+                
+                return ['success' => true];
+                
+            } catch (\Exception $e) {
+                Log::error('Error processing subscription.trialing event', [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]);
+                throw $e;
+            }
+        }
+        
+        /**
+         * Handle subscription.active event
+         * Required fields: event, chargeId, ghlTransactionId, ghlSubscriptionId, marketplaceAppId, locationId, apiKey
+         */
+        private function handleSubscriptionActive(Request $request, User $user)
+        {
+            try {
+                $chargeId = $request->input('chargeId');
+                $ghlTransactionId = $request->input('ghlTransactionId');
+                $ghlSubscriptionId = $request->input('ghlSubscriptionId');
+                $marketplaceAppId = $request->input('marketplaceAppId');
+                $locationId = $request->input('locationId');
+                
+                Log::info('Processing subscription.active event', [
+                    'chargeId' => $chargeId,
+                    'ghlTransactionId' => $ghlTransactionId,
+                    'ghlSubscriptionId' => $ghlSubscriptionId,
+                    'marketplaceAppId' => $marketplaceAppId,
+                    'locationId' => $locationId
+                ]);
+                
+                // TODO: Implement your business logic here
+                // - Activate subscription
+                // - Enable subscription features
+                // - Send activation confirmation
+                // - Update subscription status in database
+                
+                Log::info('Subscription active event processed successfully', [
+                    'ghlSubscriptionId' => $ghlSubscriptionId
+                ]);
+                
+                return ['success' => true];
+                
+            } catch (\Exception $e) {
+                Log::error('Error processing subscription.active event', [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]);
+                throw $e;
+            }
+        }
+        
+        /**
+         * Handle subscription.updated event
+         * Required fields: event, ghlSubscriptionId, subscriptionSnapshot, locationId, apiKey
+         */
+        private function handleSubscriptionUpdated(Request $request, User $user)
+        {
+            try {
+                $ghlSubscriptionId = $request->input('ghlSubscriptionId');
+                $subscriptionSnapshot = $request->input('subscriptionSnapshot', []);
+                $locationId = $request->input('locationId');
+                
+                Log::info('Processing subscription.updated event', [
+                    'ghlSubscriptionId' => $ghlSubscriptionId,
+                    'locationId' => $locationId,
+                    'subscriptionSnapshot' => $subscriptionSnapshot
+                ]);
+                
+                // Extract subscription details
+                $status = $subscriptionSnapshot['status'] ?? null;
+                $plan = $subscriptionSnapshot['plan'] ?? null;
+                $billingCycle = $subscriptionSnapshot['billingCycle'] ?? null;
+                $nextBillingDate = $subscriptionSnapshot['nextBillingDate'] ?? null;
+                
+                // TODO: Implement your business logic here
+                // - Update subscription details in database
+                // - Handle plan changes
+                // - Update billing cycle
+                // - Send update notifications
+                // - Sync subscription status
+                
+                Log::info('Subscription updated event processed successfully', [
+                    'ghlSubscriptionId' => $ghlSubscriptionId,
+                    'status' => $status
+                ]);
+                
+                return ['success' => true];
+                
+            } catch (\Exception $e) {
+                Log::error('Error processing subscription.updated event', [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]);
+                throw $e;
+            }
         }
 
         /**
