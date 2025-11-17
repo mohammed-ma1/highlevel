@@ -110,29 +110,112 @@ class PaymentQueryController extends Controller
                                     }
                                 }
                                 
-                                Log::info('✅ Found user who owns the charge', [
-                                    'user_id' => $potentialUser->id,
-                                    'user_locationId' => $potentialUser->lead_location_id,
-                                    'charge_locationId' => $chargeLocationId,
+                                Log::info('✅ Found charge and extracted locationId', [
+                                    'charge_accessible_by_user_id' => $potentialUser->id,
+                                    'charge_accessible_by_locationId' => $potentialUser->lead_location_id,
+                                    'charge_locationId_from_metadata' => $chargeLocationId,
                                     'mode' => $mode,
                                     'chargeId' => $chargeId,
                                     'locationId_matches' => $chargeLocationId === $potentialUser->lead_location_id
                                 ]);
                                 
-                                // Use this user - they own the charge
-                                $user = $potentialUser;
-                                $user->tap_mode = $mode; // Set correct mode
-                                
-                                // Update locationId if we extracted it from charge
-                                if ($chargeLocationId && !$locationId) {
-                                    $locationId = $chargeLocationId;
-                                    Log::info('Extracted locationId from charge metadata', [
-                                        'locationId' => $locationId,
+                                // CRITICAL: Find the user by the locationId from charge metadata
+                                // This ensures we use the user who created the charge, not just any user who can access it
+                                if ($chargeLocationId) {
+                                    $correctUser = User::where('lead_location_id', $chargeLocationId)->first();
+                                    
+                                    if ($correctUser) {
+                                        Log::info('✅ Found correct user by locationId from charge metadata', [
+                                            'correct_user_id' => $correctUser->id,
+                                            'correct_user_locationId' => $correctUser->lead_location_id,
+                                            'charge_locationId' => $chargeLocationId,
+                                            'chargeId' => $chargeId
+                                        ]);
+                                        
+                                        // Use the correct user
+                                        $user = $correctUser;
+                                        
+                                        // Determine the correct mode for this user
+                                        // Try to verify which mode this user used to create the charge
+                                        $testKey = $correctUser->lead_test_secret_key;
+                                        $liveKey = $correctUser->lead_live_secret_key;
+                                        
+                                        // Check which mode can access the charge
+                                        $finalMode = $mode; // Default to the mode we already verified works
+                                        
+                                        // Double-check: verify the correct user can access with their mode
+                                        $userSecretKey = $finalMode === 'live' ? $liveKey : $testKey;
+                                        if ($userSecretKey) {
+                                            try {
+                                                $verifyResponse = Http::timeout(10)
+                                                    ->withHeaders([
+                                                        'Authorization' => 'Bearer ' . $userSecretKey,
+                                                        'accept' => 'application/json',
+                                                    ])->get('https://api.tap.company/v2/charges/' . $chargeId);
+                                                
+                                                if (!$verifyResponse->successful()) {
+                                                    // Try opposite mode
+                                                    $oppositeMode = $finalMode === 'live' ? 'test' : 'live';
+                                                    $oppositeSecretKey = $oppositeMode === 'live' ? $liveKey : $testKey;
+                                                    
+                                                    if ($oppositeSecretKey) {
+                                                        $verifyResponse2 = Http::timeout(10)
+                                                            ->withHeaders([
+                                                                'Authorization' => 'Bearer ' . $oppositeSecretKey,
+                                                                'accept' => 'application/json',
+                                                            ])->get('https://api.tap.company/v2/charges/' . $chargeId);
+                                                        
+                                                        if ($verifyResponse2->successful()) {
+                                                            $finalMode = $oppositeMode;
+                                                            Log::info('Switched to opposite mode for correct user', [
+                                                                'user_id' => $correctUser->id,
+                                                                'final_mode' => $finalMode
+                                                            ]);
+                                                        }
+                                                    }
+                                                }
+                                            } catch (\Exception $e) {
+                                                Log::warning('Error verifying mode for correct user', [
+                                                    'user_id' => $correctUser->id,
+                                                    'error' => $e->getMessage()
+                                                ]);
+                                            }
+                                        }
+                                        
+                                        $user->tap_mode = $finalMode;
+                                        $locationId = $chargeLocationId;
+                                        
+                                        Log::info('Using correct user for verification', [
+                                            'user_id' => $user->id,
+                                            'user_locationId' => $user->lead_location_id,
+                                            'tap_mode' => $finalMode,
+                                            'chargeId' => $chargeId
+                                        ]);
+                                        
+                                        break 2; // Break out of both loops
+                                    } else {
+                                        Log::warning('Could not find user with locationId from charge metadata', [
+                                            'charge_locationId' => $chargeLocationId,
+                                            'chargeId' => $chargeId
+                                        ]);
+                                        
+                                        // Fallback: use the user who can access the charge
+                                        $user = $potentialUser;
+                                        $user->tap_mode = $mode;
+                                        $locationId = $chargeLocationId;
+                                        break 2;
+                                    }
+                                } else {
+                                    // No locationId in metadata - use the user who can access the charge
+                                    Log::warning('No locationId found in charge metadata, using user who can access charge', [
+                                        'user_id' => $potentialUser->id,
                                         'chargeId' => $chargeId
                                     ]);
+                                    
+                                    $user = $potentialUser;
+                                    $user->tap_mode = $mode;
+                                    break 2;
                                 }
-                                
-                                break 2; // Break out of both loops
                             }
                         } catch (\Exception $e) {
                             Log::warning('Error checking charge ownership', [
