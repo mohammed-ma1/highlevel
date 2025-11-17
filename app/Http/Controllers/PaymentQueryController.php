@@ -222,11 +222,67 @@ class PaymentQueryController extends Controller
                 'secret_key_prefix' => substr($secretKey, 0, 15) . '...'
             ]);
             
-            // Call Tap API directly to retrieve charge
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $secretKey,
-                'accept' => 'application/json',
-            ])->get('https://api.tap.company/v2/charges/' . $tapChargeId);
+            // Call Tap API directly to retrieve charge with timeout and retry
+            $maxRetries = 3;
+            $retryDelay = 1; // seconds
+            $response = null;
+            
+            for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                try {
+                    Log::info('Tap API charge retrieval attempt', [
+                        'attempt' => $attempt,
+                        'max_retries' => $maxRetries,
+                        'chargeId' => $tapChargeId
+                    ]);
+                    
+                    $response = Http::timeout(10) // 10 second timeout
+                        ->retry(2, 500) // Retry 2 times with 500ms delay
+                        ->withHeaders([
+                            'Authorization' => 'Bearer ' . $secretKey,
+                            'accept' => 'application/json',
+                        ])->get('https://api.tap.company/v2/charges/' . $tapChargeId);
+                    
+                    // If successful, break out of retry loop
+                    if ($response->successful()) {
+                        break;
+                    }
+                    
+                    // If not successful and not last attempt, wait and retry
+                    if ($attempt < $maxRetries) {
+                        Log::warning('Tap API charge retrieval attempt failed, retrying', [
+                            'attempt' => $attempt,
+                            'status_code' => $response->status(),
+                            'error' => $response->json() ?? $response->body(),
+                            'will_retry_in_seconds' => $retryDelay
+                        ]);
+                        sleep($retryDelay);
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('Tap API charge retrieval attempt exception', [
+                        'attempt' => $attempt,
+                        'error' => $e->getMessage(),
+                        'will_retry' => $attempt < $maxRetries
+                    ]);
+                    
+                    if ($attempt < $maxRetries) {
+                        sleep($retryDelay);
+                    }
+                }
+            }
+
+            // Check if we got a response after all retries
+            if (!$response) {
+                Log::error('Charge retrieval failed: No response after all retries', [
+                    'chargeId' => $tapChargeId,
+                    'max_retries' => $maxRetries,
+                    'user_id' => $user->id
+                ]);
+                
+                // Per GHL requirements: always return HTTP 200
+                return response()->json([
+                    'failed' => true
+                ], 200);
+            }
 
             // If charge retrieval failed, try to find the correct user
             if (!$response->successful()) {

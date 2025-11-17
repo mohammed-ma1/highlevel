@@ -2120,12 +2120,17 @@ class ClientIntegrationController extends Controller
     {
          try {
              $data = $request->all();
-            Log::info('Payment verification request received', [
+            
+            Log::info('🔍 [VERIFICATION] Payment verification request received', [
                 'type' => $data['type'] ?? 'unknown',
                 'transactionId' => $data['transactionId'] ?? 'unknown',
                 'chargeId' => $data['chargeId'] ?? 'unknown',
                 'apiKey' => $data['apiKey'] ?? 'unknown',
-                'subscriptionId' => $data['subscriptionId'] ?? null
+                'subscriptionId' => $data['subscriptionId'] ?? null,
+                'request_url' => $request->fullUrl(),
+                'request_method' => $request->method(),
+                'timestamp' => now()->toIso8601String(),
+                'all_request_data' => $data
             ]);
 
             // Validate required fields
@@ -2165,21 +2170,29 @@ class ClientIntegrationController extends Controller
             }
 
             // Verify the charge with Tap API
+            $verificationStartTime = microtime(true);
             $isPaymentSuccessful = $this->verifyChargeWithTap($chargeId, $user);
+            $verificationEndTime = microtime(true);
+            $verificationDuration = round(($verificationEndTime - $verificationStartTime) * 1000, 2);
 
             if ($isPaymentSuccessful) {
-                Log::info('Payment verification successful', [
+                Log::info('✅ [VERIFICATION] Payment verification successful', [
                     'chargeId' => $chargeId,
-                    'transactionId' => $transactionId
+                    'transactionId' => $transactionId,
+                    'verification_duration_ms' => $verificationDuration,
+                    'timestamp' => now()->toIso8601String()
                 ]);
 
                 return response()->json([
                     'success' => true
                 ]);
             } else {
-                Log::warning('Payment verification failed', [
+                Log::warning('❌ [VERIFICATION] Payment verification failed', [
                     'chargeId' => $chargeId,
-                    'transactionId' => $transactionId
+                    'transactionId' => $transactionId,
+                    'verification_duration_ms' => $verificationDuration,
+                    'timestamp' => now()->toIso8601String(),
+                    'reason' => 'Charge status is not CAPTURED or AUTHORIZED'
                 ]);
 
                 return response()->json([
@@ -2241,14 +2254,72 @@ class ClientIntegrationController extends Controller
                 'api_url' => 'https://api.tap.company/v2/charges/' . $chargeId
             ]);
 
-            // Call Tap API to get charge details
+            // Call Tap API to get charge details with timeout and retry logic
             $apiStartTime = microtime(true);
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $secretKey,
-                'accept' => 'application/json',
-            ])->get('https://api.tap.company/v2/charges/' . $chargeId);
+            $maxRetries = 3;
+            $retryDelay = 1; // seconds
+            $response = null;
+            $lastError = null;
+            
+            for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                try {
+                    Log::info('Tap API verification attempt', [
+                        'attempt' => $attempt,
+                        'max_retries' => $maxRetries,
+                        'chargeId' => $chargeId
+                    ]);
+                    
+                    $response = Http::timeout(10) // 10 second timeout
+                        ->retry(2, 500) // Retry 2 times with 500ms delay
+                        ->withHeaders([
+                            'Authorization' => 'Bearer ' . $secretKey,
+                            'accept' => 'application/json',
+                        ])->get('https://api.tap.company/v2/charges/' . $chargeId);
+                    
+                    // If successful, break out of retry loop
+                    if ($response->successful()) {
+                        break;
+                    }
+                    
+                    // If not successful and not last attempt, wait and retry
+                    if ($attempt < $maxRetries) {
+                        $lastError = $response->json() ?? $response->body();
+                        Log::warning('Tap API verification attempt failed, retrying', [
+                            'attempt' => $attempt,
+                            'status_code' => $response->status(),
+                            'error' => $lastError,
+                            'will_retry_in_seconds' => $retryDelay
+                        ]);
+                        sleep($retryDelay);
+                    }
+                } catch (\Exception $e) {
+                    $lastError = $e->getMessage();
+                    Log::warning('Tap API verification attempt exception', [
+                        'attempt' => $attempt,
+                        'error' => $lastError,
+                        'will_retry' => $attempt < $maxRetries
+                    ]);
+                    
+                    if ($attempt < $maxRetries) {
+                        sleep($retryDelay);
+                    }
+                }
+            }
+            
             $apiEndTime = microtime(true);
             $apiDuration = round(($apiEndTime - $apiStartTime) * 1000, 2);
+
+            // Check if we got a response after all retries
+            if (!$response) {
+                Log::error('=== VERIFICATION FAILED: No response after all retries ===', [
+                    'chargeId' => $chargeId,
+                    'max_retries' => $maxRetries,
+                    'api_duration_ms' => $apiDuration,
+                    'last_error' => $lastError,
+                    'timestamp' => now()->toIso8601String()
+                ]);
+                return false;
+            }
 
             Log::info('Tap API response received', [
                 'chargeId' => $chargeId,
@@ -2274,6 +2345,8 @@ class ClientIntegrationController extends Controller
             $status = $chargeData['status'] ?? 'UNKNOWN';
             $responseCode = $chargeData['response']['code'] ?? 'unknown';
             $responseMessage = $chargeData['response']['message'] ?? 'unknown';
+            $createdAt = $chargeData['created'] ?? null;
+            $updatedAt = $chargeData['updated'] ?? null;
 
             Log::info('Tap API charge data retrieved', [
                 'chargeId' => $chargeId,
@@ -2282,11 +2355,23 @@ class ClientIntegrationController extends Controller
                 'response_message' => $responseMessage,
                 'amount' => $chargeData['amount'] ?? null,
                 'currency' => $chargeData['currency'] ?? null,
-                'api_duration_ms' => $apiDuration
+                'created_at' => $createdAt,
+                'updated_at' => $updatedAt,
+                'api_duration_ms' => $apiDuration,
+                'full_charge_data' => $chargeData // Log full data for debugging
             ]);
 
             // Consider payment successful if status is CAPTURED or AUTHORIZED
             $isVerified = in_array($status, ['CAPTURED', 'AUTHORIZED']);
+            
+            // Log warning if status is not what we expect for a successful payment
+            if (!$isVerified && in_array($status, ['INITIATED', 'PENDING'])) {
+                Log::warning('Payment verification: Status is still pending', [
+                    'chargeId' => $chargeId,
+                    'status' => $status,
+                    'message' => 'Payment may still be processing. This could cause verification to fail if checked too early.'
+                ]);
+            }
             
             Log::info('=== END: Tap API Charge Verification ===', [
                 'chargeId' => $chargeId,
@@ -2294,6 +2379,8 @@ class ClientIntegrationController extends Controller
                 'verified' => $isVerified,
                 'is_captured' => $status === 'CAPTURED',
                 'is_authorized' => $status === 'AUTHORIZED',
+                'is_pending' => in_array($status, ['INITIATED', 'PENDING']),
+                'is_failed' => in_array($status, ['FAILED', 'DECLINED', 'CANCELLED', 'REVERSED']),
                 'api_duration_ms' => $apiDuration,
                 'timestamp' => now()->toIso8601String()
             ]);
