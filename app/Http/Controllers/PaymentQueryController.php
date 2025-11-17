@@ -623,8 +623,21 @@ class PaymentQueryController extends Controller
                     'locationId' => $user->lead_location_id
                 ]);
                 
-                // Send payment.captured webhook event to LeadConnector
-                $this->sendPaymentCapturedWebhook($request, $user, $tapChargeId, $transactionId, $chargeData);
+                // Check if we've already sent a webhook for this charge recently (prevent duplicates)
+                $webhookCacheKey = 'webhook_sent_' . $tapChargeId . '_' . $transactionId;
+                $recentlySent = cache()->get($webhookCacheKey);
+                
+                if ($recentlySent) {
+                    Log::warning('Webhook already sent recently for this charge, skipping duplicate', [
+                        'chargeId' => $tapChargeId,
+                        'transactionId' => $transactionId,
+                        'last_sent_at' => $recentlySent
+                    ]);
+                } else {
+                    // Send payment.captured webhook event to LeadConnector
+                    // Note: The webhook function will cache success internally
+                    $this->sendPaymentCapturedWebhook($request, $user, $tapChargeId, $transactionId, $chargeData);
+                }
             }
 
             // Return response according to GHL documentation
@@ -989,17 +1002,50 @@ class PaymentQueryController extends Controller
             ]);
             
             // Build chargeSnapshot from Tap API charge data
+            // GHL expects: id, status, amount, currency, chargedAt (timestamp), response (code, message)
+            $transactionCreated = $chargeData['transaction']['created'] ?? $chargeData['created'] ?? time() * 1000;
+            $chargedAt = is_numeric($transactionCreated) ? (int)$transactionCreated : strtotime($transactionCreated) * 1000;
+            
             $chargeSnapshot = [
                 'id' => $chargeId,
                 'status' => strtolower($chargeData['status'] ?? 'unknown'),
                 'amount' => $chargeData['amount'] ?? 0,
                 'currency' => $chargeData['currency'] ?? 'KWD',
-                'created' => $chargeData['transaction']['created'] ?? time() * 1000,
+                'chargedAt' => $chargedAt, // GHL expects chargedAt (timestamp in milliseconds)
                 'response' => [
                     'code' => $chargeData['response']['code'] ?? 'unknown',
                     'message' => $chargeData['response']['message'] ?? 'unknown'
                 ]
             ];
+            
+            // Validate required fields before building payload
+            $validationErrors = [];
+            if (empty($chargeId)) {
+                $validationErrors[] = 'chargeId is missing';
+            }
+            if (empty($transactionId)) {
+                $validationErrors[] = 'ghlTransactionId (transactionId) is missing';
+            }
+            if (empty($locationId)) {
+                $validationErrors[] = 'locationId is missing';
+            }
+            if (empty($apiKey)) {
+                $validationErrors[] = 'apiKey is missing';
+            }
+            if (empty($chargeSnapshot['id'])) {
+                $validationErrors[] = 'chargeSnapshot.id is missing';
+            }
+            
+            if (!empty($validationErrors)) {
+                Log::error('=== WEBHOOK VALIDATION FAILED ===', [
+                    'chargeId' => $chargeId,
+                    'transactionId' => $transactionId,
+                    'locationId' => $locationId,
+                    'validation_errors' => $validationErrors,
+                    'chargeSnapshot' => $chargeSnapshot
+                ]);
+                return; // Don't send invalid webhook
+            }
             
             // Build webhook payload for payment.captured event
             $payload = [
@@ -1015,42 +1061,110 @@ class PaymentQueryController extends Controller
                 'chargeId' => $chargeId,
                 'transactionId' => $transactionId,
                 'locationId' => $locationId,
+                'apiKey_length' => strlen($apiKey),
+                'apiKey_prefix' => substr($apiKey, 0, 10) . '...',
                 'payload_keys' => array_keys($payload),
-                'chargeSnapshot' => $chargeSnapshot
+                'chargeSnapshot' => $chargeSnapshot,
+                'payload_json' => json_encode($payload) // Log full payload for debugging
             ]);
             
-            // Send webhook to LeadConnector backend
+            // Send webhook to LeadConnector backend with retry logic
             $webhookUrl = 'https://backend.leadconnectorhq.com/payments/custom-provider/webhook';
+            $maxRetries = 3;
+            $retryDelay = 2; // seconds
+            $response = null;
+            $webhookSuccess = false;
             
-            $startTime = microtime(true);
-            $response = Http::timeout(30)
-                ->acceptJson()
-                ->post($webhookUrl, $payload);
-            $endTime = microtime(true);
-            $duration = round(($endTime - $startTime) * 1000, 2);
+            for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                try {
+                    Log::info('Webhook send attempt', [
+                        'attempt' => $attempt,
+                        'max_retries' => $maxRetries,
+                        'chargeId' => $chargeId,
+                        'transactionId' => $transactionId
+                    ]);
+                    
+                    $startTime = microtime(true);
+                    $response = Http::timeout(30)
+                        ->retry(1, 1000) // Retry once with 1 second delay for network issues
+                        ->acceptJson()
+                        ->post($webhookUrl, $payload);
+                    $endTime = microtime(true);
+                    $duration = round(($endTime - $startTime) * 1000, 2);
+                    
+                    if ($response->successful()) {
+                        $responseBody = $response->json();
+                        Log::info('=== SUCCESS: payment.captured webhook sent to LeadConnector ===', [
+                            'chargeId' => $chargeId,
+                            'transactionId' => $transactionId,
+                            'locationId' => $locationId,
+                            'response_status' => $response->status(),
+                            'response_body' => $responseBody,
+                            'duration_ms' => $duration,
+                            'attempt' => $attempt,
+                            'timestamp' => now()->toIso8601String()
+                        ]);
+                        $webhookSuccess = true;
+                        
+                        // Cache that we successfully sent this webhook (expires in 5 minutes to prevent duplicates)
+                        $webhookCacheKey = 'webhook_sent_' . $chargeId . '_' . $transactionId;
+                        cache()->put($webhookCacheKey, now()->toIso8601String(), 300);
+                        
+                        break; // Success, exit retry loop
+                    } else {
+                        $errorResponse = $response->json() ?? $response->body();
+                        Log::warning('Webhook send attempt failed', [
+                            'attempt' => $attempt,
+                            'chargeId' => $chargeId,
+                            'transactionId' => $transactionId,
+                            'locationId' => $locationId,
+                            'status_code' => $response->status(),
+                            'response_body' => $errorResponse,
+                            'response_raw' => $response->body(),
+                            'duration_ms' => $duration,
+                            'will_retry' => $attempt < $maxRetries
+                        ]);
+                        
+                        // If it's a client error (4xx), don't retry - it's likely a payload issue
+                        if ($response->status() >= 400 && $response->status() < 500) {
+                            Log::error('Webhook rejected by server (client error), not retrying', [
+                                'status_code' => $response->status(),
+                                'response' => $errorResponse
+                            ]);
+                            break;
+                        }
+                        
+                        // Retry for server errors (5xx) or network issues
+                        if ($attempt < $maxRetries) {
+                            sleep($retryDelay);
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('Webhook send attempt exception', [
+                        'attempt' => $attempt,
+                        'error' => $e->getMessage(),
+                        'will_retry' => $attempt < $maxRetries
+                    ]);
+                    
+                    if ($attempt < $maxRetries) {
+                        sleep($retryDelay);
+                    }
+                }
+            }
             
-            if ($response->successful()) {
-                $responseBody = $response->json();
-                Log::info('=== SUCCESS: payment.captured webhook sent to LeadConnector ===', [
+            // Log final result
+            if (!$webhookSuccess) {
+                $errorResponse = $response ? ($response->json() ?? $response->body()) : 'No response received';
+                Log::error('=== FAILED: payment.captured webhook send to LeadConnector after all retries ===', [
                     'chargeId' => $chargeId,
                     'transactionId' => $transactionId,
                     'locationId' => $locationId,
-                    'response_status' => $response->status(),
-                    'response_body' => $responseBody,
-                    'duration_ms' => $duration,
-                    'timestamp' => now()->toIso8601String()
-                ]);
-            } else {
-                $errorResponse = $response->json() ?? $response->body();
-                Log::error('=== FAILED: payment.captured webhook send to LeadConnector ===', [
-                    'chargeId' => $chargeId,
-                    'transactionId' => $transactionId,
-                    'locationId' => $locationId,
-                    'status_code' => $response->status(),
-                    'response_body' => $errorResponse,
-                    'response_raw' => $response->body(),
-                    'duration_ms' => $duration,
-                    'timestamp' => now()->toIso8601String()
+                    'max_retries' => $maxRetries,
+                    'final_status_code' => $response ? $response->status() : 'N/A',
+                    'final_response_body' => $errorResponse,
+                    'final_response_raw' => $response ? $response->body() : 'N/A',
+                    'timestamp' => now()->toIso8601String(),
+                    'payload_sent' => $payload // Log payload for debugging
                 ]);
             }
             
