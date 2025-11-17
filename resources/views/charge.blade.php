@@ -1688,44 +1688,83 @@
         }
 
         if (tapResponse.ok && result.success && result.charge) {
-          console.log('✅ Tap charge created successfully:', result.charge);
+          console.log('✅ Tap charge created successfully');
+          console.log('📦 Full charge response:', JSON.stringify(result.charge, null, 2));
           
           // Handle payment redirect based on browser and payment method
           if (result.charge.transaction?.url) {
-            console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
+            console.log('🔗 Transaction URL found:', result.charge.transaction.url);
+            console.log('🔍 Full transaction object:', JSON.stringify(result.charge.transaction, null, 2));
+            console.log('🔍 Full source object:', JSON.stringify(result.charge.source, null, 2));
             
             // Detect if this is a KNET payment (external redirect)
+            console.log('🔍 Starting KNET detection...');
             const isKnetPayment = isKnetPaymentMethod(result.charge);
-            console.log('🔍 Payment method detection:', {
+            console.log('🔍 KNET detection result:', isKnetPayment);
+            console.log('🔍 Payment method detection summary:', {
               isKnet: isKnetPayment,
               transactionUrl: result.charge.transaction.url,
-              source: result.charge.source
+              source: result.charge.source,
+              sourceId: result.charge.source?.id,
+              sourceType: result.charge.source?.type,
+              sourceObject: result.charge.source?.object,
+              metadata: result.charge.metadata
             });
             
             // Double-check Safari detection before showing popup
+            console.log('🔍 Starting browser detection...');
             const currentSafariCheck = detectSafari();
+            console.log('🔍 Browser detection result:', {
+              isSafari: currentSafariCheck,
+              userAgent: navigator.userAgent,
+              platform: navigator.platform,
+              vendor: navigator.vendor
+            });
             
             // Use popup for Safari OR Chrome with KNET (external redirect payments)
-            if (currentSafariCheck || isKnetPayment) {
+            const shouldUsePopup = currentSafariCheck || isKnetPayment;
+            console.log('🔍 Popup decision logic:', {
+              isSafari: currentSafariCheck,
+              isKnet: isKnetPayment,
+              shouldUsePopup: shouldUsePopup,
+              decision: shouldUsePopup ? 'USE POPUP' : 'USE DIRECT REDIRECT'
+            });
+            
+            if (shouldUsePopup) {
               // Use popup for Safari (desktop and mobile) to avoid iframe payment restrictions
               // OR for KNET payments in Chrome (to preserve iframe context for redirect)
               const reason = currentSafariCheck ? 'Safari browser' : 'KNET payment (external redirect)';
               console.log(`🍎 ${reason} detected - showing proceed payment popup`);
               console.log('📱 User Agent:', navigator.userAgent);
+              console.log('🔍 About to show popup, checking payment container...');
+              
               const paymentContainer = document.querySelector('.payment-container');
+              console.log('🔍 Payment container found:', !!paymentContainer);
               if (paymentContainer) {
+                console.log('✅ Showing payment container');
                 paymentContainer.style.display = 'block';
+              } else {
+                console.warn('⚠️ Payment container not found!');
               }
+              
+              console.log('🔍 Calling showProceedPaymentPopup with:', {
+                url: result.charge.transaction.url,
+                isKnetPayment: isKnetPayment
+              });
               showProceedPaymentPopup(result.charge.transaction.url, isKnetPayment);
             } else {
               // Direct redirect for all other browsers with non-KNET payments - NO POPUP
               console.log('🌐 Non-Safari browser with non-KNET payment - using direct redirect (NO POPUP)');
               console.log('🌐 User Agent:', navigator.userAgent);
+              console.log('⏱️ Will redirect in 500ms to:', result.charge.transaction.url);
               setTimeout(() => {
+                console.log('🔄 Executing direct redirect now...');
                 window.location.href = result.charge.transaction.url;
               }, 500);
             }
           } else {
+            console.error('❌ No transaction URL in charge response');
+            console.log('🔍 Available charge properties:', Object.keys(result.charge));
             showError('No checkout URL received from Tap');
             showButton();
           }
@@ -1749,53 +1788,94 @@
 
     // Detect if payment method is KNET (external redirect)
     function isKnetPaymentMethod(charge) {
+      console.log('🔍 [KNET Detection] Starting detection with charge:', {
+        hasSource: !!charge.source,
+        hasTransaction: !!charge.transaction,
+        hasMetadata: !!charge.metadata,
+        fullCharge: charge
+      });
+      
       try {
         // Check if source indicates KNET
         if (charge.source) {
+          console.log('🔍 [KNET Detection] Checking source object:', charge.source);
           const sourceId = charge.source.id || '';
           const sourceType = charge.source.type || '';
           const sourceObject = charge.source.object || '';
+          
+          console.log('🔍 [KNET Detection] Source values:', {
+            sourceId: sourceId,
+            sourceType: sourceType,
+            sourceObject: sourceObject
+          });
           
           // KNET typically has specific identifiers
           if (sourceId.toLowerCase().includes('knet') || 
               sourceType.toLowerCase().includes('knet') ||
               sourceObject.toLowerCase().includes('knet')) {
-            console.log('🔍 KNET detected from source:', charge.source);
+            console.log('✅ [KNET Detection] KNET detected from source:', charge.source);
             return true;
+          } else {
+            console.log('❌ [KNET Detection] No KNET found in source');
           }
+        } else {
+          console.log('⚠️ [KNET Detection] No source object in charge');
         }
         
         // Check transaction URL for KNET indicators
         if (charge.transaction?.url) {
           const url = charge.transaction.url.toLowerCase();
+          console.log('🔍 [KNET Detection] Checking transaction URL:', url);
+          
           if (url.includes('knet') || url.includes('redirect') || url.includes('external')) {
-            console.log('🔍 KNET detected from transaction URL');
+            console.log('✅ [KNET Detection] KNET detected from transaction URL (contains knet/redirect/external)');
             return true;
+          } else {
+            console.log('❌ [KNET Detection] Transaction URL does not contain knet/redirect/external');
           }
+        } else {
+          console.log('⚠️ [KNET Detection] No transaction URL in charge');
         }
         
         // Check if payment method in metadata or description
         if (charge.metadata) {
           const metadataStr = JSON.stringify(charge.metadata).toLowerCase();
+          console.log('🔍 [KNET Detection] Checking metadata:', metadataStr);
+          
           if (metadataStr.includes('knet')) {
-            console.log('🔍 KNET detected from metadata');
+            console.log('✅ [KNET Detection] KNET detected from metadata');
             return true;
+          } else {
+            console.log('❌ [KNET Detection] No KNET found in metadata');
           }
+        } else {
+          console.log('⚠️ [KNET Detection] No metadata in charge');
         }
         
         // If transaction URL is external (not Tap-hosted), it's likely KNET or similar redirect payment
         if (charge.transaction?.url) {
           const url = charge.transaction.url;
           const isTapHosted = url.includes('tap.company') || url.includes('tap-payments.com');
+          console.log('🔍 [KNET Detection] Checking if URL is Tap-hosted:', {
+            url: url,
+            isTapHosted: isTapHosted,
+            containsTapCompany: url.includes('tap.company'),
+            containsTapPayments: url.includes('tap-payments.com')
+          });
+          
           if (!isTapHosted) {
-            console.log('🔍 External redirect detected (likely KNET or similar)');
+            console.log('✅ [KNET Detection] External redirect detected (not Tap-hosted, likely KNET or similar)');
             return true;
+          } else {
+            console.log('❌ [KNET Detection] URL is Tap-hosted, not external redirect');
           }
         }
         
+        console.log('❌ [KNET Detection] No KNET indicators found - returning false');
         return false;
       } catch (error) {
-        console.warn('⚠️ Error detecting KNET payment method:', error);
+        console.error('❌ [KNET Detection] Error detecting KNET payment method:', error);
+        console.error('❌ [KNET Detection] Error stack:', error.stack);
         return false;
       }
     }
@@ -1858,19 +1938,32 @@
 
     // Show proceed payment popup for Safari or KNET payments
     function showProceedPaymentPopup(url, isKnetPayment = false) {
+      console.log('🔍 [showProceedPaymentPopup] Function called with:', {
+        url: url,
+        isKnetPayment: isKnetPayment
+      });
+      
       // Final safety check - ensure this is Safari OR KNET payment
       const finalSafariCheck = detectSafari();
+      console.log('🔍 [showProceedPaymentPopup] Final Safari check:', finalSafariCheck);
+      
       if (!finalSafariCheck && !isKnetPayment) {
-        console.error('❌ Security: showProceedPaymentPopup called but not Safari or KNET! Redirecting instead.');
+        console.error('❌ [showProceedPaymentPopup] Security: Called but not Safari or KNET! Redirecting instead.');
+        console.error('❌ [showProceedPaymentPopup] Details:', {
+          isSafari: finalSafariCheck,
+          isKnet: isKnetPayment,
+          userAgent: navigator.userAgent
+        });
         setTimeout(() => {
+          console.log('🔄 [showProceedPaymentPopup] Executing fallback redirect...');
           window.location.href = url;
         }, 500);
         return;
       }
       
       const reason = finalSafariCheck ? 'Safari browser' : 'KNET payment (external redirect)';
-      console.log(`🔗 Showing proceed payment popup for ${reason}:`, url);
-      console.log('🔍 Verification:', {
+      console.log(`🔗 [showProceedPaymentPopup] Showing proceed payment popup for ${reason}:`, url);
+      console.log('🔍 [showProceedPaymentPopup] Verification:', {
         isSafari: finalSafariCheck,
         isKnet: isKnetPayment,
         userAgent: navigator.userAgent,
@@ -1878,10 +1971,17 @@
         isMobile: /iPhone|iPad|iPod/.test(navigator.userAgent) || ('ontouchend' in document)
       });
       
+      console.log('🔍 [showProceedPaymentPopup] Looking for payment body and container...');
       const paymentBody = document.querySelector('.payment-body');
       const paymentContainer = document.querySelector('.payment-container');
       
+      console.log('🔍 [showProceedPaymentPopup] Elements found:', {
+        paymentBody: !!paymentBody,
+        paymentContainer: !!paymentContainer
+      });
+      
       if (paymentBody && paymentContainer) {
+        console.log('✅ [showProceedPaymentPopup] Setting up popup UI...');
         // Show popup content directly without any card before
         paymentBody.innerHTML = `
           <div class="popup-payment-content">
@@ -1901,45 +2001,83 @@
             <img src="{{ asset('https://images.leadconnectorhq.com/image/f_webp/q_80/r_1200/u_https://assets.cdn.filesafe.space/xAN9Y8iZDOugbNvKBKad/media/6901e4a9a412c65d60fb7f4b.png') }}" alt="Tap" class="payment-logo">
           </div>
         `;
+        console.log('✅ [showProceedPaymentPopup] Popup UI set up');
+      } else {
+        console.error('❌ [showProceedPaymentPopup] Payment body or container not found!');
+        console.error('❌ [showProceedPaymentPopup] Available elements:', {
+          paymentBody: paymentBody,
+          paymentContainer: paymentContainer,
+          bodyHTML: paymentBody?.innerHTML,
+          containerDisplay: paymentContainer?.style.display
+        });
       }
       
       // Store URL for button click
       window.openPaymentUrl = url;
+      console.log('✅ [showProceedPaymentPopup] Stored URL in window.openPaymentUrl:', window.openPaymentUrl);
       
       // Update button to open in a proper popup window (not redirect parent)
+      console.log('🔍 [showProceedPaymentPopup] Looking for proceed button...');
       const proceedBtn = document.getElementById('proceed-payment-btn');
+      console.log('🔍 [showProceedPaymentPopup] Proceed button found:', !!proceedBtn);
+      
       if (proceedBtn) {
+        console.log('✅ [showProceedPaymentPopup] Setting up button click handler...');
         proceedBtn.onclick = function() {
           const reason = isKnetPayment ? 'KNET payment (external redirect)' : 'Safari browser';
-          console.log(`🔗 Opening payment URL in popup window for ${reason}`);
+          console.log(`🔗 [Button Click] Opening payment URL in popup window for ${reason}`);
+          console.log('🔍 [Button Click] URL to open:', url);
+          console.log('🔍 [Button Click] Window context:', {
+            hasOpener: !!(window.opener && window.opener !== window),
+            hasParent: !!(window.parent && window.parent !== window),
+            hasTop: !!(window.top && window.top !== window),
+            isIframe: window !== window.top
+          });
           
           // Open payment URL in a popup window
           // This preserves the iframe context so redirect can communicate back
           // For KNET: popup ensures redirect back works properly in Chrome
           // For Safari: popup avoids iframe payment restrictions
           const popupFeatures = 'width=800,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no';
+          console.log('🔍 [Button Click] Opening popup with features:', popupFeatures);
+          
           paymentPopup = window.open(url, 'tap_payment', popupFeatures);
+          console.log('🔍 [Button Click] window.open result:', {
+            paymentPopup: paymentPopup,
+            isNull: paymentPopup === null,
+            isUndefined: paymentPopup === undefined,
+            type: typeof paymentPopup
+          });
           
           if (!paymentPopup) {
-            console.error('❌ Popup blocked! Falling back to redirect.');
+            console.error('❌ [Button Click] Popup blocked! Falling back to redirect.');
+            console.error('❌ [Button Click] This means popup was blocked by browser');
             // Fallback: if popup is blocked, try redirect (but this will break communication)
             if (window.top && window.top !== window) {
+              console.log('🔄 [Button Click] Falling back to window.top.location.href');
               window.top.location.href = url;
             } else if (window.parent && window.parent !== window) {
+              console.log('🔄 [Button Click] Falling back to window.parent.location.href');
               window.parent.location.href = url;
             } else {
+              console.log('🔄 [Button Click] Falling back to window.location.href');
               window.location.href = url;
             }
             return;
           }
           
-          console.log('✅ Payment popup opened successfully');
+          console.log('✅ [Button Click] Payment popup opened successfully');
+          console.log('🔍 [Button Click] Popup details:', {
+            closed: paymentPopup.closed,
+            location: paymentPopup.location?.href || 'N/A (cross-origin)'
+          });
           
           // Monitor popup for closure (user might close it manually)
+          console.log('🔍 [Button Click] Setting up popup close monitoring...');
           const checkClosed = setInterval(() => {
             if (paymentPopup.closed) {
               clearInterval(checkClosed);
-              console.log('🚪 Payment popup was closed by user');
+              console.log('🚪 [Popup Monitor] Payment popup was closed by user');
               // Optionally send close message to GHL
               sendCloseResponse();
             }
@@ -1947,7 +2085,12 @@
           
           // Store interval for cleanup
           window.paymentPopupCheckInterval = checkClosed;
+          console.log('✅ [Button Click] Popup monitoring started');
         };
+        console.log('✅ [showProceedPaymentPopup] Button click handler set up');
+      } else {
+        console.error('❌ [showProceedPaymentPopup] Proceed button not found after setting up UI!');
+        console.error('❌ [showProceedPaymentPopup] Current document HTML:', document.body.innerHTML.substring(0, 500));
       }
     }
 
