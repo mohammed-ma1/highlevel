@@ -222,59 +222,55 @@ class PaymentQueryController extends Controller
                 'secret_key_prefix' => substr($secretKey, 0, 15) . '...'
             ]);
             
-            // Call Tap API directly to retrieve charge with timeout and retry
-            $maxRetries = 3;
-            $retryDelay = 1; // seconds
+            // Call Tap API directly to retrieve charge with timeout
+            // Note: We don't retry here if we get error 1143 (invalid charge), as it means wrong user/mode
             $response = null;
+            $errorCode = null;
             
-            for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
-                try {
-                    Log::info('Tap API charge retrieval attempt', [
-                        'attempt' => $attempt,
-                        'max_retries' => $maxRetries,
-                        'chargeId' => $tapChargeId
+            try {
+                Log::info('Tap API charge retrieval attempt', [
+                    'chargeId' => $tapChargeId,
+                    'user_id' => $user->id,
+                    'tap_mode' => $user->tap_mode
+                ]);
+                
+                $response = Http::timeout(10) // 10 second timeout
+                    ->withHeaders([
+                        'Authorization' => 'Bearer ' . $secretKey,
+                        'accept' => 'application/json',
+                    ])->get('https://api.tap.company/v2/charges/' . $tapChargeId);
+                
+                // Extract error code if request failed
+                if (!$response->successful()) {
+                    $errorResponse = $response->json();
+                    $errorCode = $errorResponse['errors'][0]['code'] ?? null;
+                    
+                    Log::warning('Tap API charge retrieval failed', [
+                        'status_code' => $response->status(),
+                        'error_code' => $errorCode,
+                        'error_description' => $errorResponse['errors'][0]['description'] ?? null,
+                        'chargeId' => $tapChargeId,
+                        'user_id' => $user->id,
+                        'tap_mode' => $user->tap_mode
                     ]);
-                    
-                    $response = Http::timeout(10) // 10 second timeout
-                        ->retry(2, 500) // Retry 2 times with 500ms delay
-                        ->withHeaders([
-                            'Authorization' => 'Bearer ' . $secretKey,
-                            'accept' => 'application/json',
-                        ])->get('https://api.tap.company/v2/charges/' . $tapChargeId);
-                    
-                    // If successful, break out of retry loop
-                    if ($response->successful()) {
-                        break;
-                    }
-                    
-                    // If not successful and not last attempt, wait and retry
-                    if ($attempt < $maxRetries) {
-                        Log::warning('Tap API charge retrieval attempt failed, retrying', [
-                            'attempt' => $attempt,
-                            'status_code' => $response->status(),
-                            'error' => $response->json() ?? $response->body(),
-                            'will_retry_in_seconds' => $retryDelay
-                        ]);
-                        sleep($retryDelay);
-                    }
-                } catch (\Exception $e) {
-                    Log::warning('Tap API charge retrieval attempt exception', [
-                        'attempt' => $attempt,
-                        'error' => $e->getMessage(),
-                        'will_retry' => $attempt < $maxRetries
-                    ]);
-                    
-                    if ($attempt < $maxRetries) {
-                        sleep($retryDelay);
-                    }
+                }
+            } catch (\Exception $e) {
+                Log::error('Tap API charge retrieval exception', [
+                    'error' => $e->getMessage(),
+                    'chargeId' => $tapChargeId,
+                    'user_id' => $user->id
+                ]);
+                
+                // Try to extract error from exception message if it contains JSON
+                if (preg_match('/"code":"(\d+)"/', $e->getMessage(), $matches)) {
+                    $errorCode = $matches[1];
                 }
             }
 
-            // Check if we got a response after all retries
+            // Check if we got a response
             if (!$response) {
-                Log::error('Charge retrieval failed: No response after all retries', [
+                Log::error('Charge retrieval failed: No response received', [
                     'chargeId' => $tapChargeId,
-                    'max_retries' => $maxRetries,
                     'user_id' => $user->id
                 ]);
                 
@@ -284,68 +280,141 @@ class PaymentQueryController extends Controller
                 ], 200);
             }
 
-            // If charge retrieval failed, try to find the correct user
+            // If charge retrieval failed, try to find the correct user or mode
             if (!$response->successful()) {
-                $errorResponse = $response->json();
-                $errorCode = $errorResponse['errors'][0]['code'] ?? null;
+                // If error code wasn't extracted yet, get it from response
+                if (!$errorCode) {
+                    $errorResponse = $response->json();
+                    $errorCode = $errorResponse['errors'][0]['code'] ?? null;
+                }
                 
-                Log::warning('Tap charge retrieval failed with first user, trying to find correct user', [
+                Log::warning('Tap charge retrieval failed, attempting to find correct user/mode', [
                     'status' => $response->status(),
                     'error_code' => $errorCode,
                     'chargeId' => $tapChargeId,
                     'first_user_id' => $user->id,
-                    'first_user_locationId' => $user->lead_location_id
+                    'first_user_locationId' => $user->lead_location_id,
+                    'first_user_tap_mode' => $user->tap_mode
                 ]);
                 
-                // If error is "Charge id is invalid" (code 1143), try to find correct user
-                if ($errorCode === '1143' && $apiKey) {
-                    // Try to find all users with this API key
-                    $potentialUsers = User::where('lead_test_api_key', $apiKey)
-                                         ->orWhere('lead_live_api_key', $apiKey)
-                                         ->get();
+                // If error is "Charge id is invalid" (code 1143), try alternative approaches
+                if ($errorCode === '1143') {
+                    $foundCorrectUser = false;
                     
-                    Log::info('Found potential users with same API key', [
-                        'count' => $potentialUsers->count(),
-                        'chargeId' => $tapChargeId
-                    ]);
+                    // Strategy 1: Try opposite mode (test vs live) for same user
+                    $oppositeMode = $user->tap_mode === 'live' ? 'test' : 'live';
+                    $oppositeSecretKey = $oppositeMode === 'live' 
+                        ? $user->lead_live_secret_key 
+                        : $user->lead_test_secret_key;
                     
-                    // Try each user until we find one that can access the charge
-                    foreach ($potentialUsers as $potentialUser) {
-                        if ($potentialUser->id === $user->id) {
-                            continue; // Skip the one we already tried
-                        }
-                        
-                        $potentialSecretKey = $potentialUser->tap_mode === 'live' 
-                            ? $potentialUser->lead_live_secret_key 
-                            : $potentialUser->lead_test_secret_key;
-                        
-                        if (!$potentialSecretKey) {
-                            continue;
-                        }
-                        
-                        Log::info('Trying alternative user for charge retrieval', [
-                            'user_id' => $potentialUser->id,
-                            'user_locationId' => $potentialUser->lead_location_id,
-                            'tap_mode' => $potentialUser->tap_mode
+                    if ($oppositeSecretKey) {
+                        Log::info('Trying opposite mode for same user', [
+                            'user_id' => $user->id,
+                            'current_mode' => $user->tap_mode,
+                            'trying_mode' => $oppositeMode,
+                            'chargeId' => $tapChargeId
                         ]);
                         
-                        $testResponse = Http::withHeaders([
-                            'Authorization' => 'Bearer ' . $potentialSecretKey,
-                            'accept' => 'application/json',
-                        ])->get('https://api.tap.company/v2/charges/' . $tapChargeId);
-                        
-                        if ($testResponse->successful()) {
-                            Log::info('Found correct user for charge', [
-                                'correct_user_id' => $potentialUser->id,
-                                'correct_user_locationId' => $potentialUser->lead_location_id,
-                                'chargeId' => $tapChargeId
-                            ]);
+                        try {
+                            $testResponse = Http::timeout(10)
+                                ->withHeaders([
+                                    'Authorization' => 'Bearer ' . $oppositeSecretKey,
+                                    'accept' => 'application/json',
+                                ])->get('https://api.tap.company/v2/charges/' . $tapChargeId);
                             
-                            // Use the correct user
-                            $user = $potentialUser;
-                            $secretKey = $potentialSecretKey;
-                            $response = $testResponse;
-                            break;
+                            if ($testResponse->successful()) {
+                                Log::info('✅ Found correct mode for user', [
+                                    'user_id' => $user->id,
+                                    'correct_mode' => $oppositeMode,
+                                    'chargeId' => $tapChargeId
+                                ]);
+                                
+                                $user->tap_mode = $oppositeMode; // Update mode for this request
+                                $secretKey = $oppositeSecretKey;
+                                $response = $testResponse;
+                                $foundCorrectUser = true;
+                            }
+                        } catch (\Exception $e) {
+                            Log::warning('Failed to retrieve charge with opposite mode', [
+                                'error' => $e->getMessage(),
+                                'mode' => $oppositeMode
+                            ]);
+                        }
+                    }
+                    
+                    // Strategy 2: Try to find all users with this API key (if not found yet)
+                    if (!$foundCorrectUser && $apiKey) {
+                        // Try to find all users with this API key
+                        $potentialUsers = User::where('lead_test_api_key', $apiKey)
+                                             ->orWhere('lead_live_api_key', $apiKey)
+                                             ->get();
+                        
+                        Log::info('Found potential users with same API key', [
+                            'count' => $potentialUsers->count(),
+                            'chargeId' => $tapChargeId
+                        ]);
+                        
+                        // Try each user (both modes) until we find one that can access the charge
+                        foreach ($potentialUsers as $potentialUser) {
+                            // Try both test and live modes for each user
+                            foreach (['test', 'live'] as $mode) {
+                                $modeSecretKey = $mode === 'live' 
+                                    ? $potentialUser->lead_live_secret_key 
+                                    : $potentialUser->lead_test_secret_key;
+                                
+                                if (!$modeSecretKey) {
+                                    continue;
+                                }
+                                
+                                // Skip if we already tried this user+mode combination
+                                if ($potentialUser->id === $user->id && 
+                                    (($mode === 'live' && $user->tap_mode === 'live') || 
+                                     ($mode === 'test' && $user->tap_mode === 'test'))) {
+                                    continue;
+                                }
+                                
+                                Log::info('Trying alternative user/mode for charge retrieval', [
+                                    'user_id' => $potentialUser->id,
+                                    'user_locationId' => $potentialUser->lead_location_id,
+                                    'mode' => $mode,
+                                    'chargeId' => $tapChargeId
+                                ]);
+                                
+                                try {
+                                    $testResponse = Http::timeout(10)
+                                        ->withHeaders([
+                                            'Authorization' => 'Bearer ' . $modeSecretKey,
+                                            'accept' => 'application/json',
+                                        ])->get('https://api.tap.company/v2/charges/' . $tapChargeId);
+                                    
+                                    if ($testResponse->successful()) {
+                                        Log::info('✅ Found correct user/mode for charge', [
+                                            'correct_user_id' => $potentialUser->id,
+                                            'correct_user_locationId' => $potentialUser->lead_location_id,
+                                            'correct_mode' => $mode,
+                                            'chargeId' => $tapChargeId
+                                        ]);
+                                        
+                                        // Use the correct user and mode
+                                        $user = $potentialUser;
+                                        $user->tap_mode = $mode; // Update mode for this request
+                                        $secretKey = $modeSecretKey;
+                                        $response = $testResponse;
+                                        $foundCorrectUser = true;
+                                        break 2; // Break out of both loops
+                                    }
+                                } catch (\Exception $e) {
+                                    Log::warning('Failed to retrieve charge with alternative user/mode', [
+                                        'user_id' => $potentialUser->id,
+                                        'mode' => $mode,
+                                        'error' => $e->getMessage()
+                                    ]);
+                                }
+                            }
+                            
+                            if ($foundCorrectUser) {
+                                break;
+                            }
                         }
                     }
                 }
