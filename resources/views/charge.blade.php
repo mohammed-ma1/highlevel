@@ -1690,24 +1690,36 @@
         if (tapResponse.ok && result.success && result.charge) {
           console.log('✅ Tap charge created successfully:', result.charge);
           
-          // Handle payment redirect based on browser
+          // Handle payment redirect based on browser and payment method
           if (result.charge.transaction?.url) {
             console.log('🔗 Redirecting to Tap checkout:', result.charge.transaction.url);
             
+            // Detect if this is a KNET payment (external redirect)
+            const isKnetPayment = isKnetPaymentMethod(result.charge);
+            console.log('🔍 Payment method detection:', {
+              isKnet: isKnetPayment,
+              transactionUrl: result.charge.transaction.url,
+              source: result.charge.source
+            });
+            
             // Double-check Safari detection before showing popup
             const currentSafariCheck = detectSafari();
-            if (currentSafariCheck) {
-              // Use popup ONLY for Safari (desktop and mobile) to avoid iframe payment restrictions
-              console.log('🍎 Safari detected (desktop/mobile) - showing proceed payment popup');
+            
+            // Use popup for Safari OR Chrome with KNET (external redirect payments)
+            if (currentSafariCheck || isKnetPayment) {
+              // Use popup for Safari (desktop and mobile) to avoid iframe payment restrictions
+              // OR for KNET payments in Chrome (to preserve iframe context for redirect)
+              const reason = currentSafariCheck ? 'Safari browser' : 'KNET payment (external redirect)';
+              console.log(`🍎 ${reason} detected - showing proceed payment popup`);
               console.log('📱 User Agent:', navigator.userAgent);
               const paymentContainer = document.querySelector('.payment-container');
               if (paymentContainer) {
                 paymentContainer.style.display = 'block';
               }
-              showProceedPaymentPopup(result.charge.transaction.url);
+              showProceedPaymentPopup(result.charge.transaction.url, isKnetPayment);
             } else {
-              // Direct redirect for all other browsers - NO POPUP
-              console.log('🌐 Non-Safari browser detected - using direct redirect (NO POPUP)');
+              // Direct redirect for all other browsers with non-KNET payments - NO POPUP
+              console.log('🌐 Non-Safari browser with non-KNET payment - using direct redirect (NO POPUP)');
               console.log('🌐 User Agent:', navigator.userAgent);
               setTimeout(() => {
                 window.location.href = result.charge.transaction.url;
@@ -1732,6 +1744,59 @@
         
         // Send error response to GoHighLevel
         sendErrorResponse(error.message || 'An error occurred while creating the charge');
+      }
+    }
+
+    // Detect if payment method is KNET (external redirect)
+    function isKnetPaymentMethod(charge) {
+      try {
+        // Check if source indicates KNET
+        if (charge.source) {
+          const sourceId = charge.source.id || '';
+          const sourceType = charge.source.type || '';
+          const sourceObject = charge.source.object || '';
+          
+          // KNET typically has specific identifiers
+          if (sourceId.toLowerCase().includes('knet') || 
+              sourceType.toLowerCase().includes('knet') ||
+              sourceObject.toLowerCase().includes('knet')) {
+            console.log('🔍 KNET detected from source:', charge.source);
+            return true;
+          }
+        }
+        
+        // Check transaction URL for KNET indicators
+        if (charge.transaction?.url) {
+          const url = charge.transaction.url.toLowerCase();
+          if (url.includes('knet') || url.includes('redirect') || url.includes('external')) {
+            console.log('🔍 KNET detected from transaction URL');
+            return true;
+          }
+        }
+        
+        // Check if payment method in metadata or description
+        if (charge.metadata) {
+          const metadataStr = JSON.stringify(charge.metadata).toLowerCase();
+          if (metadataStr.includes('knet')) {
+            console.log('🔍 KNET detected from metadata');
+            return true;
+          }
+        }
+        
+        // If transaction URL is external (not Tap-hosted), it's likely KNET or similar redirect payment
+        if (charge.transaction?.url) {
+          const url = charge.transaction.url;
+          const isTapHosted = url.includes('tap.company') || url.includes('tap-payments.com');
+          if (!isTapHosted) {
+            console.log('🔍 External redirect detected (likely KNET or similar)');
+            return true;
+          }
+        }
+        
+        return false;
+      } catch (error) {
+        console.warn('⚠️ Error detecting KNET payment method:', error);
+        return false;
       }
     }
 
@@ -1791,20 +1856,23 @@
       return false;
     }
 
-    // Show proceed payment popup for Safari only
-    function showProceedPaymentPopup(url) {
-      // Final safety check - ensure this is Safari
+    // Show proceed payment popup for Safari or KNET payments
+    function showProceedPaymentPopup(url, isKnetPayment = false) {
+      // Final safety check - ensure this is Safari OR KNET payment
       const finalSafariCheck = detectSafari();
-      if (!finalSafariCheck) {
-        console.error('❌ Security: showProceedPaymentPopup called but not Safari! Redirecting instead.');
+      if (!finalSafariCheck && !isKnetPayment) {
+        console.error('❌ Security: showProceedPaymentPopup called but not Safari or KNET! Redirecting instead.');
         setTimeout(() => {
           window.location.href = url;
         }, 500);
         return;
       }
       
-      console.log('🔗 Showing proceed payment popup for Safari:', url);
-      console.log('🔍 Final Safari verification:', {
+      const reason = finalSafariCheck ? 'Safari browser' : 'KNET payment (external redirect)';
+      console.log(`🔗 Showing proceed payment popup for ${reason}:`, url);
+      console.log('🔍 Verification:', {
+        isSafari: finalSafariCheck,
+        isKnet: isKnetPayment,
         userAgent: navigator.userAgent,
         platform: navigator.platform,
         isMobile: /iPhone|iPad|iPod/.test(navigator.userAgent) || ('ontouchend' in document)
@@ -1842,10 +1910,13 @@
       const proceedBtn = document.getElementById('proceed-payment-btn');
       if (proceedBtn) {
         proceedBtn.onclick = function() {
-          console.log('🔗 Opening payment URL in popup window for Safari');
+          const reason = isKnetPayment ? 'KNET payment (external redirect)' : 'Safari browser';
+          console.log(`🔗 Opening payment URL in popup window for ${reason}`);
           
           // Open payment URL in a popup window
           // This preserves the iframe context so redirect can communicate back
+          // For KNET: popup ensures redirect back works properly in Chrome
+          // For Safari: popup avoids iframe payment restrictions
           const popupFeatures = 'width=800,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no';
           paymentPopup = window.open(url, 'tap_payment', popupFeatures);
           
@@ -1897,7 +1968,7 @@
       if (isSafari) {
         console.log('✅ Safari detected - Popup will be shown for payment');
       } else {
-        console.log('✅ Non-Safari browser detected - Direct redirect will be used');
+        console.log('✅ Non-Safari browser detected - Direct redirect will be used (unless KNET payment detected)');
       }
       
       console.log('🔍 Window context:', {
