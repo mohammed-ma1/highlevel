@@ -1809,6 +1809,14 @@
             sourceObject: sourceObject
           });
           
+          // If source is src_all, it means all payment methods are available including KNET
+          // KNET can be selected from the checkout page and will redirect externally
+          // So we should treat src_all as potential KNET payment
+          if (sourceId === 'src_all' || sourceId.toLowerCase() === 'src_all') {
+            console.log('✅ [KNET Detection] src_all detected - KNET may be selected (treating as potential KNET)');
+            return true;
+          }
+          
           // KNET typically has specific identifiers
           if (sourceId.toLowerCase().includes('knet') || 
               sourceType.toLowerCase().includes('knet') ||

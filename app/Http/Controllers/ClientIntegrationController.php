@@ -1850,6 +1850,14 @@ class ClientIntegrationController extends Controller
                     'full_source' => $source
                 ]);
                 
+                // If source is src_all, it means all payment methods are available including KNET
+                // KNET can be selected from the checkout page and will redirect externally
+                // So we should treat src_all as potential KNET payment
+                if ($sourceId === 'src_all' || strtolower($sourceId) === 'src_all') {
+                    Log::info('✅ [KNET Detection] src_all detected - KNET may be selected (treating as potential KNET)');
+                    return true;
+                }
+                
                 // KNET typically has specific identifiers
                 if (stripos($sourceId, 'knet') !== false || 
                     stripos($sourceType, 'knet') !== false ||
