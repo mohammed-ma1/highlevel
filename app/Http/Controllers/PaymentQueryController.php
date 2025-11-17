@@ -55,17 +55,102 @@ class PaymentQueryController extends Controller
             }
             
             // Strategy 2: If no user found and we have chargeId, try to extract locationId from charge metadata
-            if (!$user && $request->input('chargeId')) {
+            // This is CRITICAL - we need to find the user who created the charge, not just any user with the API key
+            if (!$user && $request->input('chargeId') && $apiKey) {
                 $chargeId = $request->input('chargeId');
                 Log::info('Attempting to extract locationId from charge metadata', [
-                    'chargeId' => $chargeId
+                    'chargeId' => $chargeId,
+                    'reason' => 'No locationId provided in request, need to get from charge'
                 ]);
                 
-                // Try to find user by trying all users with the API key and checking their charges
-                // This is a fallback - we'll validate later
+                // First, try to find all users with this API key
+                $potentialUsers = User::where('lead_test_api_key', $apiKey)
+                                     ->orWhere('lead_live_api_key', $apiKey)
+                                     ->get();
+                
+                Log::info('Found potential users with API key, checking which one owns the charge', [
+                    'chargeId' => $chargeId,
+                    'potential_users_count' => $potentialUsers->count()
+                ]);
+                
+                // Try each user (both test and live modes) to find which one can access the charge
+                foreach ($potentialUsers as $potentialUser) {
+                    foreach (['test', 'live'] as $mode) {
+                        $modeSecretKey = $mode === 'live' 
+                            ? $potentialUser->lead_live_secret_key 
+                            : $potentialUser->lead_test_secret_key;
+                        
+                        if (!$modeSecretKey) {
+                            continue;
+                        }
+                        
+                        try {
+                            Log::info('Checking if user owns charge', [
+                                'user_id' => $potentialUser->id,
+                                'user_locationId' => $potentialUser->lead_location_id,
+                                'mode' => $mode,
+                                'chargeId' => $chargeId
+                            ]);
+                            
+                            $testResponse = Http::timeout(10)
+                                ->withHeaders([
+                                    'Authorization' => 'Bearer ' . $modeSecretKey,
+                                    'accept' => 'application/json',
+                                ])->get('https://api.tap.company/v2/charges/' . $chargeId);
+                            
+                            if ($testResponse->successful()) {
+                                $chargeData = $testResponse->json();
+                                
+                                // Extract locationId from charge metadata
+                                $chargeLocationId = null;
+                                if (isset($chargeData['metadata']['udf3'])) {
+                                    $udf3 = $chargeData['metadata']['udf3'];
+                                    if (preg_match('/Location:\s*(.+)/', $udf3, $matches)) {
+                                        $chargeLocationId = trim($matches[1]);
+                                    }
+                                }
+                                
+                                Log::info('✅ Found user who owns the charge', [
+                                    'user_id' => $potentialUser->id,
+                                    'user_locationId' => $potentialUser->lead_location_id,
+                                    'charge_locationId' => $chargeLocationId,
+                                    'mode' => $mode,
+                                    'chargeId' => $chargeId,
+                                    'locationId_matches' => $chargeLocationId === $potentialUser->lead_location_id
+                                ]);
+                                
+                                // Use this user - they own the charge
+                                $user = $potentialUser;
+                                $user->tap_mode = $mode; // Set correct mode
+                                
+                                // Update locationId if we extracted it from charge
+                                if ($chargeLocationId && !$locationId) {
+                                    $locationId = $chargeLocationId;
+                                    Log::info('Extracted locationId from charge metadata', [
+                                        'locationId' => $locationId,
+                                        'chargeId' => $chargeId
+                                    ]);
+                                }
+                                
+                                break 2; // Break out of both loops
+                            }
+                        } catch (\Exception $e) {
+                            Log::warning('Error checking charge ownership', [
+                                'user_id' => $potentialUser->id,
+                                'mode' => $mode,
+                                'error' => $e->getMessage()
+                            ]);
+                        }
+                    }
+                    
+                    if ($user) {
+                        break;
+                    }
+                }
             }
             
-            // Strategy 3: Find user by API key (but we'll validate it matches)
+            // Strategy 3: Find user by API key (only if we still don't have a user)
+            // This is a fallback - should rarely be needed if Strategy 2 works
             if (!$user && $apiKey) {
                 // Try test key first
                 $user = User::where('lead_test_api_key', $apiKey)->first();
