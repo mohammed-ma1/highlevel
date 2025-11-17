@@ -1740,10 +1740,64 @@ class ClientIntegrationController extends Controller
             if ($response->successful()) {
                 $chargeData = $response->json();
                 
+                // Log full charge response for debugging
+                Log::info('✅ [KNET Detection] Tap charge created successfully', [
+                    'charge_id' => $chargeData['id'] ?? 'N/A',
+                    'charge_status' => $chargeData['status'] ?? 'N/A',
+                    'full_charge_response' => $chargeData
+                ]);
+                
+                // Detect KNET payment method
+                $isKnetPayment = $this->detectKnetPayment($chargeData);
+                
+                // Log transaction details
+                $transactionUrl = $chargeData['transaction']['url'] ?? null;
+                $sourceInfo = $chargeData['source'] ?? null;
+                
+                Log::info('🔍 [KNET Detection] Payment method analysis', [
+                    'is_knet' => $isKnetPayment,
+                    'transaction_url' => $transactionUrl,
+                    'source_id' => $sourceInfo['id'] ?? 'N/A',
+                    'source_type' => $sourceInfo['type'] ?? 'N/A',
+                    'source_object' => $sourceInfo['object'] ?? 'N/A',
+                    'full_source' => $sourceInfo,
+                    'transaction_object' => $chargeData['transaction'] ?? null,
+                    'metadata' => $chargeData['metadata'] ?? null
+                ]);
+                
+                // Check if URL is external (not Tap-hosted)
+                $isExternalRedirect = false;
+                if ($transactionUrl) {
+                    $isTapHosted = str_contains($transactionUrl, 'tap.company') || 
+                                   str_contains($transactionUrl, 'tap-payments.com');
+                    $isExternalRedirect = !$isTapHosted;
+                    
+                    Log::info('🔍 [KNET Detection] Transaction URL analysis', [
+                        'url' => $transactionUrl,
+                        'is_tap_hosted' => $isTapHosted,
+                        'is_external_redirect' => $isExternalRedirect,
+                        'url_length' => strlen($transactionUrl)
+                    ]);
+                }
+                
+                // Log final KNET detection result
+                Log::info('📊 [KNET Detection] Final detection result', [
+                    'is_knet_detected' => $isKnetPayment,
+                    'is_external_redirect' => $isExternalRedirect,
+                    'should_use_popup' => $isKnetPayment || $isExternalRedirect,
+                    'charge_id' => $chargeData['id'] ?? 'N/A',
+                    'location_id' => $locationId,
+                    'user_id' => $user->id
+                ]);
+                
                 // Store charge ID in session for popup payment flow
                 if (isset($chargeData['id'])) {
                     session(['last_charge_id' => $chargeData['id']]);
                     session(['user_id' => $user->id]);
+                    Log::info('💾 [KNET Detection] Stored charge in session', [
+                        'charge_id' => $chargeData['id'],
+                        'user_id' => $user->id
+                    ]);
                 }
                 
                 return response()->json([
@@ -1771,6 +1825,95 @@ class ClientIntegrationController extends Controller
             ], 500)->header('Access-Control-Allow-Origin', '*')
               ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
               ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+        }
+    }
+
+    /**
+     * Detect if payment method is KNET (external redirect)
+     */
+    private function detectKnetPayment(array $chargeData): bool
+    {
+        try {
+            Log::info('🔍 [KNET Detection] Starting server-side KNET detection');
+            
+            // Check if source indicates KNET
+            if (isset($chargeData['source'])) {
+                $source = $chargeData['source'];
+                $sourceId = $source['id'] ?? '';
+                $sourceType = $source['type'] ?? '';
+                $sourceObject = $source['object'] ?? '';
+                
+                Log::info('🔍 [KNET Detection] Checking source object', [
+                    'source_id' => $sourceId,
+                    'source_type' => $sourceType,
+                    'source_object' => $sourceObject,
+                    'full_source' => $source
+                ]);
+                
+                // KNET typically has specific identifiers
+                if (stripos($sourceId, 'knet') !== false || 
+                    stripos($sourceType, 'knet') !== false ||
+                    stripos($sourceObject, 'knet') !== false) {
+                    Log::info('✅ [KNET Detection] KNET detected from source');
+                    return true;
+                }
+            } else {
+                Log::info('⚠️ [KNET Detection] No source object in charge');
+            }
+            
+            // Check transaction URL for KNET indicators
+            if (isset($chargeData['transaction']['url'])) {
+                $url = strtolower($chargeData['transaction']['url']);
+                Log::info('🔍 [KNET Detection] Checking transaction URL', ['url' => $url]);
+                
+                if (str_contains($url, 'knet') || 
+                    str_contains($url, 'redirect') || 
+                    str_contains($url, 'external')) {
+                    Log::info('✅ [KNET Detection] KNET detected from transaction URL');
+                    return true;
+                }
+            } else {
+                Log::info('⚠️ [KNET Detection] No transaction URL in charge');
+            }
+            
+            // Check if payment method in metadata
+            if (isset($chargeData['metadata'])) {
+                $metadataStr = json_encode($chargeData['metadata']);
+                Log::info('🔍 [KNET Detection] Checking metadata', ['metadata' => $chargeData['metadata']]);
+                
+                if (stripos($metadataStr, 'knet') !== false) {
+                    Log::info('✅ [KNET Detection] KNET detected from metadata');
+                    return true;
+                }
+            } else {
+                Log::info('⚠️ [KNET Detection] No metadata in charge');
+            }
+            
+            // If transaction URL is external (not Tap-hosted), it's likely KNET or similar redirect payment
+            if (isset($chargeData['transaction']['url'])) {
+                $url = $chargeData['transaction']['url'];
+                $isTapHosted = str_contains($url, 'tap.company') || 
+                              str_contains($url, 'tap-payments.com');
+                
+                Log::info('🔍 [KNET Detection] Checking if URL is Tap-hosted', [
+                    'url' => $url,
+                    'is_tap_hosted' => $isTapHosted
+                ]);
+                
+                if (!$isTapHosted) {
+                    Log::info('✅ [KNET Detection] External redirect detected (not Tap-hosted)');
+                    return true;
+                }
+            }
+            
+            Log::info('❌ [KNET Detection] No KNET indicators found');
+            return false;
+        } catch (\Exception $e) {
+            Log::error('❌ [KNET Detection] Error detecting KNET payment method', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return false;
         }
     }
 

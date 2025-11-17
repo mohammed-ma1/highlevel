@@ -76,18 +76,50 @@ Route::get('/test-charge-status/{tapId}', function ($tapId) {
 })->name('test.charge.status');
 
 
-Route::get('/payment/redirect', function () {
+Route::get('/payment/redirect', function (Request $request) {
+    \Log::info('🔗 [Payment Redirect] Redirect page accessed', [
+        'url' => $request->fullUrl(),
+        'method' => $request->method(),
+        'all_params' => $request->all(),
+        'query_params' => $request->query(),
+        'headers' => $request->headers->all(),
+        'referer' => $request->header('referer'),
+        'user_agent' => $request->header('user-agent'),
+        'tap_id' => $request->input('tap_id'),
+        'charge_id' => $request->input('charge_id'),
+        'status' => $request->input('status'),
+        'location_id' => $request->input('locationId'),
+        'cancel' => $request->input('cancel')
+    ]);
+    
     return view('payment.redirect');
 })->name('payment.redirect');
 
 // Webhook route for Tap charge completion
 Route::post('/charge/webhook', function (Request $request) {
-    \Log::info('Tap webhook received', ['data' => $request->all()]);
+    \Log::info('📥 [Webhook] Tap webhook received', [
+        'url' => $request->fullUrl(),
+        'method' => $request->method(),
+        'all_data' => $request->all(),
+        'headers' => $request->headers->all(),
+        'raw_body' => $request->getContent()
+    ]);
     return response()->json(['status' => 'success']);
 })->name('charge.webhook');
 
 // Redirect route for Tap charge completion
 Route::get('/charge/redirect', function (Request $request) {
-    \Log::info('Tap redirect received', ['data' => $request->all()]);
+    \Log::info('🔗 [Charge Redirect] Tap redirect received', [
+        'url' => $request->fullUrl(),
+        'method' => $request->method(),
+        'all_params' => $request->all(),
+        'query_params' => $request->query(),
+        'headers' => $request->headers->all(),
+        'referer' => $request->header('referer'),
+        'user_agent' => $request->header('user-agent'),
+        'tap_id' => $request->input('tap_id'),
+        'charge_id' => $request->input('charge_id'),
+        'status' => $request->input('status')
+    ]);
     return view('payment.redirect', ['data' => $request->all()]);
 })->name('charge.redirect');
