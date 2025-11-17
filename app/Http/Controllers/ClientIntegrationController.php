@@ -1702,10 +1702,28 @@ class ClientIntegrationController extends Controller
             ]);
             
             // Add locationId to redirect URL so it's available when Tap redirects back
+            // Only add if it's not already in the URL to avoid duplicates
             if ($locationId && isset($tapData['redirect']['url'])) {
                 $redirectUrl = $tapData['redirect']['url'];
-                $separator = strpos($redirectUrl, '?') !== false ? '&' : '?';
-                $tapData['redirect']['url'] = $redirectUrl . $separator . 'locationId=' . urlencode($locationId);
+                
+                // Check if locationId is already in the URL
+                $urlHasLocationId = strpos($redirectUrl, 'locationId=') !== false;
+                
+                if (!$urlHasLocationId) {
+                    $separator = strpos($redirectUrl, '?') !== false ? '&' : '?';
+                    $tapData['redirect']['url'] = $redirectUrl . $separator . 'locationId=' . urlencode($locationId);
+                    
+                    Log::info('Added locationId to redirect URL', [
+                        'original_url' => $redirectUrl,
+                        'new_url' => $tapData['redirect']['url'],
+                        'locationId' => $locationId
+                    ]);
+                } else {
+                    Log::info('locationId already in redirect URL, skipping addition', [
+                        'url' => $redirectUrl,
+                        'locationId' => $locationId
+                    ]);
+                }
             }
 
             // Call Tap Payments API using exact format from documentation
