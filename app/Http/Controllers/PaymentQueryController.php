@@ -620,7 +620,9 @@ class PaymentQueryController extends Controller
                     'chargeId' => $tapChargeId,
                     'transactionId' => $transactionId,
                     'status' => $status,
-                    'locationId' => $user->lead_location_id
+                    'locationId' => $user->lead_location_id,
+                    'tap_mode' => $user->tap_mode,
+                    'is_live' => $user->tap_mode === 'live'
                 ]);
                 
                 // Check if we've already sent a webhook for this charge recently (prevent duplicates)
@@ -631,13 +633,25 @@ class PaymentQueryController extends Controller
                     Log::warning('Webhook already sent recently for this charge, skipping duplicate', [
                         'chargeId' => $tapChargeId,
                         'transactionId' => $transactionId,
-                        'last_sent_at' => $recentlySent
+                        'last_sent_at' => $recentlySent,
+                        'tap_mode' => $user->tap_mode
                     ]);
                 } else {
-                // Send payment.captured webhook event to LeadConnector
+                    // Send payment.captured webhook event to LeadConnector
                     // Note: The webhook function will cache success internally
-                $this->sendPaymentCapturedWebhook($request, $user, $tapChargeId, $transactionId, $chargeData);
+                    $this->sendPaymentCapturedWebhook($request, $user, $tapChargeId, $transactionId, $chargeData);
                 }
+            } else {
+                // Log when webhook is NOT sent (for failed/declined/pending payments)
+                Log::info('Webhook NOT sent - payment status does not require webhook', [
+                    'chargeId' => $tapChargeId,
+                    'transactionId' => $transactionId,
+                    'status' => $status,
+                    'locationId' => $user->lead_location_id,
+                    'tap_mode' => $user->tap_mode,
+                    'is_live' => $user->tap_mode === 'live',
+                    'reason' => 'Webhooks are only sent for CAPTURED or AUTHORIZED status'
+                ]);
             }
 
             // Return response according to GHL documentation
