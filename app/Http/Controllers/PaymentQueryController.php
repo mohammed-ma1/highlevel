@@ -89,9 +89,9 @@ class PaymentQueryController extends Controller
                                 'user_id' => $potentialUser->id,
                                 'user_locationId' => $potentialUser->lead_location_id,
                                 'mode' => $mode,
-                                'chargeId' => $chargeId
-                            ]);
-                            
+                    'chargeId' => $chargeId
+                ]);
+                
                             $testResponse = Http::timeout(10)
                                 ->withHeaders([
                                     'Authorization' => 'Bearer ' . $modeSecretKey,
@@ -404,15 +404,15 @@ class PaymentQueryController extends Controller
                 
                 $response = Http::timeout(10) // 10 second timeout
                     ->withHeaders([
-                        'Authorization' => 'Bearer ' . $secretKey,
-                        'accept' => 'application/json',
-                    ])->get('https://api.tap.company/v2/charges/' . $tapChargeId);
-                
+                'Authorization' => 'Bearer ' . $secretKey,
+                'accept' => 'application/json',
+            ])->get('https://api.tap.company/v2/charges/' . $tapChargeId);
+
                 // Extract error code if request failed
-                if (!$response->successful()) {
-                    $errorResponse = $response->json();
-                    $errorCode = $errorResponse['errors'][0]['code'] ?? null;
-                    
+            if (!$response->successful()) {
+                $errorResponse = $response->json();
+                $errorCode = $errorResponse['errors'][0]['code'] ?? null;
+                
                     Log::warning('Tap API charge retrieval failed', [
                         'status_code' => $response->status(),
                         'error_code' => $errorCode,
@@ -512,28 +512,28 @@ class PaymentQueryController extends Controller
                     
                     // Strategy 2: Try to find all users with this API key (if not found yet)
                     if (!$foundCorrectUser && $apiKey) {
-                        // Try to find all users with this API key
-                        $potentialUsers = User::where('lead_test_api_key', $apiKey)
-                                             ->orWhere('lead_live_api_key', $apiKey)
-                                             ->get();
-                        
-                        Log::info('Found potential users with same API key', [
-                            'count' => $potentialUsers->count(),
-                            'chargeId' => $tapChargeId
-                        ]);
-                        
+                    // Try to find all users with this API key
+                    $potentialUsers = User::where('lead_test_api_key', $apiKey)
+                                         ->orWhere('lead_live_api_key', $apiKey)
+                                         ->get();
+                    
+                    Log::info('Found potential users with same API key', [
+                        'count' => $potentialUsers->count(),
+                        'chargeId' => $tapChargeId
+                    ]);
+                    
                         // Try each user (both modes) until we find one that can access the charge
-                        foreach ($potentialUsers as $potentialUser) {
+                    foreach ($potentialUsers as $potentialUser) {
                             // Try both test and live modes for each user
                             foreach (['test', 'live'] as $mode) {
                                 $modeSecretKey = $mode === 'live' 
-                                    ? $potentialUser->lead_live_secret_key 
-                                    : $potentialUser->lead_test_secret_key;
-                                
+                            ? $potentialUser->lead_live_secret_key 
+                            : $potentialUser->lead_test_secret_key;
+                        
                                 if (!$modeSecretKey) {
-                                    continue;
-                                }
-                                
+                            continue;
+                        }
+                        
                                 // Skip if we already tried this user+mode combination
                                 if ($potentialUser->id === $user->id && 
                                     (($mode === 'live' && $user->tap_mode === 'live') || 
@@ -542,8 +542,8 @@ class PaymentQueryController extends Controller
                                 }
                                 
                                 Log::info('Trying alternative user/mode for charge retrieval', [
-                                    'user_id' => $potentialUser->id,
-                                    'user_locationId' => $potentialUser->lead_location_id,
+                            'user_id' => $potentialUser->id,
+                            'user_locationId' => $potentialUser->lead_location_id,
                                     'mode' => $mode,
                                     'chargeId' => $tapChargeId
                                 ]);
@@ -552,22 +552,22 @@ class PaymentQueryController extends Controller
                                     $testResponse = Http::timeout(10)
                                         ->withHeaders([
                                             'Authorization' => 'Bearer ' . $modeSecretKey,
-                                            'accept' => 'application/json',
-                                        ])->get('https://api.tap.company/v2/charges/' . $tapChargeId);
-                                    
-                                    if ($testResponse->successful()) {
+                            'accept' => 'application/json',
+                        ])->get('https://api.tap.company/v2/charges/' . $tapChargeId);
+                        
+                        if ($testResponse->successful()) {
                                         Log::info('✅ Found correct user/mode for charge', [
-                                            'correct_user_id' => $potentialUser->id,
-                                            'correct_user_locationId' => $potentialUser->lead_location_id,
+                                'correct_user_id' => $potentialUser->id,
+                                'correct_user_locationId' => $potentialUser->lead_location_id,
                                             'correct_mode' => $mode,
-                                            'chargeId' => $tapChargeId
-                                        ]);
-                                        
+                                'chargeId' => $tapChargeId
+                            ]);
+                            
                                         // Use the correct user and mode
-                                        $user = $potentialUser;
+                            $user = $potentialUser;
                                         $user->tap_mode = $mode; // Update mode for this request
                                         $secretKey = $modeSecretKey;
-                                        $response = $testResponse;
+                            $response = $testResponse;
                                         $foundCorrectUser = true;
                                         break 2; // Break out of both loops
                                     }
@@ -581,7 +581,7 @@ class PaymentQueryController extends Controller
                             }
                             
                             if ($foundCorrectUser) {
-                                break;
+                            break;
                             }
                         }
                     }
@@ -634,9 +634,9 @@ class PaymentQueryController extends Controller
                         'last_sent_at' => $recentlySent
                     ]);
                 } else {
-                    // Send payment.captured webhook event to LeadConnector
+                // Send payment.captured webhook event to LeadConnector
                     // Note: The webhook function will cache success internally
-                    $this->sendPaymentCapturedWebhook($request, $user, $tapChargeId, $transactionId, $chargeData);
+                $this->sendPaymentCapturedWebhook($request, $user, $tapChargeId, $transactionId, $chargeData);
                 }
             }
 
@@ -992,12 +992,31 @@ class PaymentQueryController extends Controller
         try {
             $locationId = $user->lead_location_id;
             $apiKey = $user->tap_mode === 'live' ? $user->lead_live_api_key : $user->lead_test_api_key;
+            $isLive = $user->tap_mode === 'live';
+            
+            // Validate API key exists for the current mode
+            if (empty($apiKey)) {
+                Log::error('=== WEBHOOK ERROR: API key missing for current mode ===', [
+                    'chargeId' => $chargeId,
+                    'transactionId' => $transactionId,
+                    'locationId' => $locationId,
+                    'tap_mode' => $user->tap_mode,
+                    'is_live' => $isLive,
+                    'has_live_key' => !empty($user->lead_live_api_key),
+                    'has_test_key' => !empty($user->lead_test_api_key)
+                ]);
+                return; // Cannot send webhook without API key
+            }
             
             Log::info('=== SENDING payment.captured WEBHOOK TO LEADCONNECTOR ===', [
                 'chargeId' => $chargeId,
                 'transactionId' => $transactionId,
                 'locationId' => $locationId,
                 'status' => $chargeData['status'] ?? 'UNKNOWN',
+                'tap_mode' => $user->tap_mode,
+                'is_live' => $isLive,
+                'api_key_length' => strlen($apiKey),
+                'api_key_prefix' => substr($apiKey, 0, 10) . '...',
                 'timestamp' => now()->toIso8601String()
             ]);
             
@@ -1057,19 +1076,22 @@ class PaymentQueryController extends Controller
                 'apiKey' => $apiKey
             ];
             
+            // Send webhook to LeadConnector backend with retry logic
+            $webhookUrl = 'https://backend.leadconnectorhq.com/payments/custom-provider/webhook';
+            
             Log::info('Webhook payload built for payment.captured', [
                 'chargeId' => $chargeId,
                 'transactionId' => $transactionId,
                 'locationId' => $locationId,
+                'tap_mode' => $user->tap_mode,
+                'is_live' => $isLive,
                 'apiKey_length' => strlen($apiKey),
                 'apiKey_prefix' => substr($apiKey, 0, 10) . '...',
                 'payload_keys' => array_keys($payload),
                 'chargeSnapshot' => $chargeSnapshot,
+                'webhook_url' => $webhookUrl,
                 'payload_json' => json_encode($payload) // Log full payload for debugging
             ]);
-            
-            // Send webhook to LeadConnector backend with retry logic
-            $webhookUrl = 'https://backend.leadconnectorhq.com/payments/custom-provider/webhook';
             $maxRetries = 3;
             $retryDelay = 2; // seconds
             $response = null;
@@ -1081,29 +1103,34 @@ class PaymentQueryController extends Controller
                         'attempt' => $attempt,
                         'max_retries' => $maxRetries,
                         'chargeId' => $chargeId,
-                        'transactionId' => $transactionId
+                        'transactionId' => $transactionId,
+                        'tap_mode' => $user->tap_mode,
+                        'is_live' => $isLive,
+                        'webhook_url' => $webhookUrl
                     ]);
-                    
-                    $startTime = microtime(true);
-                    $response = Http::timeout(30)
+            
+            $startTime = microtime(true);
+            $response = Http::timeout(30)
                         ->retry(1, 1000) // Retry once with 1 second delay for network issues
-                        ->acceptJson()
-                        ->post($webhookUrl, $payload);
-                    $endTime = microtime(true);
-                    $duration = round(($endTime - $startTime) * 1000, 2);
-                    
-                    if ($response->successful()) {
-                        $responseBody = $response->json();
-                        Log::info('=== SUCCESS: payment.captured webhook sent to LeadConnector ===', [
-                            'chargeId' => $chargeId,
-                            'transactionId' => $transactionId,
-                            'locationId' => $locationId,
-                            'response_status' => $response->status(),
-                            'response_body' => $responseBody,
-                            'duration_ms' => $duration,
+                ->acceptJson()
+                ->post($webhookUrl, $payload);
+            $endTime = microtime(true);
+            $duration = round(($endTime - $startTime) * 1000, 2);
+            
+            if ($response->successful()) {
+                $responseBody = $response->json();
+                Log::info('=== SUCCESS: payment.captured webhook sent to LeadConnector ===', [
+                    'chargeId' => $chargeId,
+                    'transactionId' => $transactionId,
+                    'locationId' => $locationId,
+                            'tap_mode' => $user->tap_mode,
+                            'is_live' => $isLive,
+                    'response_status' => $response->status(),
+                    'response_body' => $responseBody,
+                    'duration_ms' => $duration,
                             'attempt' => $attempt,
-                            'timestamp' => now()->toIso8601String()
-                        ]);
+                    'timestamp' => now()->toIso8601String()
+                ]);
                         $webhookSuccess = true;
                         
                         // Cache that we successfully sent this webhook (expires in 5 minutes to prevent duplicates)
@@ -1111,17 +1138,17 @@ class PaymentQueryController extends Controller
                         cache()->put($webhookCacheKey, now()->toIso8601String(), 300);
                         
                         break; // Success, exit retry loop
-                    } else {
-                        $errorResponse = $response->json() ?? $response->body();
+            } else {
+                $errorResponse = $response->json() ?? $response->body();
                         Log::warning('Webhook send attempt failed', [
                             'attempt' => $attempt,
-                            'chargeId' => $chargeId,
-                            'transactionId' => $transactionId,
-                            'locationId' => $locationId,
-                            'status_code' => $response->status(),
-                            'response_body' => $errorResponse,
-                            'response_raw' => $response->body(),
-                            'duration_ms' => $duration,
+                    'chargeId' => $chargeId,
+                    'transactionId' => $transactionId,
+                    'locationId' => $locationId,
+                    'status_code' => $response->status(),
+                    'response_body' => $errorResponse,
+                    'response_raw' => $response->body(),
+                    'duration_ms' => $duration,
                             'will_retry' => $attempt < $maxRetries
                         ]);
                         
@@ -1159,10 +1186,13 @@ class PaymentQueryController extends Controller
                     'chargeId' => $chargeId,
                     'transactionId' => $transactionId,
                     'locationId' => $locationId,
+                    'tap_mode' => $user->tap_mode,
+                    'is_live' => $isLive,
                     'max_retries' => $maxRetries,
                     'final_status_code' => $response ? $response->status() : 'N/A',
                     'final_response_body' => $errorResponse,
                     'final_response_raw' => $response ? $response->body() : 'N/A',
+                    'webhook_url' => $webhookUrl,
                     'timestamp' => now()->toIso8601String(),
                     'payload_sent' => $payload // Log payload for debugging
                 ]);
