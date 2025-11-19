@@ -2037,6 +2037,35 @@ class ClientIntegrationController extends Controller
             // Determine payment status based on charge status
             $paymentStatus = $this->determinePaymentStatus($chargeData);
             
+            // Send webhook for final payment states (if transactionId is available)
+            // This ensures webhooks are sent even if GoHighLevel doesn't call verify endpoint
+            $status = strtoupper($chargeData['status'] ?? 'UNKNOWN');
+            $isFinalState = !in_array($status, ['INITIATED', 'PENDING']);
+            $transactionId = $chargeData['reference']['transaction'] ?? null;
+            
+            if ($isFinalState && $transactionId && $user) {
+                Log::info('Final payment state detected in getChargeStatus, attempting to send webhook', [
+                    'chargeId' => $tapId,
+                    'transactionId' => $transactionId,
+                    'status' => $status,
+                    'locationId' => $user->lead_location_id,
+                    'tap_mode' => $user->tap_mode
+                ]);
+                
+                // Use PaymentQueryController to send webhook (reuse existing logic)
+                try {
+                    $paymentQueryController = new \App\Http\Controllers\PaymentQueryController();
+                    $mockRequest = new \Illuminate\Http\Request();
+                    $paymentQueryController->sendPaymentCapturedWebhook($mockRequest, $user, $tapId, $transactionId, $chargeData);
+                } catch (\Exception $e) {
+                    Log::warning('Failed to send webhook from getChargeStatus', [
+                        'error' => $e->getMessage(),
+                        'chargeId' => $tapId,
+                        'transactionId' => $transactionId
+                    ]);
+                }
+            }
+            
             return response()->json([
                 'success' => true,
                 'charge' => $chargeData,

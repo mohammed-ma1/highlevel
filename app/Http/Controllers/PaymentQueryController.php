@@ -1008,8 +1008,9 @@ class PaymentQueryController extends Controller
     /**
      * Send payment.captured webhook event to LeadConnector backend
      * This should be called when a payment is verified as successful
+     * Made protected so it can be called from other controllers
      */
-    private function sendPaymentCapturedWebhook(Request $request, User $user, string $chargeId, string $transactionId, array $chargeData)
+    protected function sendPaymentCapturedWebhook(Request $request, User $user, string $chargeId, string $transactionId, array $chargeData)
     {
         try {
             $locationId = $user->lead_location_id;
