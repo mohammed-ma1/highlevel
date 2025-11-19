@@ -2052,16 +2052,16 @@ class ClientIntegrationController extends Controller
                     'tap_mode' => $user->tap_mode
                 ]);
                 
-                // Use PaymentQueryController to send webhook (reuse existing logic)
+                // Use WebhookService to send webhook (shared service)
                 try {
-                    $paymentQueryController = new \App\Http\Controllers\PaymentQueryController();
-                    $mockRequest = new \Illuminate\Http\Request();
-                    $paymentQueryController->sendPaymentCapturedWebhook($mockRequest, $user, $tapId, $transactionId, $chargeData);
+                    $webhookService = new \App\Services\WebhookService();
+                    $webhookService->sendPaymentCapturedWebhook($user, $tapId, $transactionId, $chargeData);
                 } catch (\Exception $e) {
                     Log::warning('Failed to send webhook from getChargeStatus', [
                         'error' => $e->getMessage(),
                         'chargeId' => $tapId,
-                        'transactionId' => $transactionId
+                        'transactionId' => $transactionId,
+                        'trace' => $e->getTraceAsString()
                     ]);
                 }
             }
