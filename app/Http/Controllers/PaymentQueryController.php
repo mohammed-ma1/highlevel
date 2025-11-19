@@ -613,16 +613,23 @@ class PaymentQueryController extends Controller
                 'locationId' => $user->lead_location_id
             ]);
 
-            // IMPORTANT: Send webhook event to LeadConnector BEFORE returning verification result
-            // This ensures products are updated before verification completes
-            if (in_array($status, ['CAPTURED', 'AUTHORIZED'])) {
-                Log::info('Payment verified as successful, sending webhook to LeadConnector', [
+            // IMPORTANT: Send webhook event to LeadConnector for ALL final payment states
+            // According to GHL docs: payment.captured event should be sent with chargeSnapshot.status
+            // indicating the actual outcome: 'succeeded', 'failed', or 'pending'
+            // We send webhooks for all final states (not INITIATED/PENDING) so GHL can update transaction status
+            
+            // Determine if this is a final state that requires webhook
+            $isFinalState = !in_array($status, ['INITIATED', 'PENDING']);
+            
+            if ($isFinalState) {
+                Log::info('Payment in final state, sending webhook to LeadConnector', [
                     'chargeId' => $tapChargeId,
                     'transactionId' => $transactionId,
                     'status' => $status,
                     'locationId' => $user->lead_location_id,
                     'tap_mode' => $user->tap_mode,
-                    'is_live' => $user->tap_mode === 'live'
+                    'is_live' => $user->tap_mode === 'live',
+                    'is_successful' => in_array($status, ['CAPTURED', 'AUTHORIZED'])
                 ]);
                 
                 // Check if we've already sent a webhook for this charge recently (prevent duplicates)
@@ -638,19 +645,20 @@ class PaymentQueryController extends Controller
                     ]);
                 } else {
                     // Send payment.captured webhook event to LeadConnector
+                    // Note: The webhook function will map status correctly (succeeded/failed/pending)
                     // Note: The webhook function will cache success internally
                     $this->sendPaymentCapturedWebhook($request, $user, $tapChargeId, $transactionId, $chargeData);
                 }
             } else {
-                // Log when webhook is NOT sent (for failed/declined/pending payments)
-                Log::info('Webhook NOT sent - payment status does not require webhook', [
+                // Log when webhook is NOT sent (for pending/initiated payments)
+                Log::info('Webhook NOT sent - payment still pending', [
                     'chargeId' => $tapChargeId,
                     'transactionId' => $transactionId,
                     'status' => $status,
                     'locationId' => $user->lead_location_id,
                     'tap_mode' => $user->tap_mode,
                     'is_live' => $user->tap_mode === 'live',
-                    'reason' => 'Webhooks are only sent for CAPTURED or AUTHORIZED status'
+                    'reason' => 'Webhooks are only sent for final payment states (not INITIATED/PENDING)'
                 ]);
             }
 
@@ -1035,23 +1043,50 @@ class PaymentQueryController extends Controller
             ]);
             
             // Build chargeSnapshot from Tap API charge data
-            // GHL expects: id, status, amount, currency, chargedAt (timestamp), response (code, message)
+            // GHL expects: status (enum: 'succeeded', 'failed', 'pending'), amount, chargeId, chargedAt
+            // Note: amount should be in 100s (actual amount * 100, e.g., 0.10 KWD = 10)
             $transactionCreated = $chargeData['transaction']['created'] ?? $chargeData['created'] ?? time() * 1000;
             $chargedAt = is_numeric($transactionCreated) ? (int)$transactionCreated : strtotime($transactionCreated) * 1000;
             
+            // Convert chargedAt from milliseconds to seconds (unix timestamp) as per GHL docs
+            $chargedAtSeconds = (int)($chargedAt / 1000);
+            
+            // Map Tap payment status to GHL chargeSnapshot.status
+            // GHL expects: 'succeeded', 'failed', or 'pending'
+            $tapStatus = strtoupper($chargeData['status'] ?? 'UNKNOWN');
+            $ghlStatus = 'pending'; // default
+            
+            if (in_array($tapStatus, ['CAPTURED', 'AUTHORIZED'])) {
+                $ghlStatus = 'succeeded';
+            } elseif (in_array($tapStatus, ['FAILED', 'DECLINED', 'CANCELLED', 'REVERSED'])) {
+                $ghlStatus = 'failed';
+            } else {
+                $ghlStatus = 'pending';
+            }
+            
+            // Convert amount to 100s (multiply by 100) as per GHL docs
+            // Example: 0.10 KWD becomes 10
+            $amountInHundreds = (int)round(($chargeData['amount'] ?? 0) * 100);
+            
             $chargeSnapshot = [
-                'id' => $chargeId,
-                'status' => strtolower($chargeData['status'] ?? 'unknown'),
-                'amount' => $chargeData['amount'] ?? 0,
-                'currency' => $chargeData['currency'] ?? 'KWD',
-                'chargedAt' => $chargedAt, // GHL expects chargedAt (timestamp in milliseconds)
-                'response' => [
-                    'code' => $chargeData['response']['code'] ?? 'unknown',
-                    'message' => $chargeData['response']['message'] ?? 'unknown'
-                ]
+                'status' => $ghlStatus, // 'succeeded', 'failed', or 'pending'
+                'amount' => $amountInHundreds, // Amount in 100s (actual amount * 100)
+                'chargeId' => $chargeId,
+                'chargedAt' => $chargedAtSeconds // Unix timestamp in seconds
             ];
             
+            Log::info('ChargeSnapshot built for webhook', [
+                'chargeId' => $chargeId,
+                'tap_status' => $tapStatus,
+                'ghl_status' => $ghlStatus,
+                'amount_original' => $chargeData['amount'] ?? 0,
+                'amount_in_hundreds' => $amountInHundreds,
+                'chargedAt_seconds' => $chargedAtSeconds
+            ]);
+            
             // Validate required fields before building payload
+            // GHL requires: event, chargeId, ghlTransactionId, chargeSnapshot, locationId, apiKey
+            // chargeSnapshot requires: status, amount, chargeId, chargedAt
             $validationErrors = [];
             if (empty($chargeId)) {
                 $validationErrors[] = 'chargeId is missing';
@@ -1065,8 +1100,17 @@ class PaymentQueryController extends Controller
             if (empty($apiKey)) {
                 $validationErrors[] = 'apiKey is missing';
             }
-            if (empty($chargeSnapshot['id'])) {
-                $validationErrors[] = 'chargeSnapshot.id is missing';
+            if (empty($chargeSnapshot['status'])) {
+                $validationErrors[] = 'chargeSnapshot.status is missing';
+            }
+            if (!isset($chargeSnapshot['amount'])) {
+                $validationErrors[] = 'chargeSnapshot.amount is missing';
+            }
+            if (empty($chargeSnapshot['chargeId'])) {
+                $validationErrors[] = 'chargeSnapshot.chargeId is missing';
+            }
+            if (!isset($chargeSnapshot['chargedAt'])) {
+                $validationErrors[] = 'chargeSnapshot.chargedAt is missing';
             }
             
             if (!empty($validationErrors)) {
