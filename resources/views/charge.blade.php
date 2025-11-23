@@ -1801,16 +1801,8 @@
                   link.click();
                   document.body.removeChild(link);
                   console.log('✅ Used link.click() method to open in new tab');
-                  
-                  // Give it a moment to see if it worked, then show button if needed
-                  setTimeout(() => {
-                    // If we're in Safari/iframe and both methods may have failed, show a clickable button
-                    // This button will work because it's a direct user gesture
-                    if (currentSafariCheck || isInIframe) {
-                      console.warn('⚠️ Both methods may have been blocked - showing clickable button');
-                      showPaymentButton(paymentUrl);
-                    }
-                  }, 500);
+                  // link.click() doesn't return a value, but if it doesn't throw, assume it worked
+                  // Don't show button if link.click() succeeds
                 } catch (e) {
                   console.error('❌ Link click failed:', e);
                   // For Safari/iframe, show a clickable button instead of redirecting
