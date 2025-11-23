@@ -1508,6 +1508,38 @@
       }
     }
 
+    function showPaymentButton(paymentUrl) {
+      // Show payment container and create a clickable button
+      const paymentContainer = document.getElementById('payment-container');
+      const paymentBody = document.getElementById('payment-body');
+      
+      if (paymentContainer && paymentBody) {
+        paymentContainer.style.display = 'block';
+        paymentBody.innerHTML = `
+          <div class="popup-payment-content">
+            <div style="text-align: center; padding: 20px;">
+              <p style="margin-bottom: 20px; color: #6b7280;">Click the button below to open the payment page in a new tab:</p>
+              <button id="open-payment-btn" class="proceed-payment-button" style="cursor: pointer;">
+                <span class="button-arrow">→</span>
+                <span class="button-text">الذهاب لصفحة الدفع</span>
+              </button>
+            </div>
+          </div>
+        `;
+        
+        // Add click handler to button - this will work because it's a user gesture
+        const openBtn = document.getElementById('open-payment-btn');
+        if (openBtn) {
+          openBtn.onclick = function(e) {
+            e.preventDefault();
+            console.log('🔗 User clicked button to open payment URL:', paymentUrl);
+            // This will work because it's a direct user click
+            window.open(paymentUrl, '_blank', 'noopener,noreferrer');
+          };
+        }
+      }
+    }
+
     function showError(message) {
       const errorDiv = document.getElementById('error-message');
       if (errorDiv) {
@@ -1732,6 +1764,7 @@
             
             if (shouldUsePopup) {
               // Force open payment URL in a new tab (no popup)
+              // This is critical for Safari to avoid payment policy errors in iframes
               const reason = currentSafariCheck ? 'Safari browser' : 'KNET payment (external redirect)';
               console.log(`🔗 ${reason} detected - forcing payment page to open in new tab`);
               console.log('📱 User Agent:', navigator.userAgent);
@@ -1743,37 +1776,49 @@
               console.log('🔍 Window context:', {
                 isInIframe: isInIframe,
                 hasTop: !!(window.top && window.top !== window),
-                hasParent: !!(window.parent && window.parent !== window)
+                hasParent: !!(window.parent && window.parent !== window),
+                isSafari: currentSafariCheck
               });
+              
+              // For Safari or iframe scenarios, we MUST open in new tab to avoid payment policy errors
+              // Never redirect the iframe itself as it causes "Third-party iframes are not allowed to request payments"
               
               // Method 1: Try window.open() first
               let newWindow = window.open(paymentUrl, '_blank', 'noopener,noreferrer');
               
               // Check if window.open was blocked
               if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
-                console.warn('⚠️ window.open() was blocked, trying alternative methods...');
+                console.warn('⚠️ window.open() was blocked, trying link.click() method...');
                 
-                // Method 2: If in iframe, immediately redirect current iframe window
-                // This is the most reliable method for cross-origin iframes
-                if (isInIframe) {
-                  console.log('🔄 In iframe context - immediately redirecting current iframe window to payment URL...');
-                  // Redirect the current iframe window - this always works even in cross-origin scenarios
-                  window.location.href = paymentUrl;
-                } else {
-                  // Not in iframe - try link click method
-                  try {
-                    const link = document.createElement('a');
-                    link.href = paymentUrl;
-                    link.target = '_blank';
-                    link.rel = 'noopener noreferrer';
-                    link.style.display = 'none';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    console.log('✅ Used link.click() method');
-                  } catch (e) {
-                    console.error('❌ Link click failed:', e);
-                    // Last resort - redirect current window
+                // Method 2: Try creating and clicking a link (works better in some browsers)
+                try {
+                  const link = document.createElement('a');
+                  link.href = paymentUrl;
+                  link.target = '_blank';
+                  link.rel = 'noopener noreferrer';
+                  link.style.display = 'none';
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                  console.log('✅ Used link.click() method to open in new tab');
+                  
+                  // Give it a moment to see if it worked, then show button if needed
+                  setTimeout(() => {
+                    // If we're in Safari/iframe and both methods may have failed, show a clickable button
+                    // This button will work because it's a direct user gesture
+                    if (currentSafariCheck || isInIframe) {
+                      console.warn('⚠️ Both methods may have been blocked - showing clickable button');
+                      showPaymentButton(paymentUrl);
+                    }
+                  }, 500);
+                } catch (e) {
+                  console.error('❌ Link click failed:', e);
+                  // For Safari/iframe, show a clickable button instead of redirecting
+                  if (currentSafariCheck || isInIframe) {
+                    console.error('❌ Cannot redirect iframe in Safari - showing clickable button instead');
+                    showPaymentButton(paymentUrl);
+                  } else {
+                    // Only redirect if not Safari and not in iframe
                     console.log('🔄 Last resort: redirecting current window...');
                     window.location.href = paymentUrl;
                   }
