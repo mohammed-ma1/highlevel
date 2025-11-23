@@ -1731,23 +1731,74 @@
             });
             
             if (shouldUsePopup) {
-              // Directly open payment URL in a new tab (no popup)
+              // Force open payment URL in a new tab (no popup)
               const reason = currentSafariCheck ? 'Safari browser' : 'KNET payment (external redirect)';
-              console.log(`🔗 ${reason} detected - opening payment page in new tab`);
+              console.log(`🔗 ${reason} detected - forcing payment page to open in new tab`);
               console.log('📱 User Agent:', navigator.userAgent);
-              console.log('🔍 Opening payment URL in new tab:', result.charge.transaction.url);
+              console.log('🔍 Payment URL:', result.charge.transaction.url);
               
-              // Create a temporary link and click it to open in new tab
-              // This method is more reliable than window.open() as it's treated as user action
-              const link = document.createElement('a');
-              link.href = result.charge.transaction.url;
-              link.target = '_blank';
-              link.rel = 'noopener noreferrer';
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
+              const paymentUrl = result.charge.transaction.url;
+              const isInIframe = window !== window.top;
               
-              console.log('✅ Payment page opened in new tab');
+              console.log('🔍 Window context:', {
+                isInIframe: isInIframe,
+                hasTop: !!(window.top && window.top !== window),
+                hasParent: !!(window.parent && window.parent !== window)
+              });
+              
+              // Method 1: Try window.open() first
+              let newWindow = window.open(paymentUrl, '_blank', 'noopener,noreferrer');
+              
+              // Check if window.open was blocked
+              if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+                console.warn('⚠️ window.open() was blocked, trying alternative methods...');
+                
+                // Method 2: Try creating and clicking a link
+                try {
+                  const link = document.createElement('a');
+                  link.href = paymentUrl;
+                  link.target = '_blank';
+                  link.rel = 'noopener noreferrer';
+                  link.style.display = 'none';
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                  console.log('✅ Used link.click() method');
+                  
+                  // Give it a moment, then check if we need fallback
+                  setTimeout(() => {
+                    // If still in iframe and link didn't work, redirect parent/top
+                    if (isInIframe) {
+                      console.log('🔄 Link click may not have worked in iframe, redirecting parent window...');
+                      if (window.top && window.top !== window) {
+                        window.top.location.href = paymentUrl;
+                      } else if (window.parent && window.parent !== window) {
+                        window.parent.location.href = paymentUrl;
+                      }
+                    }
+                  }, 100);
+                } catch (e) {
+                  console.error('❌ Link click failed:', e);
+                  
+                  // Method 3: Force redirect parent/top window if in iframe
+                  if (isInIframe) {
+                    console.log('🔄 Forcing redirect of parent/top window...');
+                    if (window.top && window.top !== window) {
+                      window.top.location.href = paymentUrl;
+                    } else if (window.parent && window.parent !== window) {
+                      window.parent.location.href = paymentUrl;
+                    } else {
+                      window.location.href = paymentUrl;
+                    }
+                  } else {
+                    // Method 4: Last resort - redirect current window
+                    console.log('🔄 Last resort: redirecting current window...');
+                    window.location.href = paymentUrl;
+                  }
+                }
+              } else {
+                console.log('✅ Payment page opened in new tab via window.open()');
+              }
             } else {
               // Direct redirect for all other browsers with non-KNET payments - NO POPUP
               console.log('🌐 Non-Safari browser with non-KNET payment - using direct redirect (NO POPUP)');
