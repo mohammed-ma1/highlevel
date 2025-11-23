@@ -1753,45 +1753,27 @@
               if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
                 console.warn('⚠️ window.open() was blocked, trying alternative methods...');
                 
-                // Method 2: Try creating and clicking a link
-                try {
-                  const link = document.createElement('a');
-                  link.href = paymentUrl;
-                  link.target = '_blank';
-                  link.rel = 'noopener noreferrer';
-                  link.style.display = 'none';
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
-                  console.log('✅ Used link.click() method');
-                  
-                  // Give it a moment, then check if we need fallback
-                  setTimeout(() => {
-                    // If still in iframe and link didn't work, redirect parent/top
-                    if (isInIframe) {
-                      console.log('🔄 Link click may not have worked in iframe, redirecting parent window...');
-                      if (window.top && window.top !== window) {
-                        window.top.location.href = paymentUrl;
-                      } else if (window.parent && window.parent !== window) {
-                        window.parent.location.href = paymentUrl;
-                      }
-                    }
-                  }, 100);
-                } catch (e) {
-                  console.error('❌ Link click failed:', e);
-                  
-                  // Method 3: Force redirect parent/top window if in iframe
-                  if (isInIframe) {
-                    console.log('🔄 Forcing redirect of parent/top window...');
-                    if (window.top && window.top !== window) {
-                      window.top.location.href = paymentUrl;
-                    } else if (window.parent && window.parent !== window) {
-                      window.parent.location.href = paymentUrl;
-                    } else {
-                      window.location.href = paymentUrl;
-                    }
-                  } else {
-                    // Method 4: Last resort - redirect current window
+                // Method 2: If in iframe, immediately redirect current iframe window
+                // This is the most reliable method for cross-origin iframes
+                if (isInIframe) {
+                  console.log('🔄 In iframe context - immediately redirecting current iframe window to payment URL...');
+                  // Redirect the current iframe window - this always works even in cross-origin scenarios
+                  window.location.href = paymentUrl;
+                } else {
+                  // Not in iframe - try link click method
+                  try {
+                    const link = document.createElement('a');
+                    link.href = paymentUrl;
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    link.style.display = 'none';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    console.log('✅ Used link.click() method');
+                  } catch (e) {
+                    console.error('❌ Link click failed:', e);
+                    // Last resort - redirect current window
                     console.log('🔄 Last resort: redirecting current window...');
                     window.location.href = paymentUrl;
                   }
