@@ -1737,8 +1737,17 @@
               console.log('📱 User Agent:', navigator.userAgent);
               console.log('🔍 Opening payment URL in new tab:', result.charge.transaction.url);
               
-              // Open payment URL directly in a new tab
-              window.open(result.charge.transaction.url, '_blank');
+              // Create a temporary link and click it to open in new tab
+              // This method is more reliable than window.open() as it's treated as user action
+              const link = document.createElement('a');
+              link.href = result.charge.transaction.url;
+              link.target = '_blank';
+              link.rel = 'noopener noreferrer';
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              
+              console.log('✅ Payment page opened in new tab');
             } else {
               // Direct redirect for all other browsers with non-KNET payments - NO POPUP
               console.log('🌐 Non-Safari browser with non-KNET payment - using direct redirect (NO POPUP)');
