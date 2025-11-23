@@ -1731,27 +1731,14 @@
             });
             
             if (shouldUsePopup) {
-              // Use popup for Safari (desktop and mobile) to avoid iframe payment restrictions
-              // OR for KNET payments in Chrome (to preserve iframe context for redirect)
+              // Directly open payment URL in a new tab (no popup)
               const reason = currentSafariCheck ? 'Safari browser' : 'KNET payment (external redirect)';
-              console.log(`🍎 ${reason} detected - showing proceed payment popup`);
+              console.log(`🔗 ${reason} detected - opening payment page in new tab`);
               console.log('📱 User Agent:', navigator.userAgent);
-              console.log('🔍 About to show popup, checking payment container...');
+              console.log('🔍 Opening payment URL in new tab:', result.charge.transaction.url);
               
-              const paymentContainer = document.querySelector('.payment-container');
-              console.log('🔍 Payment container found:', !!paymentContainer);
-              if (paymentContainer) {
-                console.log('✅ Showing payment container');
-                paymentContainer.style.display = 'block';
-              } else {
-                console.warn('⚠️ Payment container not found!');
-              }
-              
-              console.log('🔍 Calling showProceedPaymentPopup with:', {
-                url: result.charge.transaction.url,
-                isKnetPayment: isKnetPayment
-              });
-              showProceedPaymentPopup(result.charge.transaction.url, isKnetPayment);
+              // Open payment URL directly in a new tab
+              window.open(result.charge.transaction.url, '_blank');
             } else {
               // Direct redirect for all other browsers with non-KNET payments - NO POPUP
               console.log('🌐 Non-Safari browser with non-KNET payment - using direct redirect (NO POPUP)');
