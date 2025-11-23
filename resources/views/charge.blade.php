@@ -1783,40 +1783,43 @@
               // For Safari or iframe scenarios, we MUST open in new tab to avoid payment policy errors
               // Never redirect the iframe itself as it causes "Third-party iframes are not allowed to request payments"
               
-              // Method 1: Try window.open() first
-              let newWindow = window.open(paymentUrl, '_blank', 'noopener,noreferrer');
+              // IMPORTANT: Browsers block programmatic tab opening when not triggered by direct user gesture
+              // Since createCharge() is called automatically (not from user click), browsers will block window.open()
+              // Solution: Show button immediately for Safari/iframe so user can click it (direct gesture)
               
-              // Check if window.open was blocked
-              if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
-                console.warn('⚠️ window.open() was blocked, trying link.click() method...');
-                
-                // Method 2: Try creating and clicking a link (works better in some browsers)
-                try {
-                  const link = document.createElement('a');
-                  link.href = paymentUrl;
-                  link.target = '_blank';
-                  link.rel = 'noopener noreferrer';
-                  link.style.display = 'none';
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
-                  console.log('✅ Used link.click() method to open in new tab');
-                  // link.click() doesn't return a value, but if it doesn't throw, assume it worked
-                  // Don't show button if link.click() succeeds
-                } catch (e) {
-                  console.error('❌ Link click failed:', e);
-                  // For Safari/iframe, show a clickable button instead of redirecting
-                  if (currentSafariCheck || isInIframe) {
-                    console.error('❌ Cannot redirect iframe in Safari - showing clickable button instead');
-                    showPaymentButton(paymentUrl);
-                  } else {
-                    // Only redirect if not Safari and not in iframe
-                    console.log('🔄 Last resort: redirecting current window...');
-                    window.location.href = paymentUrl;
-                  }
-                }
+              if (currentSafariCheck || isInIframe) {
+                // For Safari/iframe, show button immediately - user click will be a direct gesture
+                console.log('🍎 Safari/iframe detected - showing button for user to click (ensures direct user gesture)');
+                showPaymentButton(paymentUrl);
               } else {
-                console.log('✅ Payment page opened in new tab via window.open()');
+                // For other browsers, try automatic methods first
+                // Method 1: Try window.open() first
+                let newWindow = window.open(paymentUrl, '_blank', 'noopener,noreferrer');
+                
+                // Check if window.open was blocked
+                if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+                  console.warn('⚠️ window.open() was blocked, trying link.click() method...');
+                  
+                  // Method 2: Try creating and clicking a link (works better in some browsers)
+                  try {
+                    const link = document.createElement('a');
+                    link.href = paymentUrl;
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    link.style.display = 'none';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    console.log('✅ Used link.click() method to open in new tab');
+                  } catch (e) {
+                    console.error('❌ Link click failed:', e);
+                    // Show button as fallback
+                    console.log('🔄 Showing button as fallback...');
+                    showPaymentButton(paymentUrl);
+                  }
+                } else {
+                  console.log('✅ Payment page opened in new tab via window.open()');
+                }
               }
             } else {
               // Direct redirect for all other browsers with non-KNET payments - NO POPUP
