@@ -38,7 +38,7 @@ return [
         'token_url' => env('EXTERNAL_TOKEN_URL', 'https://services.leadconnectorhq.com/oauth/token'),
         'client_id' => env('EXTERNAL_CLIENT_ID', 'your-client-id'),
         'client_secret' => env('EXTERNAL_CLIENT_SECRET', 'your-client-secret'),
-        'redirect_uri' => env('EXTERNAL_REDIRECT_URI', env('PAYMENT_DOMAIN', 'https://mediasolution.io') . '/connect'),
+        'redirect_uri' => env('EXTERNAL_REDIRECT_URI', 'https://dashboard.mediasolution.io/connect'),
     ],
 
 ];
