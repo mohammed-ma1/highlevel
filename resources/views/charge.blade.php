@@ -1722,51 +1722,62 @@
             });
             
             // Open payment URL in new tab for ALL browsers
-            // This is the most reliable approach that works across all browsers
+            // Using temporary link method as primary approach - it's more reliable and avoids popup blockers
             console.log('🌐 Opening payment URL in new tab for all browsers');
             console.log('🌐 User Agent:', navigator.userAgent);
             console.log('⏱️ Opening payment URL in new tab:', result.charge.transaction.url);
             
-            // Try to open in new tab
-            // Use noopener and noreferrer for security
-            const newTab = window.open(result.charge.transaction.url, '_blank', 'noopener,noreferrer');
-            
-            if (!newTab || newTab.closed || typeof newTab.closed === 'undefined') {
-              // Popup blocked - try alternative methods
-              console.warn('⚠️ New tab blocked, trying alternative methods');
+            // Method 1: Create a temporary link and click it (most reliable, avoids popup blockers)
+            // This method works better because it simulates a user click action
+            try {
+              const link = document.createElement('a');
+              link.href = result.charge.transaction.url;
+              link.target = '_blank';
+              link.rel = 'noopener noreferrer';
+              link.style.display = 'none';
+              document.body.appendChild(link);
+              link.click();
+              // Remove link after a short delay to ensure click is processed
+              setTimeout(() => {
+                try {
+                  document.body.removeChild(link);
+                } catch (e) {
+                  // Link might already be removed
+                }
+              }, 100);
+              console.log('✅ Payment opened via temporary link click (most reliable method)');
+            } catch (e) {
+              console.warn('⚠️ Link method failed, trying window.open fallback:', e);
               
-              // Method 1: Create a temporary link and click it (works better in some browsers)
+              // Method 2: Fallback to window.open
               try {
-                const link = document.createElement('a');
-                link.href = result.charge.transaction.url;
-                link.target = '_blank';
-                link.rel = 'noopener noreferrer';
-                link.style.display = 'none';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                console.log('✅ Payment opened via temporary link click');
-              } catch (e) {
-                console.warn('⚠️ Link method failed, trying direct redirect:', e);
-                // Method 2: Direct redirect as last resort
-                // This will navigate away from the current page
+                const newTab = window.open(result.charge.transaction.url, '_blank', 'noopener,noreferrer');
+                
+                if (!newTab || newTab.closed || typeof newTab.closed === 'undefined') {
+                  console.warn('⚠️ window.open also blocked, using direct redirect as last resort');
+                  // Method 3: Direct redirect as last resort
+                  window.location.href = result.charge.transaction.url;
+                } else {
+                  console.log('✅ Payment opened via window.open fallback');
+                  
+                  // Monitor the new tab (optional - for logging purposes)
+                  const checkTabClosed = setInterval(() => {
+                    try {
+                      if (newTab.closed) {
+                        clearInterval(checkTabClosed);
+                        console.log('🚪 Payment tab was closed by user');
+                      }
+                    } catch (e) {
+                      // Cross-origin check - tab might have navigated
+                      clearInterval(checkTabClosed);
+                    }
+                  }, 1000);
+                }
+              } catch (e2) {
+                console.error('❌ All methods failed, using direct redirect:', e2);
+                // Last resort: Direct redirect
                 window.location.href = result.charge.transaction.url;
               }
-            } else {
-              console.log('✅ Payment opened in new tab successfully');
-              
-              // Monitor the new tab (optional - for logging purposes)
-              const checkTabClosed = setInterval(() => {
-                try {
-                  if (newTab.closed) {
-                    clearInterval(checkTabClosed);
-                    console.log('🚪 Payment tab was closed by user');
-                  }
-                } catch (e) {
-                  // Cross-origin check - tab might have navigated
-                  clearInterval(checkTabClosed);
-                }
-              }, 1000);
             }
           } else {
             console.error('❌ No transaction URL in charge response');
