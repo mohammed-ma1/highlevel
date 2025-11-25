@@ -1722,100 +1722,117 @@
             });
             
             // Open payment URL in new tab for ALL browsers
-            // Using form submission method - browsers treat this more leniently than window.open
+            // Using multiple methods in sequence to maximize success rate
             console.log('🌐 Opening payment URL in new tab for all browsers');
             console.log('🌐 User Agent:', navigator.userAgent);
             console.log('⏱️ Payment URL:', result.charge.transaction.url);
             
             const paymentUrl = result.charge.transaction.url;
             
-            // Method 1: Try form submission with target="_blank" (most reliable for automatic opening)
-            // Browsers are more lenient with form submissions than window.open
+            // Try multiple methods in quick succession to maximize chance of success
+            // Method 1: window.open (try first)
+            let opened = false;
             try {
-              const form = document.createElement('form');
-              form.method = 'GET';
-              form.action = paymentUrl;
-              form.target = '_blank';
-              form.style.display = 'none';
-              
-              // Add rel="noopener" equivalent via form attributes
-              // Note: Forms don't support rel, but target="_blank" with proper handling works
-              
-              document.body.appendChild(form);
-              
-              // Submit the form - this opens in new tab
-              form.submit();
-              
-              // Remove form after submission
-              setTimeout(() => {
-                try {
-                  document.body.removeChild(form);
-                } catch (e) {
-                  // Form might already be removed
-                }
-              }, 100);
-              
-              console.log('✅ Payment opened via form submission (most reliable method)');
-            } catch (e) {
-              console.warn('⚠️ Form submission failed, trying window.open:', e);
-              
-              // Method 2: Fallback to window.open
-              try {
-                const newTab = window.open(paymentUrl, '_blank', 'noopener,noreferrer');
+              const newTab = window.open(paymentUrl, '_blank', 'noopener,noreferrer');
+              if (newTab && !newTab.closed && typeof newTab.closed !== 'undefined') {
+                opened = true;
+                console.log('✅ Payment opened via window.open');
                 
-                if (!newTab || newTab.closed || typeof newTab.closed === 'undefined') {
-                  console.warn('⚠️ window.open also blocked, trying link method...');
-                  
-                  // Method 3: Try link click with better event handling
-                  const link = document.createElement('a');
-                  link.href = paymentUrl;
-                  link.target = '_blank';
-                  link.rel = 'noopener noreferrer';
-                  link.style.position = 'absolute';
-                  link.style.left = '-9999px';
-                  document.body.appendChild(link);
-                  
-                  // Use both click() and dispatchEvent for maximum compatibility
-                  const clickEvent = new MouseEvent('click', {
-                    bubbles: true,
-                    cancelable: true,
-                    view: window
-                  });
-                  
-                  link.dispatchEvent(clickEvent);
-                  link.click();
-                  
-                  setTimeout(() => {
-                    try {
-                      document.body.removeChild(link);
-                    } catch (e) {
-                      // Link might already be removed
-                    }
-                  }, 100);
-                  
-                  console.log('✅ Payment opened via link click fallback');
-                } else {
-                  console.log('✅ Payment opened via window.open fallback');
-                  
-                  // Monitor the new tab
-                  const checkTabClosed = setInterval(() => {
-                    try {
-                      if (newTab.closed) {
-                        clearInterval(checkTabClosed);
-                        console.log('🚪 Payment tab was closed by user');
-                      }
-                    } catch (e) {
+                // Monitor the new tab
+                const checkTabClosed = setInterval(() => {
+                  try {
+                    if (newTab.closed) {
                       clearInterval(checkTabClosed);
+                      console.log('🚪 Payment tab was closed by user');
                     }
-                  }, 1000);
-                }
-              } catch (e2) {
-                console.error('❌ All methods failed, using direct redirect:', e2);
-                // Last resort: Direct redirect (navigates current page)
-                setTimeout(() => {
-                  window.location.href = paymentUrl;
-                }, 100);
+                  } catch (e) {
+                    clearInterval(checkTabClosed);
+                  }
+                }, 1000);
               }
+            } catch (e) {
+              console.log('⚠️ window.open failed:', e.message);
+            }
+            
+            // Method 2: Form submission (works even if window.open is blocked)
+            if (!opened) {
+              try {
+                const form = document.createElement('form');
+                form.method = 'GET';
+                form.action = paymentUrl;
+                form.target = '_blank';
+                form.style.display = 'none';
+                form.style.visibility = 'hidden';
+                form.style.position = 'absolute';
+                form.style.top = '-9999px';
+                
+                document.body.appendChild(form);
+                form.submit();
+                
+                // Clean up form
+                setTimeout(() => {
+                  try {
+                    if (form.parentNode) {
+                      document.body.removeChild(form);
+                    }
+                  } catch (e) {
+                    // Ignore cleanup errors
+                  }
+                }, 500);
+                
+                opened = true;
+                console.log('✅ Payment opened via form submission');
+              } catch (e) {
+                console.log('⚠️ Form submission failed:', e.message);
+              }
+            }
+            
+            // Method 3: Link click (additional fallback)
+            if (!opened) {
+              try {
+                const link = document.createElement('a');
+                link.href = paymentUrl;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.style.display = 'none';
+                link.style.position = 'absolute';
+                link.style.left = '-9999px';
+                
+                document.body.appendChild(link);
+                
+                // Trigger click with proper event
+                const clickEvent = document.createEvent('MouseEvents');
+                clickEvent.initEvent('click', true, true);
+                link.dispatchEvent(clickEvent);
+                
+                // Also try native click
+                link.click();
+                
+                // Clean up
+                setTimeout(() => {
+                  try {
+                    if (link.parentNode) {
+                      document.body.removeChild(link);
+                    }
+                  } catch (e) {
+                    // Ignore cleanup errors
+                  }
+                }, 500);
+                
+                opened = true;
+                console.log('✅ Payment opened via link click');
+              } catch (e) {
+                console.log('⚠️ Link click failed:', e.message);
+              }
+            }
+            
+            // Method 4: Last resort - direct redirect
+            if (!opened) {
+              console.warn('⚠️ All automatic methods failed, using direct redirect');
+              console.warn('⚠️ This will navigate the current page');
+              setTimeout(() => {
+                window.location.href = paymentUrl;
+              }, 500);
             }
           } else {
             console.error('❌ No transaction URL in charge response');
