@@ -1508,38 +1508,6 @@
       }
     }
 
-    function showPaymentButton(paymentUrl) {
-      // Show payment container and create a clickable button
-      const paymentContainer = document.getElementById('payment-container');
-      const paymentBody = document.getElementById('payment-body');
-      
-      if (paymentContainer && paymentBody) {
-        paymentContainer.style.display = 'block';
-        paymentBody.innerHTML = `
-          <div class="popup-payment-content">
-            <div style="text-align: center; padding: 20px;">
-              <p style="margin-bottom: 20px; color: #6b7280;">Click the button below to open the payment page in a new tab:</p>
-              <button id="open-payment-btn" class="proceed-payment-button" style="cursor: pointer;">
-                <span class="button-arrow">→</span>
-                <span class="button-text">الذهاب لصفحة الدفع</span>
-              </button>
-            </div>
-          </div>
-        `;
-        
-        // Add click handler to button - this will work because it's a user gesture
-        const openBtn = document.getElementById('open-payment-btn');
-        if (openBtn) {
-          openBtn.onclick = function(e) {
-            e.preventDefault();
-            console.log('🔗 User clicked button to open payment URL:', paymentUrl);
-            // This will work because it's a direct user click
-            window.open(paymentUrl, '_blank', 'noopener,noreferrer');
-          };
-        }
-      }
-    }
-
     function showError(message) {
       const errorDiv = document.getElementById('error-message');
       if (errorDiv) {
@@ -1753,83 +1721,52 @@
               vendor: navigator.vendor
             });
             
-            // Use popup for Safari OR Chrome with KNET (external redirect payments)
-            const shouldUsePopup = currentSafariCheck || isKnetPayment;
-            console.log('🔍 Popup decision logic:', {
-              isSafari: currentSafariCheck,
-              isKnet: isKnetPayment,
-              shouldUsePopup: shouldUsePopup,
-              decision: shouldUsePopup ? 'USE POPUP' : 'USE DIRECT REDIRECT'
-            });
+            // Open payment URL in new tab for ALL browsers
+            // This is the most reliable approach that works across all browsers
+            console.log('🌐 Opening payment URL in new tab for all browsers');
+            console.log('🌐 User Agent:', navigator.userAgent);
+            console.log('⏱️ Opening payment URL in new tab:', result.charge.transaction.url);
             
-            if (shouldUsePopup) {
-              // Force open payment URL in a new tab (no popup)
-              // This is critical for Safari to avoid payment policy errors in iframes
-              const reason = currentSafariCheck ? 'Safari browser' : 'KNET payment (external redirect)';
-              console.log(`🔗 ${reason} detected - forcing payment page to open in new tab`);
-              console.log('📱 User Agent:', navigator.userAgent);
-              console.log('🔍 Payment URL:', result.charge.transaction.url);
+            // Try to open in new tab
+            // Use noopener and noreferrer for security
+            const newTab = window.open(result.charge.transaction.url, '_blank', 'noopener,noreferrer');
+            
+            if (!newTab || newTab.closed || typeof newTab.closed === 'undefined') {
+              // Popup blocked - try alternative methods
+              console.warn('⚠️ New tab blocked, trying alternative methods');
               
-              const paymentUrl = result.charge.transaction.url;
-              const isInIframe = window !== window.top;
-              
-              console.log('🔍 Window context:', {
-                isInIframe: isInIframe,
-                hasTop: !!(window.top && window.top !== window),
-                hasParent: !!(window.parent && window.parent !== window),
-                isSafari: currentSafariCheck
-              });
-              
-              // For Safari or iframe scenarios, we MUST open in new tab to avoid payment policy errors
-              // Never redirect the iframe itself as it causes "Third-party iframes are not allowed to request payments"
-              
-              // IMPORTANT: Browsers block programmatic tab opening when not triggered by direct user gesture
-              // Since createCharge() is called automatically (not from user click), browsers will block window.open()
-              // Solution: Show button immediately for Safari/iframe so user can click it (direct gesture)
-              
-              if (currentSafariCheck || isInIframe) {
-                // For Safari/iframe, show button immediately - user click will be a direct gesture
-                console.log('🍎 Safari/iframe detected - showing button for user to click (ensures direct user gesture)');
-                showPaymentButton(paymentUrl);
-              } else {
-                // For other browsers, try automatic methods first
-                // Method 1: Try window.open() first
-                let newWindow = window.open(paymentUrl, '_blank', 'noopener,noreferrer');
-                
-                // Check if window.open was blocked
-                if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
-                  console.warn('⚠️ window.open() was blocked, trying link.click() method...');
-                  
-                  // Method 2: Try creating and clicking a link (works better in some browsers)
-                  try {
-                    const link = document.createElement('a');
-                    link.href = paymentUrl;
-                    link.target = '_blank';
-                    link.rel = 'noopener noreferrer';
-                    link.style.display = 'none';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    console.log('✅ Used link.click() method to open in new tab');
-                  } catch (e) {
-                    console.error('❌ Link click failed:', e);
-                    // Show button as fallback
-                    console.log('🔄 Showing button as fallback...');
-                    showPaymentButton(paymentUrl);
-                  }
-                } else {
-                  console.log('✅ Payment page opened in new tab via window.open()');
-                }
+              // Method 1: Create a temporary link and click it (works better in some browsers)
+              try {
+                const link = document.createElement('a');
+                link.href = result.charge.transaction.url;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                console.log('✅ Payment opened via temporary link click');
+              } catch (e) {
+                console.warn('⚠️ Link method failed, trying direct redirect:', e);
+                // Method 2: Direct redirect as last resort
+                // This will navigate away from the current page
+                window.location.href = result.charge.transaction.url;
               }
             } else {
-              // Direct redirect for all other browsers with non-KNET payments - NO POPUP
-              console.log('🌐 Non-Safari browser with non-KNET payment - using direct redirect (NO POPUP)');
-              console.log('🌐 User Agent:', navigator.userAgent);
-              console.log('⏱️ Will redirect in 500ms to:', result.charge.transaction.url);
-              setTimeout(() => {
-                console.log('🔄 Executing direct redirect now...');
-                window.location.href = result.charge.transaction.url;
-              }, 500);
+              console.log('✅ Payment opened in new tab successfully');
+              
+              // Monitor the new tab (optional - for logging purposes)
+              const checkTabClosed = setInterval(() => {
+                try {
+                  if (newTab.closed) {
+                    clearInterval(checkTabClosed);
+                    console.log('🚪 Payment tab was closed by user');
+                  }
+                } catch (e) {
+                  // Cross-origin check - tab might have navigated
+                  clearInterval(checkTabClosed);
+                }
+              }, 1000);
             }
           } else {
             console.error('❌ No transaction URL in charge response');
