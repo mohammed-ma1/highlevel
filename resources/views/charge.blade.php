@@ -962,7 +962,7 @@
               }
               showProceedPaymentPopup(result.charge.transaction.url, isKnetPayment);
             } else {
-              const newTab = window.open(result.charge.transaction.url, '');
+              const newTab = window.open(result.charge.transaction.url, '_blank');
               if (!newTab) {
                 window.location.href = result.charge.transaction.url;
               }
@@ -1112,29 +1112,13 @@
       
       if (proceedBtn) {
         proceedBtn.onclick = function() {
-          const popupFeatures = 'width=800,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no';
-          
-          paymentPopup = window.open(url, 'tap_payment', popupFeatures);
-          
-          if (!paymentPopup) {
-            if (window.top && window.top !== window) {
-              window.top.location.href = url;
-            } else if (window.parent && window.parent !== window) {
-              window.parent.location.href = url;
-            } else {
-              window.location.href = url;
-            }
-            return;
+          if (window.top && window.top !== window) {
+            window.top.location.href = url;
+          } else if (window.parent && window.parent !== window) {
+            window.parent.location.href = url;
+          } else {
+            window.location.href = url;
           }
-          
-          const checkClosed = setInterval(() => {
-            if (paymentPopup.closed) {
-              clearInterval(checkClosed);
-              sendCloseResponse();
-            }
-          }, 1000);
-          
-          window.paymentPopupCheckInterval = checkClosed;
         };
       }
     }
