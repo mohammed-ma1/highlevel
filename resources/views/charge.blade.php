@@ -1721,118 +1721,49 @@
               vendor: navigator.vendor
             });
             
-            // Open payment URL in new tab for ALL browsers
-            // Using multiple methods in sequence to maximize success rate
-            console.log('🌐 Opening payment URL in new tab for all browsers');
-            console.log('🌐 User Agent:', navigator.userAgent);
-            console.log('⏱️ Payment URL:', result.charge.transaction.url);
+            // Use popup for Safari OR Chrome with KNET (external redirect payments)
+            const shouldUsePopup = currentSafariCheck || isKnetPayment;
+            console.log('🔍 Popup decision logic:', {
+              isSafari: currentSafariCheck,
+              isKnet: isKnetPayment,
+              shouldUsePopup: shouldUsePopup,
+              decision: shouldUsePopup ? 'USE POPUP' : 'USE DIRECT REDIRECT'
+            });
             
-            const paymentUrl = result.charge.transaction.url;
-            
-            // Try multiple methods in quick succession to maximize chance of success
-            // Method 1: window.open (try first)
-            let opened = false;
-            try {
-              const newTab = window.open(paymentUrl, '_blank', 'noopener,noreferrer');
-              if (newTab && !newTab.closed && typeof newTab.closed !== 'undefined') {
-                opened = true;
-                console.log('✅ Payment opened via window.open');
-                
-                // Monitor the new tab
-                const checkTabClosed = setInterval(() => {
-                  try {
-                    if (newTab.closed) {
-                      clearInterval(checkTabClosed);
-                      console.log('🚪 Payment tab was closed by user');
-                    }
-                  } catch (e) {
-                    clearInterval(checkTabClosed);
-                  }
-                }, 1000);
+            if (shouldUsePopup) {
+              // Use popup for Safari (desktop and mobile) to avoid iframe payment restrictions
+              // OR for KNET payments in Chrome (to preserve iframe context for redirect)
+              const reason = currentSafariCheck ? 'Safari browser' : 'KNET payment (external redirect)';
+              console.log(`🍎 ${reason} detected - showing proceed payment popup`);
+              console.log('📱 User Agent:', navigator.userAgent);
+              console.log('🔍 About to show popup, checking payment container...');
+              
+              const paymentContainer = document.querySelector('.payment-container');
+              console.log('🔍 Payment container found:', !!paymentContainer);
+              if (paymentContainer) {
+                console.log('✅ Showing payment container');
+                paymentContainer.style.display = 'block';
+              } else {
+                console.warn('⚠️ Payment container not found!');
               }
-            } catch (e) {
-              console.log('⚠️ window.open failed:', e.message);
-            }
-            
-            // Method 2: Form submission (works even if window.open is blocked)
-            if (!opened) {
-              try {
-                const form = document.createElement('form');
-                form.method = 'GET';
-                form.action = paymentUrl;
-                form.target = '_blank';
-                form.style.display = 'none';
-                form.style.visibility = 'hidden';
-                form.style.position = 'absolute';
-                form.style.top = '-9999px';
-                
-                document.body.appendChild(form);
-                form.submit();
-                
-                // Clean up form
-                setTimeout(() => {
-                  try {
-                    if (form.parentNode) {
-                      document.body.removeChild(form);
-                    }
-                  } catch (e) {
-                    // Ignore cleanup errors
-                  }
-                }, 500);
-                
-                opened = true;
-                console.log('✅ Payment opened via form submission');
-              } catch (e) {
-                console.log('⚠️ Form submission failed:', e.message);
+              
+              console.log('🔍 Calling showProceedPaymentPopup with:', {
+                url: result.charge.transaction.url,
+                isKnetPayment: isKnetPayment
+              });
+              showProceedPaymentPopup(result.charge.transaction.url, isKnetPayment);
+            } else {
+              // Open in new tab for all other browsers with non-KNET payments
+              console.log('🌐 Non-Safari browser with non-KNET payment - opening in new tab');
+              console.log('🌐 User Agent:', navigator.userAgent);
+              console.log('⏱️ Opening payment URL in new tab:', result.charge.transaction.url);
+              const newTab = window.open(result.charge.transaction.url, '_blank');
+              if (!newTab) {
+                console.warn('⚠️ Popup blocked, falling back to direct redirect');
+                window.location.href = result.charge.transaction.url;
+              } else {
+                console.log('✅ Payment opened in new tab successfully');
               }
-            }
-            
-            // Method 3: Link click (additional fallback)
-            if (!opened) {
-              try {
-                const link = document.createElement('a');
-                link.href = paymentUrl;
-                link.target = '_blank';
-                link.rel = 'noopener noreferrer';
-                link.style.display = 'none';
-                link.style.position = 'absolute';
-                link.style.left = '-9999px';
-                
-                document.body.appendChild(link);
-                
-                // Trigger click with proper event
-                const clickEvent = document.createEvent('MouseEvents');
-                clickEvent.initEvent('click', true, true);
-                link.dispatchEvent(clickEvent);
-                
-                // Also try native click
-                link.click();
-                
-                // Clean up
-                setTimeout(() => {
-                  try {
-                    if (link.parentNode) {
-                      document.body.removeChild(link);
-                    }
-                  } catch (e) {
-                    // Ignore cleanup errors
-                  }
-                }, 500);
-                
-                opened = true;
-                console.log('✅ Payment opened via link click');
-              } catch (e) {
-                console.log('⚠️ Link click failed:', e.message);
-              }
-            }
-            
-            // Method 4: Last resort - direct redirect
-            if (!opened) {
-              console.warn('⚠️ All automatic methods failed, using direct redirect');
-              console.warn('⚠️ This will navigate the current page');
-              setTimeout(() => {
-                window.location.href = paymentUrl;
-              }, 500);
             }
           } else {
             console.error('❌ No transaction URL in charge response');
