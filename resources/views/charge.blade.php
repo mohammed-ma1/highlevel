@@ -691,9 +691,10 @@
         paymentContainer.style.display = 'none';
       }
       
-      setTimeout(() => {
-        createCharge();
-      }, 0);
+      // Try Option 1: Remove setTimeout and call directly
+      // This attempts to preserve the user gesture chain from the message event
+      // Note: May still fail due to async fetch() operations, but worth trying
+      createCharge();
     }
 
     function updatePaymentFormForSetup(data) {
@@ -951,20 +952,96 @@
 
         if (tapResponse.ok && result.success && result.charge) {
           if (result.charge.transaction?.url) {
+            const paymentUrl = result.charge.transaction.url;
             const isKnetPayment = isKnetPaymentMethod(result.charge);
             const currentSafariCheck = detectSafari();
-            const shouldUsePopup = currentSafariCheck || isKnetPayment;
             
-            if (shouldUsePopup) {
-              const paymentContainer = document.querySelector('.payment-container');
-              if (paymentContainer) {
-                paymentContainer.style.display = 'block';
+            // Option 1: Try to open directly for ALL browsers (including Safari)
+            // Attempt multiple methods in quick succession to maximize success
+            let opened = false;
+            
+            // Method 1: window.open (try first)
+            try {
+              const newTab = window.open(paymentUrl, '_blank', 'noopener,noreferrer');
+              if (newTab && !newTab.closed && typeof newTab.closed !== 'undefined') {
+                opened = true;
+                console.log('✅ Payment opened directly via window.open (Option 1 attempt)');
+                
+                // Monitor the new tab
+                const checkTabClosed = setInterval(() => {
+                  try {
+                    if (newTab.closed) {
+                      clearInterval(checkTabClosed);
+                      console.log('🚪 Payment tab was closed by user');
+                    }
+                  } catch (e) {
+                    clearInterval(checkTabClosed);
+                  }
+                }, 1000);
               }
-              showProceedPaymentPopup(result.charge.transaction.url, isKnetPayment);
-            } else {
-              const newTab = window.open(result.charge.transaction.url, '_blank');
-              if (!newTab) {
-                window.location.href = result.charge.transaction.url;
+            } catch (e) {
+              console.log('⚠️ window.open failed:', e.message);
+            }
+            
+            // Method 2: Form submission (if window.open failed)
+            if (!opened) {
+              try {
+                const form = document.createElement('form');
+                form.method = 'GET';
+                form.action = paymentUrl;
+                form.target = '_blank';
+                form.style.display = 'none';
+                document.body.appendChild(form);
+                form.submit();
+                setTimeout(() => {
+                  try {
+                    if (form.parentNode) document.body.removeChild(form);
+                  } catch (e) {}
+                }, 100);
+                opened = true;
+                console.log('✅ Payment opened directly via form submission (Option 1 attempt)');
+              } catch (e) {
+                console.log('⚠️ Form submission failed:', e.message);
+              }
+            }
+            
+            // Method 3: Link click (if both above failed)
+            if (!opened) {
+              try {
+                const link = document.createElement('a');
+                link.href = paymentUrl;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.click();
+                setTimeout(() => {
+                  try {
+                    if (link.parentNode) document.body.removeChild(link);
+                  } catch (e) {}
+                }, 100);
+                opened = true;
+                console.log('✅ Payment opened directly via link click (Option 1 attempt)');
+              } catch (e) {
+                console.log('⚠️ Link click failed:', e.message);
+              }
+            }
+            
+            // Fallback: If all direct methods failed, use popup button (especially for Safari/KNET)
+            if (!opened) {
+              console.log('⚠️ All direct opening methods failed, falling back to popup button');
+              const shouldUsePopup = currentSafariCheck || isKnetPayment;
+              
+              if (shouldUsePopup) {
+                const paymentContainer = document.querySelector('.payment-container');
+                if (paymentContainer) {
+                  paymentContainer.style.display = 'block';
+                }
+                showProceedPaymentPopup(paymentUrl, isKnetPayment);
+              } else {
+                // Last resort: direct redirect
+                console.warn('⚠️ All methods failed, using direct redirect');
+                window.location.href = paymentUrl;
               }
             }
           } else {
