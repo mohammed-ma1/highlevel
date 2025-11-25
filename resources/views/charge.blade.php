@@ -962,7 +962,7 @@
               }
               showProceedPaymentPopup(result.charge.transaction.url, isKnetPayment);
             } else {
-              const newTab = window.open(result.charge.transaction.url, '_blank');
+              const newTab = window.open(result.charge.transaction.url, '');
               if (!newTab) {
                 window.location.href = result.charge.transaction.url;
               }
