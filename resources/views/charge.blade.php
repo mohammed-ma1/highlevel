@@ -254,6 +254,8 @@
     let isSafari = false;
     let paymentPopup = null;
     let ghlAcknowledged = false;
+    let pendingPaymentUrl = null; // Store payment URL to open on next user action
+    let paymentUrlOpened = false; // Track if payment URL has been opened
     let readyEventRetryInterval = null;
     let readyEventRetryCount = 0;
     const MAX_RETRY_ATTEMPTS = 20;
@@ -962,9 +964,41 @@
               }
               showProceedPaymentPopup(result.charge.transaction.url, isKnetPayment);
             } else {
-              const newTab = window.open(result.charge.transaction.url, '_blank');
-              if (!newTab) {
-                window.location.href = result.charge.transaction.url;
+              // Store payment URL to open on next user action (Option 2 approach)
+              // This avoids popup blockers by waiting for user interaction
+              console.log('🌐 Non-Safari browser with non-KNET payment - storing URL for user action');
+              console.log('🌐 User Agent:', navigator.userAgent);
+              console.log('⏱️ Payment URL ready:', result.charge.transaction.url);
+              
+              pendingPaymentUrl = result.charge.transaction.url;
+              paymentUrlOpened = false;
+              
+              console.log('✅ Payment URL stored - will open on next user interaction (click, touch, or keyboard)');
+              
+              // Try to open immediately if possible (might work in some contexts)
+              try {
+                const newTab = window.open(pendingPaymentUrl, '_blank', 'noopener,noreferrer');
+                if (newTab && !newTab.closed && typeof newTab.closed !== 'undefined') {
+                  paymentUrlOpened = true;
+                  pendingPaymentUrl = null;
+                  console.log('✅ Payment opened immediately via window.open');
+                  
+                  // Monitor the new tab
+                  const checkTabClosed = setInterval(() => {
+                    try {
+                      if (newTab.closed) {
+                        clearInterval(checkTabClosed);
+                        console.log('🚪 Payment tab was closed by user');
+                      }
+                    } catch (e) {
+                      clearInterval(checkTabClosed);
+                    }
+                  }, 1000);
+                } else {
+                  console.log('⚠️ window.open blocked - waiting for user interaction');
+                }
+              } catch (e) {
+                console.log('⚠️ window.open failed - waiting for user interaction:', e.message);
               }
             }
           } else {
@@ -1139,8 +1173,85 @@
       }
     }
 
+    // Function to open pending payment URL when user interacts
+    function openPendingPaymentUrl() {
+      if (pendingPaymentUrl && !paymentUrlOpened) {
+        console.log('🔗 User interaction detected - opening payment URL:', pendingPaymentUrl);
+        
+        try {
+          const newTab = window.open(pendingPaymentUrl, '_blank', 'noopener,noreferrer');
+          
+          if (!newTab || newTab.closed || typeof newTab.closed === 'undefined') {
+            console.warn('⚠️ window.open still blocked, trying link method...');
+            // Fallback: create and click a link
+            const link = document.createElement('a');
+            link.href = pendingPaymentUrl;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            document.body.appendChild(link);
+            link.click();
+            setTimeout(() => {
+              try {
+                document.body.removeChild(link);
+              } catch (e) {
+                // Ignore cleanup errors
+              }
+            }, 100);
+          } else {
+            console.log('✅ Payment opened in new tab via user interaction');
+            
+            // Monitor the new tab
+            const checkTabClosed = setInterval(() => {
+              try {
+                if (newTab.closed) {
+                  clearInterval(checkTabClosed);
+                  console.log('🚪 Payment tab was closed by user');
+                }
+              } catch (e) {
+                clearInterval(checkTabClosed);
+              }
+            }, 1000);
+          }
+          
+          paymentUrlOpened = true;
+          pendingPaymentUrl = null; // Clear after opening
+        } catch (e) {
+          console.error('❌ Failed to open payment URL:', e);
+          // Last resort: direct redirect
+          window.location.href = pendingPaymentUrl;
+        }
+      }
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
       isSafari = detectSafari();
+      
+      // Add event listeners for user actions to open pending payment URL
+      // These events are considered user gestures by browsers
+      const userActionEvents = ['click', 'touchstart', 'keydown', 'mousedown', 'touchend'];
+      
+      userActionEvents.forEach(eventType => {
+        document.addEventListener(eventType, function(event) {
+          // Only open if we have a pending URL and haven't opened it yet
+          if (pendingPaymentUrl && !paymentUrlOpened) {
+            // Small delay to ensure event is fully processed
+            setTimeout(() => {
+              openPendingPaymentUrl();
+            }, 50);
+          }
+        }, { once: false, passive: true });
+      });
+      
+      // Also listen for window focus (user switching back to tab)
+      window.addEventListener('focus', function() {
+        if (pendingPaymentUrl && !paymentUrlOpened) {
+          setTimeout(() => {
+            openPendingPaymentUrl();
+          }, 100);
+        }
+      });
+      
+      console.log('✅ User action listeners set up - payment will open on next interaction');
       
       sendReadyEvent();
 
