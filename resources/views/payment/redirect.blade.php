@@ -23,7 +23,6 @@
     // Parse URL parameters
     function getUrlParams() {
       const params = new URLSearchParams(window.location.search);
-      console.log('📊 URL Parameters:', params);
       return {
         tap_id: params.get('tap_id'),
         charge_id: params.get('charge_id'),
@@ -39,7 +38,6 @@
     // Fetch charge status from API
     async function fetchChargeStatus(tapId) {
       try {
-        console.log('🔍 Fetching charge status for tap_id:', tapId);
         
         const urlParams = new URLSearchParams(window.location.search);
         const locationId = urlParams.get('locationId');
@@ -63,7 +61,6 @@
         }
 
         const data = await response.json();
-        console.log('📊 Charge status response:', data);
 
         if (data.success) {
           return data;
@@ -79,8 +76,6 @@
     // Send message to GoHighLevel
     function sendMessageToGHL(message) {
       try {
-        console.log('📤 Sending message to GHL:', message);
-        console.log('🔍 Window context:', {
           hasOpener: !!(window.opener && window.opener !== window),
           hasParent: !!(window.parent && window.parent !== window),
           hasTop: !!(window.top && window.top !== window && window.top !== window.parent),
@@ -95,7 +90,6 @@
           try {
             window.opener.postMessage(JSON.stringify(message), '*');
             messageSent = true;
-            console.log('✅ Message sent via window.opener.postMessage (popup)');
             // If we successfully sent via opener, we're done (don't try other methods)
             return;
           } catch (error) {
@@ -108,7 +102,6 @@
           try {
             window.parent.postMessage(JSON.stringify(message), '*');
             messageSent = true;
-            console.log('✅ Message sent via window.parent.postMessage');
           } catch (error) {
             console.warn('⚠️ Could not send message via window.parent:', error.message);
           }
@@ -118,7 +111,6 @@
           try {
             window.top.postMessage(JSON.stringify(message), '*');
             messageSent = true;
-            console.log('✅ Message sent via window.top.postMessage');
           } catch (error) {
             console.warn('⚠️ Could not send message via window.top:', error.message);
           }
@@ -136,7 +128,6 @@
             };
             
             localStorage.setItem(storageKey, JSON.stringify(messageData));
-            console.log('✅ Message sent via localStorage (cross-tab communication):', storageKey);
             
             // Clean up old messages after a short delay
             setTimeout(() => {
@@ -168,7 +159,6 @@
         chargeId: chargeId
       };
       
-      console.log('✅ Sending success response to GHL:', successEvent);
       sendMessageToGHL(successEvent);
       
     }
@@ -182,7 +172,6 @@
         }
       };
       
-      console.log('❌ Sending error response to GHL:', errorEvent);
       sendMessageToGHL(errorEvent);
     }
 
@@ -192,18 +181,15 @@
         type: 'custom_element_close_response'
       };
       
-      console.log('🚪 Sending close response to GHL (payment canceled):', closeEvent);
       sendMessageToGHL(closeEvent);
     }
 
     // Process payment status
     async function processPayment() {
       const params = getUrlParams();
-      console.log('📋 URL Parameters:', params);
 
       // Check if payment was canceled
       if (params.cancel === 'true' || params.status === 'canceled' || params.status === 'CANCELLED') {
-        console.log('🚪 Payment was canceled');
         sendCloseToGHL();
         return;
       }
@@ -213,18 +199,12 @@
         try {
           const chargeData = await fetchChargeStatus(params.tap_id);
 
-          console.log('📊 Charge data from API:', chargeData);
           const status = chargeData.payment_status || chargeData.charge?.status || params.status;
-          console.log('📊 Status:', status);
           const isSuccessful = chargeData.is_successful || status === 'success' || status === 'CAPTURED' || status === 'AUTHORIZED';
-          console.log('📊 Is successful:', isSuccessful);
           const isFailed = status === 'failed' || status === 'FAILED' || status === 'DECLINED' || status === 'REVERSED';
-          console.log('📊 Is failed:', isFailed);
           const isCanceled = status === 'CANCELLED' || status === 'canceled' || status === 'cancelled';
-          console.log('📊 Is canceled:', isCanceled);
           
           const chargeId = chargeData.charge?.id || params.charge_id || params.tap_id;
-          console.log('📊 Charge ID:', chargeId);
           
           if (isSuccessful) {
             // Payment successful
@@ -249,20 +229,15 @@
           const status = params.status?.toUpperCase();
           const chargeId = params.charge_id || params.tap_id;
           
-          console.log('📊 Using URL parameters - Status:', status, 'Charge ID:', chargeId);
           
           if (status === 'SUCCESS' || status === 'CAPTURED' || status === 'AUTHORIZED') {
-            console.log('✅ Payment successful (from URL params)');
             sendSuccessToGHL(chargeId);
           } else if (status === 'CANCELLED' || status === 'CANCELED') {
-            console.log('🚪 Payment canceled (from URL params)');
             sendCloseToGHL();
           } else if (status === 'FAILED' || status === 'DECLINED') {
-            console.log('❌ Payment failed (from URL params)');
             sendErrorToGHL('Payment failed');
           } else if (status) {
             // We have a status but it's not recognized
-            console.log('⚠️ Unknown status from URL:', status);
             // Try to infer success from common success indicators
             if (status.includes('SUCCESS') || status.includes('CAPTURED') || status.includes('AUTHORIZED')) {
               sendSuccessToGHL(chargeId);
@@ -271,7 +246,6 @@
             } else {
               // Last resort: if we have a charge_id/tap_id but unknown status, assume it might be successful
               // (Tap sometimes doesn't include status in URL for successful payments)
-              console.log('⚠️ Unknown status, but charge exists. Assuming success.');
               sendSuccessToGHL(chargeId);
             }
           } else {
@@ -292,7 +266,6 @@
           sendErrorToGHL('Payment failed');
         } else {
           // No status but we have charge_id - might be successful
-          console.log('⚠️ No status in URL but charge_id exists. Assuming success.');
           sendSuccessToGHL(params.charge_id);
         }
       } else {
@@ -303,7 +276,6 @@
 
     // Initialize when page loads
     document.addEventListener('DOMContentLoaded', function() {
-      console.log('🚀 Payment Redirect Handler Loaded');
      processPayment();
     });
   </script>

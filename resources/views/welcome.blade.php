@@ -498,19 +498,16 @@
                             addCardOnFileSupported: true
                         };
                         
-                        console.log('📤 Sending custom_provider_ready event to HighLevel:', readyEvent);
                         
                         try {
                             // Try to send to parent window (HighLevel iframe)
                             if (window.parent && window.parent !== window) {
                                 window.parent.postMessage(readyEvent, '*');
-                                console.log('✅ Sent ready event to parent window');
                             }
                             
                             // Also try to send to top window if different from parent
                             if (window.top && window.top !== window && window.top !== window.parent) {
                                 window.top.postMessage(readyEvent, '*');
-                                console.log('✅ Sent ready event to top window');
                             }
                         } catch (error) {
                             console.warn('⚠️ Could not send ready event to parent:', error.message);

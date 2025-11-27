@@ -31,8 +31,7 @@ class ClientIntegrationController extends Controller
             
             return response()->json([
                 'message' => 'This endpoint requires OAuth authorization code. Use /provider/connect-or-disconnect for form submissions.',
-                'error' => 'Missing authorization code',
-                'received_params' => $request->all()
+                'error' => 'Missing authorization code'
             ], 400);
         }
         
@@ -84,7 +83,6 @@ class ClientIntegrationController extends Controller
                 return response()->json([
                     'message' => 'OAuth exchange failed',
                     'status'  => $tokenResponse->status(),
-                    'error'   => $tokenResponse->json() ?: $tokenResponse->body(),
                 ], 502);
             }
 
@@ -152,7 +150,6 @@ class ClientIntegrationController extends Controller
                 ]);
                 return response()->json([
                     'message' => 'Invalid OAuth response (missing access_token or locationId)',
-                    'json'    => $body,
                 ], 502);
             }
 
@@ -254,7 +251,6 @@ class ClientIntegrationController extends Controller
                 
                 return response()->json([
                     'message' => 'Database constraint violation - user may already exist',
-                    'error' => $e->getMessage(),
                     'error_type' => 'database_constraint'
                 ], 409); // 409 Conflict
             } catch (\Exception $e) {
@@ -271,8 +267,7 @@ class ClientIntegrationController extends Controller
                 
                 return response()->json([
                     'message' => 'Failed to save user data',
-                    'error' => $e->getMessage(),
-                    'error_class' => get_class($e)
+                    'error_type' => 'internal_error'
                 ], 500);
             }
 
@@ -290,7 +285,7 @@ class ClientIntegrationController extends Controller
               $providerPayload = [
             'name'        => 'Tap Payments',
             'description' => 'Innovating payment acceptance & collection in MENA',
-            'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
+            'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
             'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
             'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
             ];
@@ -304,11 +299,18 @@ class ClientIntegrationController extends Controller
                 ->post($providerUrl, $providerPayload); 
 
             if ($providerResp->failed()) {
-                Log::warning('Provider association failed', [
+                Log::error('Provider association failed - integration may not be visible', [
                     'status' => $providerResp->status(),
                     'body'   => $providerResp->json(),
+                    'locationId' => $locationId,
                 ]);
-                // Not fatal to user creation, but you can choose to 502 here if you want
+                // This is critical - if provider registration fails, the integration won't appear
+                // We'll still save the user but log the error for debugging
+            } else {
+                Log::info('Provider association successful', [
+                    'locationId' => $locationId,
+                    'status' => $providerResp->status(),
+                ]);
             }
 
             // Redirect to GHL integrations page after successful connection
@@ -370,8 +372,7 @@ class ClientIntegrationController extends Controller
             
             return response()->json([
                 'message' => 'Could not extract locationId from URL. Please ensure you are accessing this page from the correct integration flow.',
-                'error' => 'Invalid locationId',
-                'information_param' => $information
+                'error' => 'Invalid locationId'
             ], 400);
         }
 
@@ -386,7 +387,6 @@ class ClientIntegrationController extends Controller
             
             return response()->json([
                 'message' => 'No user found for this location. Please complete the OAuth integration first by visiting /connect with proper authorization code.',
-                'locationId' => $locationId,
                 'error' => 'User not found - OAuth integration required',
                 'solution' => 'Complete OAuth flow first via /connect endpoint'
             ], 404);
@@ -407,7 +407,6 @@ class ClientIntegrationController extends Controller
             if (!($new['access_token'] ?? null)) {
                 return response()->json([
                     'message' => 'Token refresh failed',
-                    'error'   => $new,
                 ], 502);
             }
 

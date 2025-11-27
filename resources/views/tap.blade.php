@@ -497,7 +497,6 @@
         
         // Only log messages that could potentially be from GHL
         if (isPotentialGHLMessage(event.data)) {
-          // console.log('🔍 Received potential GHL message:', {
           //   origin: event.origin,
           //   type: event.data?.type,
           //   hasAmount: !!event.data?.amount,
@@ -518,7 +517,6 @@
         
         // Validate GHL message structure
         if (!isValidGHLMessage(event.data)) {
-          console.log('❌ Invalid GHL message structure:', {
             received: event.data,
             expected: 'Should have type: payment_initiate_props or setup_initiate_props'
           });
@@ -528,22 +526,9 @@
         // Process valid GHL payment events
         if (event.data.type === 'payment_initiate_props') {
           paymentData = event.data;
-          console.log('✅ GHL Payment data received:', paymentData);
-          console.log('💰 Amount from GoHighLevel:', paymentData.amount, paymentData.currency);
-          console.log('🔑 Publishable Key:', paymentData.publishableKey);
-          console.log('👤 Customer Info:', paymentData.contact);
-          console.log('📋 Order ID:', paymentData.orderId);
-          console.log('🏢 Location ID:', paymentData.locationId);
-          console.log('🎯 Payment Mode:', paymentData.mode);
-          console.log('📦 Product Details:', paymentData.productDetails);
           updatePaymentForm(paymentData);
         } else if (event.data.type === 'setup_initiate_props') {
           paymentData = event.data;
-          console.log('✅ GHL Setup data received (Add Card on File):', paymentData);
-          console.log('🔑 Publishable Key:', paymentData.publishableKey);
-          console.log('👤 Customer ID:', paymentData.contact.id);
-          console.log('🏢 Location ID:', paymentData.locationId);
-          console.log('🎯 Setup Mode:', paymentData.mode);
           updatePaymentFormForSetup(paymentData);
         }
       } catch (error) {
@@ -561,7 +546,6 @@
         addCardOnFileSupported: true // We support adding cards on file per GHL docs
       };
       
-      console.log('📤 Sending ready event to GHL:', readyEvent);
       
       try {
         // Try to send to parent window
@@ -575,7 +559,6 @@
         }
         
         isReady = true;
-        console.log('✅ Payment iframe is ready and listening for GHL messages');
       } catch (error) {
         console.warn('⚠️ Could not send ready event to parent:', error.message);
         // Still mark as ready even if we can't communicate with parent
@@ -585,7 +568,6 @@
 
     // Update payment form with data from GoHighLevel
     function updatePaymentForm(data) {
-      console.log('🔄 Updating payment form with GHL data:', data);
       
       // Validate required GHL data structure
       if (!data || typeof data !== 'object') {
@@ -598,52 +580,39 @@
         const amountDisplay = document.getElementById('amount-display');
         if (amountDisplay) {
           amountDisplay.textContent = data.amount + ' ' + data.currency;
-          console.log('💰 Amount updated to:', data.amount + ' ' + data.currency);
         }
       }
       
       // Update customer info
       if (data.contact) {
-        console.log('👤 Customer info received:', data.contact);
         
         // Log customer details
         if (data.contact.name) {
-          console.log('👤 Customer name:', data.contact.name);
         }
         if (data.contact.email) {
-          console.log('📧 Customer email:', data.contact.email);
         }
         if (data.contact.contact) {
-          console.log('📞 Customer phone:', data.contact.contact);
         }
         if (data.contact.id) {
-          console.log('🆔 Customer ID:', data.contact.id);
         }
       }
       
       // Log additional GHL data
       if (data.orderId) {
-        console.log('📋 Order ID:', data.orderId);
       }
       if (data.transactionId) {
-        console.log('💳 Transaction ID:', data.transactionId);
       }
       if (data.subscriptionId) {
-        console.log('🔄 Subscription ID:', data.subscriptionId);
       }
       if (data.locationId) {
-        console.log('🏢 Location ID:', data.locationId);
       }
       if (data.mode) {
-        console.log('🎯 Payment mode:', data.mode);
       }
       if (data.productDetails) {
-        console.log('📦 Product details:', data.productDetails);
       }
       
       // Update publishable key if provided
       if (data.publishableKey) {
-        console.log('🔑 New publishable key received:', data.publishableKey);
         // Note: To fully update the publishable key, we would need to reinitialize the Tap card
         // This is complex and may require unmounting and remounting the entire card component
       }
@@ -658,9 +627,7 @@
               currency: data.currency
             }
           });
-          console.log('✅ Tap card configuration updated with amount:', data.amount, 'currency:', data.currency);
         } catch (error) {
-          console.log('⚠️ Could not update Tap card configuration:', error);
         }
       }
       
@@ -673,7 +640,6 @@
 
     // Update payment form for setup (Add Card on File) flow
     function updatePaymentFormForSetup(data) {
-      console.log('🔄 Updating payment form for setup with GHL data:', data);
       
       // Validate required setup data structure
       if (!data || typeof data !== 'object') {
@@ -685,26 +651,20 @@
       const amountDisplay = document.getElementById('amount-display');
       if (amountDisplay) {
         amountDisplay.textContent = 'Card Setup';
-        console.log('💳 Setup mode: Adding card on file');
       }
       
       // Update customer info
       if (data.contact) {
-        console.log('👤 Customer info for setup:', data.contact);
-        console.log('🆔 Customer ID:', data.contact.id);
       }
       
       // Log additional GHL setup data
       if (data.locationId) {
-        console.log('🏢 Location ID:', data.locationId);
       }
       if (data.mode) {
-        console.log('🎯 Setup mode:', data.mode);
       }
       
       // Update publishable key if provided
       if (data.publishableKey) {
-        console.log('🔑 New publishable key received for setup:', data.publishableKey);
       }
       
       // Show success message that GHL setup data was received
@@ -721,7 +681,6 @@
         chargeId: chargeId // Payment gateway chargeId for given transaction
       };
       
-      console.log('✅ Sending success response to GHL:', successEvent);
       
       try {
         // Try to send to parent window
@@ -745,7 +704,6 @@
         // No chargeId needed for setup success
       };
       
-      console.log('✅ Sending setup success response to GHL:', successEvent);
       
       try {
         // Try to send to parent window
@@ -771,7 +729,6 @@
         }
       };
       
-      console.log('❌ Sending error response to GHL:', errorEvent);
       
       try {
         // Try to send to parent window
@@ -794,7 +751,6 @@
         type: 'custom_element_close_response'
       };
       
-      console.log('Sending close response:', closeEvent);
       
       try {
         // Try to send to parent window
@@ -900,24 +856,19 @@
 
       // Enhanced callbacks with better UX
       onReady: () => {
-        console.log('Tap Card: ready');
         hideMessages();
       },
       onFocus: () => {
-        console.log('Tap Card: focus');
         hideMessages();
       },
       onBinIdentification: data => {
-        console.log('BIN identified:', data);
         // Clear any previous errors when BIN is identified
         hideMessages();
       },
       onValidInput: data => {
-        console.log('Valid input:', data);
         hideMessages();
       },
       onInvalidInput: data => {
-        console.log('Invalid input details:', JSON.stringify(data, null, 2));
         // Show specific validation errors
         if (data.cardNumber && data.cardNumber.invalid) {
           showError('Please enter a valid card number (16 digits)');
@@ -939,7 +890,6 @@
 
       // When tokenization succeeds, you'll get the Tap Token here
       onSuccess: (data) => {
-        console.log('Token success:', data);
         hideLoading();
         
         // Check if this is a setup flow (add card on file) or payment flow
@@ -969,7 +919,6 @@
         //     type: paymentData?.type || 'payment_initiate_props',
         //     paymentData: paymentData
         //   })
-        // }).then(r => r.json()).then(console.log).catch(console.error);
       }
     });
     }
@@ -984,29 +933,11 @@
       // Set a timeout to check if GHL sent payment data
       setTimeout(() => {
         if (!paymentData) {
-          console.log('⚠️ WARNING: No payment data received from GHL after 5 seconds');
-          console.log('🔍 This could mean:');
-          console.log('  1. GHL integration not configured properly');
-          console.log('  2. Payment URL not set correctly in GHL');
-          console.log('  3. API keys not configured in GHL');
-          console.log('  4. Integration not activated in GHL');
-          console.log('  5. Testing in wrong GHL environment');
         }
       }, 5000);
     }, 1000);
 
     // Add a console message to help with debugging
-    console.log('🚀 Tap Payment Integration Loaded Successfully');
-    console.log('🔍 DEBUGGING GHL INTEGRATION:');
-    console.log('  - If you see "✅ GHL Payment data received" = GHL is working correctly');
-    console.log('  - If you only see Tap SDK messages = GHL is not sending payment data');
-    console.log('  - Check GHL integration configuration if no payment data received');
-    console.log('');
-    console.log('ℹ️ NOTE: Cross-origin iframe restrictions are NORMAL and EXPECTED');
-    console.log('ℹ️ The "Parent access blocked" message is a browser security feature, not an error');
-    console.log('ℹ️ Communication with GHL works via postMessage, not direct property access');
-    console.log('ℹ️ Extension errors (Angular DevTools, etc.) are now suppressed for cleaner console');
-    console.log('ℹ️ Only GHL-related messages will be shown in the console');
 
     // Update amount display if we have payment data
     if (paymentData && paymentData.amount && paymentData.currency) {
