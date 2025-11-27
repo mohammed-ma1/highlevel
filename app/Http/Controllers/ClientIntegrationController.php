@@ -115,23 +115,40 @@ class ClientIntegrationController extends Controller
             ]);
 
             $refreshTokenId = $body['refreshTokenId'] ?? null;
-            $userType       = $body['userType'] ?? null;    // "Location"
+            $userType       = $body['userType'] ?? null;    // "Location" or "Company"
             $companyId      = $body['companyId'] ?? null;
             $locationId     = $body['locationId'] ?? null;
             $isBulk         = (bool) ($body['isBulkInstallation'] ?? false);
             $providerUserId = $body['userId'] ?? null;
 
+            // If locationId is missing, try to extract it from the JWT access token
+            // This happens for Company-level bulk installations
+            if (!$locationId && $accessToken) {
+                $locationId = $this->extractLocationIdFromToken($accessToken);
+                
+                Log::info('Attempted to extract locationId from JWT token', [
+                    'extracted_location_id' => $locationId,
+                    'userType' => $userType,
+                    'isBulk' => $isBulk
+                ]);
+            }
+
             Log::info('Validating OAuth data', [
                 'has_access_token' => !empty($accessToken),
                 'has_location_id' => !empty($locationId),
                 'access_token_length' => $accessToken ? strlen($accessToken) : 0,
-                'location_id_value' => $locationId
+                'location_id_value' => $locationId,
+                'userType' => $userType,
+                'isBulk' => $isBulk
             ]);
             
             if (!$accessToken || !$locationId) {
                 Log::error('OAuth validation failed', [
                     'missing_access_token' => empty($accessToken),
-                    'missing_location_id' => empty($locationId)
+                    'missing_location_id' => empty($locationId),
+                    'userType' => $userType,
+                    'isBulk' => $isBulk,
+                    'has_company_id' => !empty($companyId)
                 ]);
                 return response()->json([
                     'message' => 'Invalid OAuth response (missing access_token or locationId)',
@@ -2521,6 +2538,94 @@ class ClientIntegrationController extends Controller
                 'success' => false,
                 'message' => 'Internal server error'
             ], 500);
+        }
+    }
+
+    /**
+     * Extract locationId from JWT access token
+     * For Company-level bulk installations, locationId is not in the response body
+     * but can be found in the JWT token payload as primaryAuthClassId or authClassId
+     *
+     * @param string $token JWT access token
+     * @return string|null The locationId if found, null otherwise
+     */
+    private function extractLocationIdFromToken(string $token): ?string
+    {
+        try {
+            // JWT tokens have three parts: header.payload.signature
+            $parts = explode('.', $token);
+            
+            if (count($parts) !== 3) {
+                Log::warning('Invalid JWT token format', [
+                    'parts_count' => count($parts)
+                ]);
+                return null;
+            }
+            
+            // Decode the payload (second part)
+            $payload = $parts[1];
+            
+            // Add padding if needed (base64url encoding)
+            $padding = strlen($payload) % 4;
+            if ($padding) {
+                $payload .= str_repeat('=', 4 - $padding);
+            }
+            
+            // Replace URL-safe characters
+            $payload = strtr($payload, '-_', '+/');
+            
+            // Decode base64
+            $decoded = base64_decode($payload, true);
+            
+            if ($decoded === false) {
+                Log::warning('Failed to decode JWT payload', [
+                    'payload' => $payload
+                ]);
+                return null;
+            }
+            
+            $data = json_decode($decoded, true);
+            
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                Log::warning('Failed to parse JWT payload as JSON', [
+                    'error' => json_last_error_msg(),
+                    'decoded' => $decoded
+                ]);
+                return null;
+            }
+            
+            // Try to extract locationId from various possible fields
+            // For Location-level tokens: authClassId is the locationId
+            // For Company-level tokens: primaryAuthClassId might be the locationId
+            $locationId = $data['primaryAuthClassId'] ?? $data['authClassId'] ?? null;
+            
+            // Only return if authClass is Location, or if we have primaryAuthClassId
+            // For Company tokens, we might need to use primaryAuthClassId
+            if ($locationId) {
+                $authClass = $data['authClass'] ?? null;
+                
+                Log::info('Extracted locationId from JWT token', [
+                    'locationId' => $locationId,
+                    'authClass' => $authClass,
+                    'primaryAuthClassId' => $data['primaryAuthClassId'] ?? null,
+                    'authClassId' => $data['authClassId'] ?? null
+                ]);
+                
+                return $locationId;
+            }
+            
+            Log::warning('Could not find locationId in JWT token payload', [
+                'available_keys' => array_keys($data)
+            ]);
+            
+            return null;
+            
+        } catch (\Exception $e) {
+            Log::error('Error extracting locationId from JWT token', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return null;
         }
     }
 }
