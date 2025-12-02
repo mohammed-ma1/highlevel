@@ -279,6 +279,24 @@ class ClientIntegrationController extends Controller
             ]);
 
             // 4) (Optional) Associate app ↔ location (provider)
+            // Decode token to verify scopes and locationId
+            $tokenData = $this->decodeJWTToken($accessToken);
+            
+            Log::info('=== TOKEN ANALYSIS ===', [
+                'locationId' => $locationId,
+                'userType' => $userType,
+                'isBulk' => $isBulk,
+                'token_has_data' => !empty($tokenData),
+                'token_authClass' => $tokenData['authClass'] ?? null,
+                'token_authClassId' => $tokenData['authClassId'] ?? null,
+                'token_primaryAuthClassId' => $tokenData['primaryAuthClassId'] ?? null,
+                'token_scopes' => $tokenData['oauthMeta']['scopes'] ?? null,
+                'token_has_custom_provider_write' => !empty($tokenData['oauthMeta']['scopes']) && in_array('payments/custom-provider.write', $tokenData['oauthMeta']['scopes'] ?? []),
+                'token_locationId_match' => ($tokenData['primaryAuthClassId'] ?? $tokenData['authClassId'] ?? null) === $locationId,
+                'scope_from_response' => $scope,
+                'scopes_array' => $scope ? explode(' ', $scope) : null
+            ]);
+
             $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                         . '?locationId=' . urlencode($locationId);
                 
@@ -297,6 +315,10 @@ class ClientIntegrationController extends Controller
                 'payload' => $providerPayload,
                 'has_access_token' => !empty($accessToken),
                 'access_token_preview' => $accessToken ? substr($accessToken, 0, 20) . '...' : null,
+                'token_scopes_from_payload' => $tokenData['oauthMeta']['scopes'] ?? null,
+                'token_locationId' => $tokenData['primaryAuthClassId'] ?? $tokenData['authClassId'] ?? null,
+                'userType' => $userType,
+                'isBulk' => $isBulk,
                 'headers' => [
                     'Version' => '2021-07-28',
                     'Authorization' => 'Bearer ' . ($accessToken ? substr($accessToken, 0, 20) . '...' : 'MISSING')
@@ -332,18 +354,39 @@ class ClientIntegrationController extends Controller
                 ]);
 
                 if ($providerResp->failed()) {
+                    $responseJson = $providerResp->json();
+                    $errorMessage = $responseJson['message'] ?? $responseJson['error'] ?? 'Unknown error';
+                    
                     Log::error('❌ PROVIDER ASSOCIATION FAILED - Integration may not be visible', [
                         'locationId' => $locationId,
                         'status_code' => $providerResp->status(),
                         'status_text' => $providerResp->reason(),
+                        'error_message' => $errorMessage,
                         'response_body' => $providerResp->body(),
-                        'response_json' => $providerResp->json(),
+                        'response_json' => $responseJson,
                         'response_headers' => $providerResp->headers(),
+                        'userType' => $userType,
+                        'isBulk' => $isBulk,
+                        'token_scopes' => $tokenData ? ($tokenData['oauthMeta']['scopes'] ?? null) : null,
+                        'token_has_custom_provider_write' => $tokenData && !empty($tokenData['oauthMeta']['scopes']) && in_array('payments/custom-provider.write', $tokenData['oauthMeta']['scopes'] ?? []),
                         'error_details' => [
                             'is_4xx' => $providerResp->clientError(),
                             'is_5xx' => $providerResp->serverError(),
                             'has_body' => !empty($providerResp->body()),
-                            'body_length' => strlen($providerResp->body())
+                            'body_length' => strlen($providerResp->body()),
+                            'is_403_forbidden' => $providerResp->status() === 403,
+                            'possible_causes' => [
+                                'missing_scope' => $tokenData ? !in_array('payments/custom-provider.write', $tokenData['oauthMeta']['scopes'] ?? []) : 'token_not_decoded',
+                                'locationId_mismatch' => $tokenData ? (($tokenData['primaryAuthClassId'] ?? $tokenData['authClassId'] ?? null) !== $locationId) : 'token_not_decoded',
+                                'bulk_installation' => $isBulk,
+                                'company_level_token' => $userType === 'Company'
+                            ]
+                        ],
+                        'suggestions' => [
+                            'Check if token has payments/custom-provider.write scope',
+                            'Verify locationId matches token authorized location',
+                            'For bulk installations, provider registration might need to be done manually',
+                            'Company-level tokens might require different authentication'
                         ]
                     ]);
                     // This is critical - if provider registration fails, the integration won't appear
@@ -2598,6 +2641,56 @@ class ClientIntegrationController extends Controller
     }
 
     /**
+     * Decode JWT token and return full payload
+     *
+     * @param string $token JWT access token
+     * @return array|null The decoded token payload, null if decoding fails
+     */
+    private function decodeJWTToken(string $token): ?array
+    {
+        try {
+            // JWT tokens have three parts: header.payload.signature
+            $parts = explode('.', $token);
+            
+            if (count($parts) !== 3) {
+                return null;
+            }
+            
+            // Decode the payload (second part)
+            $payload = $parts[1];
+            
+            // Add padding if needed (base64url encoding)
+            $padding = strlen($payload) % 4;
+            if ($padding) {
+                $payload .= str_repeat('=', 4 - $padding);
+            }
+            
+            // Replace URL-safe characters
+            $payload = strtr($payload, '-_', '+/');
+            
+            // Decode base64
+            $decoded = base64_decode($payload, true);
+            
+            if ($decoded === false) {
+                return null;
+            }
+            
+            $data = json_decode($decoded, true);
+            
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                return null;
+            }
+            
+            return $data;
+        } catch (\Exception $e) {
+            Log::warning('Failed to decode JWT token', [
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+
+    /**
      * Extract locationId from JWT access token
      * For Company-level bulk installations, locationId is not in the response body
      * but can be found in the JWT token payload as primaryAuthClassId or authClassId
@@ -2653,12 +2746,18 @@ class ClientIntegrationController extends Controller
             // Try to extract locationId from various possible fields
             // For Location-level tokens: authClassId is the locationId
             // For Company-level tokens: primaryAuthClassId might be the locationId
-            $locationId = $data['primaryAuthClassId'] ?? $data['authClassId'] ?? null;
+            // Use the decodeJWTToken method to get full data
+            $tokenData = $this->decodeJWTToken($token);
+            if (!$tokenData) {
+                return null;
+            }
+            
+            $locationId = $tokenData['primaryAuthClassId'] ?? $tokenData['authClassId'] ?? null;
             
             // Only return if authClass is Location, or if we have primaryAuthClassId
             // For Company tokens, we might need to use primaryAuthClassId
             if ($locationId) {
-                $authClass = $data['authClass'] ?? null;
+                $authClass = $tokenData['authClass'] ?? null;
                 
                 Log::info('Extracted locationId from JWT token', [
                     'locationId' => $locationId,
