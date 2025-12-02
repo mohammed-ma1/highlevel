@@ -282,35 +282,92 @@ class ClientIntegrationController extends Controller
             $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                         . '?locationId=' . urlencode($locationId);
                 
-              $providerPayload = [
-            'name'        => 'Tap Payments',
-            'description' => 'Innovating payment acceptance & collection in MENA',
-            'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
-            'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
-            'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
+            $providerPayload = [
+                'name'        => 'Tap Payments',
+                'description' => 'Innovating payment acceptance & collection in MENA',
+                'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
+                'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
+                'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
             ];
 
-            
+            // Log request details before making the call
+            Log::info('=== PROVIDER REGISTRATION REQUEST ===', [
+                'url' => $providerUrl,
+                'locationId' => $locationId,
+                'payload' => $providerPayload,
+                'has_access_token' => !empty($accessToken),
+                'access_token_preview' => $accessToken ? substr($accessToken, 0, 20) . '...' : null,
+                'headers' => [
+                    'Version' => '2021-07-28',
+                    'Authorization' => 'Bearer ' . ($accessToken ? substr($accessToken, 0, 20) . '...' : 'MISSING')
+                ],
+                'timeout' => 40
+            ]);
 
-            $providerResp = Http::timeout(40)
-                ->acceptJson()
-                ->withToken($accessToken)
-                ->withHeaders(['Version' => '2021-07-28'])
-                ->post($providerUrl, $providerPayload); 
+            try {
+                $startTime = microtime(true);
+                
+                $providerResp = Http::timeout(40)
+                    ->acceptJson()
+                    ->withToken($accessToken)
+                    ->withHeaders(['Version' => '2021-07-28'])
+                    ->post($providerUrl, $providerPayload);
+                
+                $endTime = microtime(true);
+                $duration = round(($endTime - $startTime) * 1000, 2); // milliseconds
 
-            if ($providerResp->failed()) {
-                Log::error('Provider association failed - integration may not be visible', [
-                    'status' => $providerResp->status(),
-                    'body'   => $providerResp->json(),
+                // Log full response details
+                Log::info('=== PROVIDER REGISTRATION RESPONSE ===', [
                     'locationId' => $locationId,
+                    'status_code' => $providerResp->status(),
+                    'successful' => $providerResp->successful(),
+                    'failed' => $providerResp->failed(),
+                    'client_error' => $providerResp->clientError(),
+                    'server_error' => $providerResp->serverError(),
+                    'duration_ms' => $duration,
+                    'response_headers' => $providerResp->headers(),
+                    'response_body_raw' => $providerResp->body(),
+                    'response_body_json' => $providerResp->json(),
+                    'response_body_string' => (string) $providerResp->body()
                 ]);
-                // This is critical - if provider registration fails, the integration won't appear
-                // We'll still save the user but log the error for debugging
-            } else {
-                Log::info('Provider association successful', [
+
+                if ($providerResp->failed()) {
+                    Log::error('❌ PROVIDER ASSOCIATION FAILED - Integration may not be visible', [
+                        'locationId' => $locationId,
+                        'status_code' => $providerResp->status(),
+                        'status_text' => $providerResp->reason(),
+                        'response_body' => $providerResp->body(),
+                        'response_json' => $providerResp->json(),
+                        'response_headers' => $providerResp->headers(),
+                        'error_details' => [
+                            'is_4xx' => $providerResp->clientError(),
+                            'is_5xx' => $providerResp->serverError(),
+                            'has_body' => !empty($providerResp->body()),
+                            'body_length' => strlen($providerResp->body())
+                        ]
+                    ]);
+                    // This is critical - if provider registration fails, the integration won't appear
+                    // We'll still save the user but log the error for debugging
+                } else {
+                    Log::info('✅ PROVIDER ASSOCIATION SUCCESSFUL', [
+                        'locationId' => $locationId,
+                        'status_code' => $providerResp->status(),
+                        'response_body' => $providerResp->json(),
+                        'duration_ms' => $duration
+                    ]);
+                }
+            } catch (\Exception $e) {
+                Log::error('❌ EXCEPTION during provider registration', [
                     'locationId' => $locationId,
-                    'status' => $providerResp->status(),
+                    'exception_message' => $e->getMessage(),
+                    'exception_code' => $e->getCode(),
+                    'exception_file' => $e->getFile(),
+                    'exception_line' => $e->getLine(),
+                    'exception_trace' => $e->getTraceAsString(),
+                    'url' => $providerUrl,
+                    'payload' => $providerPayload
                 ]);
+                // Continue execution even if provider registration fails
             }
 
             // Redirect to GHL integrations page after successful connection
