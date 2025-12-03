@@ -88,7 +88,6 @@ class ClientIntegrationController extends Controller
             'port' => $request->getPort(),
             'path' => $request->path(),
             'query_string' => $request->getQueryString(),
-            'fragment' => $request->getFragment(),
             'ip' => $request->ip(),
             'ips' => $request->ips(),
         ]);
