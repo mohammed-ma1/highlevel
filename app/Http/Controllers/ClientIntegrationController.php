@@ -330,12 +330,32 @@ class ClientIntegrationController extends Controller
 
            // dd($user);
 
-            Log::info('User saved successfully', [
+            // Verify user was actually saved
+            if (!$user->exists || !$user->id) {
+                Log::error('❌ CRITICAL: User was not saved successfully', [
+                    'user_exists' => $user->exists,
                 'user_id' => $user->id,
-                'locationId' => $locationId
+                    'locationId' => $locationId,
+                    'user_attributes' => $user->getAttributes()
+                ]);
+                
+                return response()->json([
+                    'message' => 'Failed to save user - user record was not created',
+                    'error_type' => 'user_creation_failed'
+                ], 500);
+            }
+            
+            Log::info('✅ User saved successfully', [
+                'user_id' => $user->id,
+                'locationId' => $locationId,
+                'email' => $user->email,
+                'is_bulk' => $isBulk,
+                'user_type' => $userType
             ]);
 
-            // 4) (Optional) Associate app ↔ location (provider)
+            // 4) Associate app ↔ location (provider)
+            // NOTE: Provider registration is critical for the integration to appear in GHL
+            // But user creation should succeed even if provider registration fails
             // Decode token to verify scopes and locationId
             $tokenData = $this->decodeJWTToken($accessToken);
             
@@ -354,17 +374,170 @@ class ClientIntegrationController extends Controller
                 'scopes_array' => $scope ? explode(' ', $scope) : null
             ]);
 
-            // For Company-level bulk installations, skip provider registration
-            // The provider registration API requires a Location ID, not a Company ID
-            // For bulk installations, GHL handles provider availability automatically
+            // For Company-level bulk installations, fetch all locations and register provider for each
+            // According to GHL docs, provider config must be created for the integration to appear
             if ($userType === 'Company' && $isBulk) {
-                Log::info('⚠️ Skipping provider registration for Company-level bulk installation', [
-                    'locationId' => $locationId,
+                Log::info('🔄 Handling Company-level bulk installation - fetching locations', [
+                    'companyId' => $locationId,
                     'userType' => $userType,
-                    'isBulk' => $isBulk,
-                    'reason' => 'Provider registration requires Location ID, but this is a Company-level bulk installation. GHL handles provider availability automatically for bulk installations.',
-                    'note' => 'The integration will be available to all locations in the company, but provider registration must be done per-location when each location uses the integration.'
+                    'isBulk' => $isBulk
                 ]);
+                
+                // Try to fetch locations from the company
+                // For bulk installations, we need to register provider for each location
+                // According to GHL docs: https://help.gohighlevel.com/support/solutions/articles/155000002620
+                try {
+                    // Try the locations API endpoint
+                    // Format: GET /locations with companyId query parameter
+                    $locationsUrl = "https://services.leadconnectorhq.com/locations";
+                    
+                    Log::info('🔍 Attempting to fetch locations for bulk installation', [
+                        'companyId' => $locationId,
+                        'url' => $locationsUrl
+                    ]);
+                    
+                    $locationsResponse = Http::timeout(30)
+                        ->acceptJson()
+                        ->withToken($accessToken)
+                        ->withHeaders(['Version' => '2021-07-28'])
+                        ->get($locationsUrl, [
+                            'companyId' => $locationId
+                        ]);
+                    
+                    Log::info('📡 Locations API response', [
+                        'status' => $locationsResponse->status(),
+                        'successful' => $locationsResponse->successful(),
+                        'response_keys' => $locationsResponse->successful() ? array_keys($locationsResponse->json() ?? []) : null,
+                        'body_preview' => substr($locationsResponse->body(), 0, 500)
+                    ]);
+                    
+                    if ($locationsResponse->successful()) {
+                        $locationsData = $locationsResponse->json();
+                        // Handle different response formats
+                        $locations = $locationsData['locations'] ?? $locationsData['data'] ?? $locationsData ?? [];
+                        
+                        // Ensure it's an array
+                        if (!is_array($locations)) {
+                            $locations = [];
+                        }
+                        
+                        Log::info('📋 Fetched locations for company', [
+                            'companyId' => $locationId,
+                            'locations_count' => count($locations),
+                            'locations' => array_map(function($loc) {
+                                return ['id' => $loc['id'] ?? null, 'name' => $loc['name'] ?? null];
+                            }, $locations)
+                        ]);
+                        
+                        // Register provider for each location
+                        $successCount = 0;
+                        $failCount = 0;
+                        
+                        foreach ($locations as $location) {
+                            $actualLocationId = $location['id'] ?? null;
+                            if (!$actualLocationId) {
+                                continue;
+                            }
+                            
+                            $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
+                                        . '?locationId=' . urlencode($actualLocationId);
+                            
+                            $providerPayload = [
+                                'name'        => 'Tap Payments',
+                                'description' => 'Innovating payment acceptance & collection in MENA',
+                                'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
+                                'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
+                                'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
+                            ];
+                            
+                            try {
+                                $providerResp = Http::timeout(30)
+                                    ->acceptJson()
+                                    ->withToken($accessToken)
+                                    ->withHeaders(['Version' => '2021-07-28'])
+                                    ->post($providerUrl, $providerPayload);
+                                
+                                if ($providerResp->successful()) {
+                                    $successCount++;
+                                    Log::info('✅ Provider registered for location', [
+                                        'locationId' => $actualLocationId,
+                                        'locationName' => $location['name'] ?? 'N/A'
+                                    ]);
+                                } else {
+                                    $failCount++;
+                                    Log::warning('⚠️ Failed to register provider for location', [
+                                        'locationId' => $actualLocationId,
+                                        'status' => $providerResp->status(),
+                                        'response' => $providerResp->json()
+                                    ]);
+                                }
+                            } catch (\Exception $e) {
+                                $failCount++;
+                                Log::error('❌ Exception registering provider for location', [
+                                    'locationId' => $actualLocationId,
+                                    'error' => $e->getMessage()
+                                ]);
+                            }
+                        }
+                        
+                        Log::info('📊 Bulk provider registration summary', [
+                            'companyId' => $locationId,
+                            'total_locations' => count($locations),
+                            'successful' => $successCount,
+                            'failed' => $failCount
+                        ]);
+                    } else {
+                        Log::warning('⚠️ Could not fetch locations for company, trying direct registration', [
+                            'companyId' => $locationId,
+                            'status' => $locationsResponse->status(),
+                            'response' => $locationsResponse->json()
+                        ]);
+                        
+                        // Fallback: Try to register with company ID directly
+                        // This might work for some GHL configurations
+            $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
+                        . '?locationId=' . urlencode($locationId);
+                
+              $providerPayload = [
+            'name'        => 'Tap Payments',
+            'description' => 'Innovating payment acceptance & collection in MENA',
+            'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
+            'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
+            'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
+            ];
+
+                        try {
+                            $providerResp = Http::timeout(30)
+                                ->acceptJson()
+                                ->withToken($accessToken)
+                                ->withHeaders(['Version' => '2021-07-28'])
+                                ->post($providerUrl, $providerPayload);
+                            
+                            if ($providerResp->successful()) {
+                                Log::info('✅ Provider registered with company ID (fallback)', [
+                                    'companyId' => $locationId
+                                ]);
+                            } else {
+                                Log::warning('⚠️ Fallback registration failed', [
+                                    'companyId' => $locationId,
+                                    'status' => $providerResp->status(),
+                                    'response' => $providerResp->json()
+                                ]);
+                            }
+                        } catch (\Exception $e) {
+                            Log::error('❌ Exception in fallback provider registration', [
+                                'companyId' => $locationId,
+                                'error' => $e->getMessage()
+                            ]);
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::error('❌ Exception fetching locations for bulk installation', [
+                        'companyId' => $locationId,
+                        'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString()
+                    ]);
+                }
             } else {
                 // Only register provider for Location-level installations
                 $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
@@ -398,12 +571,12 @@ class ClientIntegrationController extends Controller
 
                 try {
                     $startTime = microtime(true);
-                    
-                    $providerResp = Http::timeout(40)
-                        ->acceptJson()
-                        ->withToken($accessToken)
-                        ->withHeaders(['Version' => '2021-07-28'])
-                        ->post($providerUrl, $providerPayload);
+
+            $providerResp = Http::timeout(40)
+                ->acceptJson()
+                ->withToken($accessToken)
+                ->withHeaders(['Version' => '2021-07-28'])
+                ->post($providerUrl, $providerPayload); 
                     
                     $endTime = microtime(true);
                     $duration = round(($endTime - $startTime) * 1000, 2); // milliseconds
@@ -423,12 +596,12 @@ class ClientIntegrationController extends Controller
                         'response_body_string' => (string) $providerResp->body()
                     ]);
 
-                    if ($providerResp->failed()) {
+            if ($providerResp->failed()) {
                         $responseJson = $providerResp->json();
                         $errorMessage = $responseJson['message'] ?? $responseJson['error'] ?? 'Unknown error';
                         
                         Log::error('❌ PROVIDER ASSOCIATION FAILED - Integration may not be visible', [
-                        'locationId' => $locationId,
+                    'locationId' => $locationId,
                         'status_code' => $providerResp->status(),
                         'status_text' => $providerResp->reason(),
                         'error_message' => $errorMessage,
@@ -458,12 +631,12 @@ class ClientIntegrationController extends Controller
                             'For bulk installations, provider registration might need to be done manually',
                                 'Company-level tokens might require different authentication'
                             ]
-                        ]);
-                        // This is critical - if provider registration fails, the integration won't appear
-                        // We'll still save the user but log the error for debugging
-                    } else {
+                ]);
+                // This is critical - if provider registration fails, the integration won't appear
+                // We'll still save the user but log the error for debugging
+            } else {
                         Log::info('✅ PROVIDER ASSOCIATION SUCCESSFUL', [
-                            'locationId' => $locationId,
+                    'locationId' => $locationId,
                             'status_code' => $providerResp->status(),
                             'response_body' => $providerResp->json(),
                             'duration_ms' => $duration
@@ -494,12 +667,12 @@ class ClientIntegrationController extends Controller
                     'user_id' => $user->id,
                 ]);
             } else {
-                $redirectUrl = "https://app.gohighlevel.com/v2/location/{$locationId}/payments/integrations";
+            $redirectUrl = "https://app.gohighlevel.com/v2/location/{$locationId}/payments/integrations";
                 Log::info('Redirecting to GHL location integrations page', [
-                    'locationId' => $locationId,
-                    'redirectUrl' => $redirectUrl,
-                    'user_id' => $user->id,
-                ]);
+                'locationId' => $locationId,
+                'redirectUrl' => $redirectUrl,
+                'user_id' => $user->id,
+            ]);
             }
 
             return redirect($redirectUrl);
