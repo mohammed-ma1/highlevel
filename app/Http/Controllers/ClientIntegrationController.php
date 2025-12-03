@@ -328,38 +328,88 @@ class ClientIntegrationController extends Controller
             
             // For bulk installations, try additional sources if OAuth response didn't provide specific location
             if ($isBulk && $userType === 'Company' && !$selectedLocationId) {
-                // Priority 2: Check query parameters (GHL might pass it in redirect URL)
-                $queryLocationId = $request->query('locationId') ?? $request->query('location_id') ?? null;
-                Log::info('🔍 [EXTRACTION] Checking query parameters', [
-                    'locationId_param' => $request->query('locationId'),
-                    'location_id_param' => $request->query('location_id'),
-                    'found' => !empty($queryLocationId),
-                    'value' => $queryLocationId
+                // Priority 2: Check OAuth state parameter (might contain location ID)
+                $stateParam = $request->query('state');
+                $stateLocationId = null;
+                if ($stateParam) {
+                    try {
+                        // Try to decode base64 state parameter (GHL sometimes uses base64-encoded JSON)
+                        $decodedState = base64_decode($stateParam, true);
+                        if ($decodedState) {
+                            $stateData = json_decode($decodedState, true);
+                            if ($stateData && isset($stateData['id'])) {
+                                $stateLocationId = $stateData['id'];
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        // If decoding fails, try to extract location ID from state as-is
+                        if (preg_match('/["\']?id["\']?\s*:\s*["\']?([^"\']+)["\']?/', $stateParam, $matches)) {
+                            $stateLocationId = $matches[1];
+                        }
+                    }
+                }
+                
+                Log::info('🔍 [EXTRACTION] Checking OAuth state parameter', [
+                    'state_param' => $stateParam ? substr($stateParam, 0, 100) : null,
+                    'found' => !empty($stateLocationId),
+                    'value' => $stateLocationId
                 ]);
                 
-                if ($queryLocationId) {
-                    $selectedLocationId = $queryLocationId;
-                    $extractionSource = 'query_params';
-                    Log::info('✅ [EXTRACTION] Found selected locationId in query parameters (Priority 2)', [
+                if ($stateLocationId) {
+                    $selectedLocationId = $stateLocationId;
+                    $extractionSource = 'oauth_state';
+                    Log::info('✅ [EXTRACTION] Found selected locationId in OAuth state parameter (Priority 2)', [
                         'selectedLocationId' => $selectedLocationId,
                         'companyId' => $locationId,
                         'source' => $extractionSource
                     ]);
                 }
                 
-                // Priority 3: Try to get from session (stored before OAuth redirect)
+                // Priority 3: Check query parameters (GHL might pass it in redirect URL)
+                if (!$selectedLocationId) {
+                    $queryLocationId = $request->query('locationId') ?? $request->query('location_id') ?? null;
+                    Log::info('🔍 [EXTRACTION] Checking query parameters', [
+                        'locationId_param' => $request->query('locationId'),
+                        'location_id_param' => $request->query('location_id'),
+                        'found' => !empty($queryLocationId),
+                        'value' => $queryLocationId
+                    ]);
+                    
+                    if ($queryLocationId) {
+                        $selectedLocationId = $queryLocationId;
+                        $extractionSource = 'query_params';
+                        Log::info('✅ [EXTRACTION] Found selected locationId in query parameters (Priority 3)', [
+                            'selectedLocationId' => $selectedLocationId,
+                            'companyId' => $locationId,
+                            'source' => $extractionSource
+                        ]);
+                    }
+                }
+                
+                // Priority 4: Try to get from session (stored before OAuth redirect)
                 if (!$selectedLocationId) {
                     $sessionLocationId = session('selected_location_id');
+                    
+                    // Also try to extract from session's previous URL
+                    $previousUrl = session('_previous.url');
+                    $previousUrlLocationId = null;
+                    if ($previousUrl && preg_match('/\/location\/([^\/\?]+)/', $previousUrl, $matches)) {
+                        $previousUrlLocationId = $matches[1];
+                    }
+                    
                     Log::info('🔍 [EXTRACTION] Checking session', [
                         'session_id' => session()->getId(),
-                        'found' => !empty($sessionLocationId),
-                        'value' => $sessionLocationId
+                        'found_in_selected_location_id' => !empty($sessionLocationId),
+                        'value_from_selected_location_id' => $sessionLocationId,
+                        'previous_url' => $previousUrl,
+                        'found_in_previous_url' => !empty($previousUrlLocationId),
+                        'value_from_previous_url' => $previousUrlLocationId
                     ]);
                     
                     if ($sessionLocationId) {
                         $selectedLocationId = $sessionLocationId;
                         $extractionSource = 'session';
-                        Log::info('✅ [EXTRACTION] Retrieved selected locationId from session (Priority 3)', [
+                        Log::info('✅ [EXTRACTION] Retrieved selected locationId from session (Priority 4)', [
                             'selectedLocationId' => $selectedLocationId,
                             'companyId' => $locationId,
                             'source' => $extractionSource,
@@ -367,10 +417,19 @@ class ClientIntegrationController extends Controller
                         ]);
                         // Clear session after use
                         session()->forget('selected_location_id');
+                    } elseif ($previousUrlLocationId) {
+                        $selectedLocationId = $previousUrlLocationId;
+                        $extractionSource = 'session_previous_url';
+                        Log::info('✅ [EXTRACTION] Extracted selected locationId from session previous URL (Priority 4b)', [
+                            'selectedLocationId' => $selectedLocationId,
+                            'companyId' => $locationId,
+                            'source' => $extractionSource,
+                            'previous_url' => $previousUrl
+                        ]);
                     }
                 }
                 
-                // Priority 4: Try to get from cookie
+                // Priority 5: Try to get from cookie
                 if (!$selectedLocationId) {
                     $cookieLocationId = $request->cookie('selected_location_id');
                     Log::info('🔍 [EXTRACTION] Checking cookie', [
@@ -381,7 +440,7 @@ class ClientIntegrationController extends Controller
                     if ($cookieLocationId) {
                         $selectedLocationId = $cookieLocationId;
                         $extractionSource = 'cookie';
-                        Log::info('✅ [EXTRACTION] Retrieved selected locationId from cookie (Priority 4)', [
+                        Log::info('✅ [EXTRACTION] Retrieved selected locationId from cookie (Priority 5)', [
                             'selectedLocationId' => $selectedLocationId,
                             'companyId' => $locationId,
                             'source' => $extractionSource
@@ -391,7 +450,7 @@ class ClientIntegrationController extends Controller
                     }
                 }
                 
-                // Priority 5: Try to extract from referer (might not work after OAuth redirect)
+                // Priority 6: Try to extract from referer (might not work after OAuth redirect)
                 if (!$selectedLocationId) {
                     $referer = $request->header('referer');
                     $refererLocationId = null;
@@ -408,7 +467,7 @@ class ClientIntegrationController extends Controller
                     if ($refererLocationId) {
                         $selectedLocationId = $refererLocationId;
                         $extractionSource = 'referer';
-                        Log::info('✅ [EXTRACTION] Extracted selected locationId from referer (Priority 5)', [
+                        Log::info('✅ [EXTRACTION] Extracted selected locationId from referer (Priority 6)', [
                             'selectedLocationId' => $selectedLocationId,
                             'companyId' => $locationId,
                             'source' => $extractionSource,
@@ -417,7 +476,7 @@ class ClientIntegrationController extends Controller
                     }
                 }
                 
-                // Priority 6: Also try to extract from current URL
+                // Priority 7: Also try to extract from current URL
                 if (!$selectedLocationId) {
                     $urlLocationId = null;
                     if (preg_match('/\/location\/([^\/]+)/', $request->fullUrl(), $matches)) {
@@ -433,7 +492,7 @@ class ClientIntegrationController extends Controller
                     if ($urlLocationId) {
                         $selectedLocationId = $urlLocationId;
                         $extractionSource = 'current_url';
-                        Log::info('✅ [EXTRACTION] Extracted selected locationId from current URL (Priority 6)', [
+                        Log::info('✅ [EXTRACTION] Extracted selected locationId from current URL (Priority 7)', [
                             'selectedLocationId' => $selectedLocationId,
                             'companyId' => $locationId,
                             'source' => $extractionSource
@@ -1440,10 +1499,44 @@ class ClientIntegrationController extends Controller
                                 if (!empty($installedButNotInMainProcessing)) {
                                     // These are locations that were already installed (so not in main processing)
                                     // but are the ones selected during this installation flow
+                                    // Prioritize the extracted location ID if it's in the list
                                     if ($selectedLocationId && in_array($selectedLocationId, $installedButNotInMainProcessing)) {
                                         $newlySelectedLocationId = $selectedLocationId;
+                                        Log::info('✅ [COMPARISON] Using extracted locationId that matches installed locations', [
+                                            'newlySelectedLocationId' => $newlySelectedLocationId,
+                                            'extracted_locationId' => $selectedLocationId,
+                                            'installed_but_not_in_main_processing' => $installedButNotInMainProcessing
+                                        ]);
                                     } else {
-                                        $newlySelectedLocationId = reset($installedButNotInMainProcessing);
+                                        // If we don't have an extracted location ID, we need to find the most likely one
+                                        // Check if we can get it from session's previous URL or other sources
+                                        $hintLocationId = null;
+                                        
+                                        // Try to extract from session's previous URL
+                                        $previousUrl = session('_previous.url');
+                                        if ($previousUrl && preg_match('/\/location\/([^\/\?]+)/', $previousUrl, $matches)) {
+                                            $hintLocationId = $matches[1];
+                                            Log::info('🔍 [COMPARISON] Found location ID hint in session previous URL', [
+                                                'hint_locationId' => $hintLocationId,
+                                                'previous_url' => $previousUrl
+                                            ]);
+                                        }
+                                        
+                                        // Use hint if it's in the list, otherwise use first one
+                                        if ($hintLocationId && in_array($hintLocationId, $installedButNotInMainProcessing)) {
+                                            $newlySelectedLocationId = $hintLocationId;
+                                            Log::info('✅ [COMPARISON] Using location ID from session previous URL', [
+                                                'newlySelectedLocationId' => $newlySelectedLocationId
+                                            ]);
+                                        } else {
+                                            // As a last resort, use the first one, but log a warning
+                                            $newlySelectedLocationId = reset($installedButNotInMainProcessing);
+                                            Log::warning('⚠️ [COMPARISON] No extracted location ID found - using first installed location', [
+                                                'newlySelectedLocationId' => $newlySelectedLocationId,
+                                                'all_installed_locations' => $installedButNotInMainProcessing,
+                                                'note' => 'This might not be the correct selected location. Consider checking OAuth state parameter or session data.'
+                                            ]);
+                                        }
                                     }
                                     
                                     Log::info('✅ [COMPARISON] Found selected location from installed locations not in main processing', [
