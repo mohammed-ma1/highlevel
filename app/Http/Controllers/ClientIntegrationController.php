@@ -33,19 +33,33 @@ class ClientIntegrationController extends Controller
             ]);
             
             // Extract locationId from referer or URL if available
-            $locationId = null;
+            // This is important for direct installation links where user selects a specific location
+            $selectedLocationId = null;
             $referer = $request->header('referer');
             
-            // Try to extract locationId from referer URL (e.g., https://app.gohighlevel.com/v2/location/OLV8XtEfBZn2hdbkwPAI/...)
+            // Try to extract locationId from referer URL (e.g., https://app.gohighlevel.com/v2/location/YAuEX9ihHtdKDKEvbw4a/...)
             if ($referer && preg_match('/\/location\/([^\/]+)/', $referer, $matches)) {
-                $locationId = $matches[1];
-                Log::info('Extracted locationId from referer', ['locationId' => $locationId]);
+                $selectedLocationId = $matches[1];
+                Log::info('📍 Extracted selected locationId from referer (before OAuth)', [
+                    'selectedLocationId' => $selectedLocationId,
+                    'referer' => $referer
+                ]);
             }
             
             // Try to extract from current URL
-            if (!$locationId && preg_match('/\/location\/([^\/]+)/', $request->fullUrl(), $matches)) {
-                $locationId = $matches[1];
-                Log::info('Extracted locationId from current URL', ['locationId' => $locationId]);
+            if (!$selectedLocationId && preg_match('/\/location\/([^\/]+)/', $request->fullUrl(), $matches)) {
+                $selectedLocationId = $matches[1];
+                Log::info('📍 Extracted selected locationId from current URL (before OAuth)', [
+                    'selectedLocationId' => $selectedLocationId
+                ]);
+            }
+            
+            // Store selected location ID in session so we can retrieve it after OAuth callback
+            if ($selectedLocationId) {
+                session(['selected_location_id' => $selectedLocationId]);
+                Log::info('💾 Stored selected locationId in session', [
+                    'selectedLocationId' => $selectedLocationId
+                ]);
             }
             
             // Build OAuth authorization URL
@@ -176,6 +190,44 @@ class ClientIntegrationController extends Controller
             $isBulk         = (bool) ($body['isBulkInstallation'] ?? false);
             $providerUserId = $body['userId'] ?? null;
 
+            // For bulk installations, try to get specific location ID from session (stored before OAuth redirect)
+            // This happens when user clicks a direct installation link for a specific location
+            $selectedLocationId = null;
+            if ($isBulk && $userType === 'Company') {
+                // First, try to get from session (stored before OAuth redirect)
+                $selectedLocationId = session('selected_location_id');
+                if ($selectedLocationId) {
+                    Log::info('📍 Retrieved selected locationId from session (after OAuth)', [
+                        'selectedLocationId' => $selectedLocationId,
+                        'companyId' => $locationId
+                    ]);
+                    // Clear session after use
+                    session()->forget('selected_location_id');
+                }
+                
+                // Fallback: try to extract from referer (might not work after OAuth redirect)
+                if (!$selectedLocationId) {
+                    $referer = $request->header('referer');
+                    if ($referer && preg_match('/\/location\/([^\/]+)/', $referer, $matches)) {
+                        $selectedLocationId = $matches[1];
+                        Log::info('📍 Extracted selected locationId from referer (fallback)', [
+                            'selectedLocationId' => $selectedLocationId,
+                            'companyId' => $locationId,
+                            'referer' => $referer
+                        ]);
+                    }
+                }
+                
+                // Also try to extract from current URL
+                if (!$selectedLocationId && preg_match('/\/location\/([^\/]+)/', $request->fullUrl(), $matches)) {
+                    $selectedLocationId = $matches[1];
+                    Log::info('📍 Extracted selected locationId from current URL (fallback)', [
+                        'selectedLocationId' => $selectedLocationId,
+                        'companyId' => $locationId
+                    ]);
+                }
+            }
+
             // If locationId is missing, try to extract it from the JWT access token
             // This happens for Company-level bulk installations
             if (!$locationId && $accessToken) {
@@ -184,7 +236,8 @@ class ClientIntegrationController extends Controller
                 Log::info('Attempted to extract locationId from JWT token', [
                     'extracted_location_id' => $locationId,
                     'userType' => $userType,
-                    'isBulk' => $isBulk
+                    'isBulk' => $isBulk,
+                    'selectedLocationId' => $selectedLocationId
                 ]);
             }
 
@@ -380,6 +433,7 @@ class ClientIntegrationController extends Controller
             if ($userType === 'Company' && $isBulk) {
                 Log::info('🔄 Handling Company-level bulk installation - fetching installed locations', [
                     'companyId' => $locationId,
+                    'selectedLocationId' => $selectedLocationId ?? null,
                     'userType' => $userType,
                     'isBulk' => $isBulk
                 ]);
@@ -446,12 +500,15 @@ class ClientIntegrationController extends Controller
                             'locations_count' => count($locations),
                             'locations' => array_map(function($loc) {
                                 return [
-                                    'id' => $loc['id'] ?? $loc['locationId'] ?? null, 
+                                    'id' => $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null, 
                                     'name' => $loc['name'] ?? $loc['locationName'] ?? null,
-                                    'isInstalled' => $loc['isInstalled'] ?? true
+                                    'isInstalled' => $loc['isInstalled'] ?? false
                                 ];
                             }, $locations)
                         ]);
+                        
+                        // Use the selectedLocationId we extracted earlier (from referer/URL before OAuth)
+                        // This represents the specific location the user clicked on for installation
                         
                         // Handle pagination if there are more locations
                         // Check if we need to fetch more pages
@@ -504,9 +561,88 @@ class ClientIntegrationController extends Controller
                         $successCount = 0;
                         $failCount = 0;
                         
+                        // For bulk installations, we need to register provider for:
+                        // 1. The selected location (if user clicked a direct link)
+                        // 2. All locations where app is installed (isInstalled: true)
+                        // 3. If no specific location selected and all are false, register for all locations
+                        
+                        $locationsToRegister = [];
+                        
+                        // If a specific location was selected, prioritize it
+                        if ($selectedLocationId) {
+                            $selectedLocation = null;
+                            foreach ($locations as $loc) {
+                                $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
+                                if ($locId === $selectedLocationId) {
+                                    $selectedLocation = $loc;
+                                    break;
+                                }
+                            }
+                            
+                            if ($selectedLocation) {
+                                $locationsToRegister[] = $selectedLocation;
+                                Log::info('✅ Found selected location in API response', [
+                                    'locationId' => $selectedLocationId,
+                                    'locationName' => $selectedLocation['name'] ?? 'N/A'
+                                ]);
+                            } else {
+                                // Location not in API response, but we'll register it anyway
+                                $locationsToRegister[] = [
+                                    '_id' => $selectedLocationId,
+                                    'id' => $selectedLocationId,
+                                    'name' => 'Selected Location',
+                                    'isInstalled' => false
+                                ];
+                                Log::info('⚠️ Selected location not in API response, will register anyway', [
+                                    'locationId' => $selectedLocationId
+                                ]);
+                            }
+                        }
+                        
+                        // Also add all locations where app is installed
                         foreach ($locations as $location) {
-                            // Handle different response formats
-                            $actualLocationId = $location['id'] ?? $location['locationId'] ?? null;
+                            $locId = $location['_id'] ?? $location['id'] ?? $location['locationId'] ?? null;
+                            $isInstalled = $location['isInstalled'] ?? false;
+                            
+                            // Skip if already added (selected location)
+                            if ($selectedLocationId && $locId === $selectedLocationId) {
+                                continue;
+                            }
+                            
+                            // Add if installed
+                            if ($isInstalled) {
+                                $locationsToRegister[] = $location;
+                            }
+                        }
+                        
+                        // If no locations to register yet, and no specific selection, register for all
+                        // This handles the case where bulk installation is new and locations aren't marked as installed yet
+                        if (empty($locationsToRegister) && !$selectedLocationId) {
+                            Log::info('ℹ️ No installed locations found and no specific selection - registering for all locations', [
+                                'total_locations' => count($locations)
+                            ]);
+                            $locationsToRegister = $locations;
+                        }
+                        
+                        Log::info('📝 Locations to register provider for', [
+                            'count' => count($locationsToRegister),
+                            'selectedLocationId' => $selectedLocationId,
+                            'locations' => array_map(function($loc) {
+                                return [
+                                    'id' => $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null,
+                                    'name' => $loc['name'] ?? 'N/A',
+                                    'isInstalled' => $loc['isInstalled'] ?? false
+                                ];
+                            }, $locationsToRegister)
+                        ]);
+                        
+                        // Register provider for each location
+                        $successCount = 0;
+                        $failCount = 0;
+                        
+                        foreach ($locationsToRegister as $location) {
+                            // Handle different response formats - API returns _id
+                            $actualLocationId = $location['_id'] ?? $location['id'] ?? $location['locationId'] ?? null;
                             if (!$actualLocationId) {
                                 Log::warning('⚠️ Location entry missing ID', [
                                     'location_data' => $location
