@@ -870,6 +870,62 @@ class ClientIntegrationController extends Controller
                     
                     $installedLocationsUrl = "https://services.leadconnectorhq.com/oauth/installedLocations";
                     
+                    // ===== STEP 1: Call installedLocations API BEFORE processing (to get baseline) =====
+                    Log::info('🔍 [BEFORE] Fetching installed locations BEFORE processing', [
+                        'companyId' => $locationId,
+                        'appId' => $appId,
+                        'clientId' => $clientId,
+                        'url' => $installedLocationsUrl,
+                        'api_docs' => 'https://marketplace.gohighlevel.com/docs/ghl/oauth/get-installed-locations'
+                    ]);
+                    
+                    $locationsResponseBefore = Http::timeout(30)
+                        ->acceptJson()
+                        ->withToken($accessToken)
+                        ->withHeaders(['Version' => '2021-07-28'])
+                        ->get($installedLocationsUrl, [
+                            'companyId' => $locationId,  // REQUIRED
+                            'appId' => $appId,           // REQUIRED
+                            'limit' => 100               // Get up to 100 locations per page
+                            // Note: Not filtering by isInstalled to get all locations
+                        ]);
+                    
+                    // Extract location IDs from BEFORE state
+                    $locationIdsBefore = [];
+                    if ($locationsResponseBefore->successful()) {
+                        $beforeData = $locationsResponseBefore->json();
+                        $beforeLocations = $beforeData['locations'] ?? $beforeData['data'] ?? [];
+                        
+                        if (is_array($beforeLocations)) {
+                            foreach ($beforeLocations as $loc) {
+                                $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
+                                if ($locId) {
+                                    $locationIdsBefore[] = $locId;
+                                }
+                            }
+                        }
+                        
+                        Log::info('📋 [BEFORE] Installed locations BEFORE processing', [
+                            'companyId' => $locationId,
+                            'appId' => $appId,
+                            'locations_count' => count($beforeLocations),
+                            'location_ids' => $locationIdsBefore,
+                            'locations' => array_map(function($loc) {
+                                return [
+                                    'id' => $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null, 
+                                    'name' => $loc['name'] ?? $loc['locationName'] ?? null,
+                                    'isInstalled' => $loc['isInstalled'] ?? false
+                                ];
+                            }, $beforeLocations)
+                        ]);
+                    } else {
+                        Log::warning('⚠️ [BEFORE] Failed to fetch installed locations BEFORE processing', [
+                            'status' => $locationsResponseBefore->status(),
+                            'response' => $locationsResponseBefore->json()
+                        ]);
+                    }
+                    
+                    // ===== STEP 2: Now fetch installed locations for processing =====
                     Log::info('🔍 Fetching installed locations using installedLocations API', [
                         'companyId' => $locationId,
                         'appId' => $appId,
@@ -1114,6 +1170,197 @@ class ClientIntegrationController extends Controller
                             'successful' => $successCount,
                             'failed' => $failCount
                         ]);
+                        
+                        // ===== STEP 3: Call installedLocations API AFTER processing (to find newly selected location) =====
+                        Log::info('🔍 [AFTER] Fetching installed locations AFTER processing', [
+                            'companyId' => $locationId,
+                            'appId' => $appId,
+                            'url' => $installedLocationsUrl
+                        ]);
+                        
+                        // Wait a moment for GHL to update the installation status
+                        sleep(1);
+                        
+                        $locationsResponseAfter = Http::timeout(30)
+                            ->acceptJson()
+                            ->withToken($accessToken)
+                            ->withHeaders(['Version' => '2021-07-28'])
+                            ->get($installedLocationsUrl, [
+                                'companyId' => $locationId,
+                                'appId' => $appId,
+                                'limit' => 100
+                                // Note: Not filtering by isInstalled to get all locations
+                            ]);
+                        
+                        // Extract location IDs from AFTER state
+                        $locationIdsAfter = [];
+                        $afterLocations = [];
+                        if ($locationsResponseAfter->successful()) {
+                            $afterData = $locationsResponseAfter->json();
+                            $afterLocations = $afterData['locations'] ?? $afterData['data'] ?? [];
+                            
+                            if (is_array($afterLocations)) {
+                                foreach ($afterLocations as $loc) {
+                                    $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
+                                    if ($locId) {
+                                        $locationIdsAfter[] = $locId;
+                                    }
+                                }
+                            }
+                            
+                            Log::info('📋 [AFTER] Installed locations AFTER processing', [
+                                'companyId' => $locationId,
+                                'appId' => $appId,
+                                'locations_count' => count($afterLocations),
+                                'location_ids' => $locationIdsAfter,
+                                'locations' => array_map(function($loc) {
+                                    return [
+                                        'id' => $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null, 
+                                        'name' => $loc['name'] ?? $loc['locationName'] ?? null,
+                                        'isInstalled' => $loc['isInstalled'] ?? false
+                                    ];
+                                }, $afterLocations)
+                            ]);
+                        } else {
+                            Log::warning('⚠️ [AFTER] Failed to fetch installed locations AFTER processing', [
+                                'status' => $locationsResponseAfter->status(),
+                                'response' => $locationsResponseAfter->json()
+                            ]);
+                        }
+                        
+                        // ===== STEP 4: Compare BEFORE and AFTER to find newly selected location =====
+                        $newlySelectedLocationId = null;
+                        if (!empty($locationIdsBefore) && !empty($locationIdsAfter)) {
+                            // Find locations that are in AFTER but not in BEFORE
+                            $newLocationIds = array_diff($locationIdsAfter, $locationIdsBefore);
+                            
+                            if (!empty($newLocationIds)) {
+                                // If multiple new locations, take the first one (or the one that matches our selectedLocationId if we have it)
+                                if ($selectedLocationId && in_array($selectedLocationId, $newLocationIds)) {
+                                    $newlySelectedLocationId = $selectedLocationId;
+                                } else {
+                                    $newlySelectedLocationId = reset($newLocationIds); // Get first new location
+                                }
+                                
+                                Log::info('✅ [COMPARISON] Found newly selected location by comparing BEFORE and AFTER', [
+                                    'newlySelectedLocationId' => $newlySelectedLocationId,
+                                    'all_new_location_ids' => array_values($newLocationIds),
+                                    'location_ids_before' => $locationIdsBefore,
+                                    'location_ids_after' => $locationIdsAfter,
+                                    'selectedLocationId_from_extraction' => $selectedLocationId ?? null
+                                ]);
+                                
+                                // Always update selectedLocationId with the newly found location (this is the most accurate)
+                                $oldSelectedLocationId = $selectedLocationId;
+                                $selectedLocationId = $newlySelectedLocationId;
+                                $extractionSource = 'before_after_comparison';
+                                Log::info('✅ [EXTRACTION] Updated selectedLocationId from BEFORE/AFTER comparison', [
+                                    'old_selectedLocationId' => $oldSelectedLocationId,
+                                    'new_selectedLocationId' => $selectedLocationId,
+                                    'source' => $extractionSource
+                                ]);
+                            } else {
+                                Log::info('ℹ️ [COMPARISON] No new locations found - all locations were already present', [
+                                    'location_ids_before' => $locationIdsBefore,
+                                    'location_ids_after' => $locationIdsAfter,
+                                    'selectedLocationId_from_extraction' => $selectedLocationId ?? null
+                                ]);
+                            }
+                        } else {
+                            Log::warning('⚠️ [COMPARISON] Cannot compare - missing BEFORE or AFTER data', [
+                                'has_before_data' => !empty($locationIdsBefore),
+                                'has_after_data' => !empty($locationIdsAfter),
+                                'before_count' => count($locationIdsBefore),
+                                'after_count' => count($locationIdsAfter)
+                            ]);
+                        }
+                        
+                        // ===== STEP 5: If we found a newly selected location, update user and ensure it's registered =====
+                        if ($newlySelectedLocationId) {
+                            // Update user record with the newly found location ID
+                            if ($user && $user->exists) {
+                                $oldLocationId = $user->lead_location_id;
+                                $user->lead_location_id = $newlySelectedLocationId;
+                                try {
+                                    $user->save();
+                                    Log::info('✅ Updated user record with newly selected location ID', [
+                                        'user_id' => $user->id,
+                                        'old_location_id' => $oldLocationId,
+                                        'new_location_id' => $newlySelectedLocationId
+                                    ]);
+                                } catch (\Exception $e) {
+                                    Log::error('❌ Failed to update user record with newly selected location ID', [
+                                        'user_id' => $user->id,
+                                        'new_location_id' => $newlySelectedLocationId,
+                                        'error' => $e->getMessage()
+                                    ]);
+                                }
+                            }
+                            
+                            // Find the location data from the AFTER response
+                            $newlySelectedLocation = null;
+                            foreach ($afterLocations as $loc) {
+                                $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
+                                if ($locId === $newlySelectedLocationId) {
+                                    $newlySelectedLocation = $loc;
+                                    break;
+                                }
+                            }
+                            
+                            // Check if provider was already registered for this location
+                            $alreadyRegistered = false;
+                            foreach ($locationsToRegister as $regLoc) {
+                                $regLocId = $regLoc['_id'] ?? $regLoc['id'] ?? $regLoc['locationId'] ?? null;
+                                if ($regLocId === $newlySelectedLocationId) {
+                                    $alreadyRegistered = true;
+                                    break;
+                                }
+                            }
+                            
+                            if ($newlySelectedLocation && !$alreadyRegistered) {
+                                // Register provider for the newly selected location
+                                $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
+                                            . '?locationId=' . urlencode($newlySelectedLocationId);
+                                
+                                $providerPayload = [
+                                    'name'        => 'Tap Payments',
+                                    'description' => 'Innovating payment acceptance & collection in MENA',
+                                    'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
+                                    'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
+                                    'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
+                                ];
+                                
+                                try {
+                                    $providerResp = Http::timeout(30)
+                                        ->acceptJson()
+                                        ->withToken($accessToken)
+                                        ->withHeaders(['Version' => '2021-07-28'])
+                                        ->post($providerUrl, $providerPayload);
+                                    
+                                    if ($providerResp->successful()) {
+                                        Log::info('✅ Provider registered for newly selected location (from BEFORE/AFTER comparison)', [
+                                            'locationId' => $newlySelectedLocationId,
+                                            'locationName' => $newlySelectedLocation['name'] ?? 'N/A'
+                                        ]);
+                                    } else {
+                                        Log::warning('⚠️ Failed to register provider for newly selected location', [
+                                            'locationId' => $newlySelectedLocationId,
+                                            'status' => $providerResp->status(),
+                                            'response' => $providerResp->json()
+                                        ]);
+                                    }
+                                } catch (\Exception $e) {
+                                    Log::error('❌ Exception registering provider for newly selected location', [
+                                        'locationId' => $newlySelectedLocationId,
+                                        'error' => $e->getMessage()
+                                    ]);
+                                }
+                            } elseif ($alreadyRegistered) {
+                                Log::info('ℹ️ Provider already registered for newly selected location', [
+                                    'locationId' => $newlySelectedLocationId
+                                ]);
+                            }
+                        }
                     } else {
                         Log::warning('⚠️ Could not fetch installed locations using installedLocations API', [
                             'companyId' => $locationId,
