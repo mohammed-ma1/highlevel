@@ -915,25 +915,33 @@ class ClientIntegrationController extends Controller
                 }
             } // End else block for non-bulk Company installations
 
-            // Redirect to GHL integrations page after successful connection
-            // For Company-level bulk installations, redirect to company integrations page
+            // For Company-level bulk installations, return success response (no redirect)
             if ($userType === 'Company' && $isBulk) {
-                $redirectUrl = "https://app.gohighlevel.com/v2/company/{$locationId}/integrations";
-                Log::info('Redirecting to GHL company integrations page (bulk installation)', [
+                Log::info('✅ Bulk installation completed successfully (no redirect)', [
                     'companyId' => $locationId,
+                    'selectedLocationId' => $selectedLocationId ?? null,
+                    'user_id' => $user->id,
+                    'user_location_id' => $user->lead_location_id,
+                ]);
+                
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Integration installed successfully',
+                    'companyId' => $locationId,
+                    'locationId' => $selectedLocationId ?? $locationId,
+                    'userId' => $user->id
+                ], 200);
+            } else {
+                // For Location-level installations, redirect to integrations page
+                $redirectUrl = "https://app.gohighlevel.com/v2/location/{$locationId}/payments/integrations";
+                Log::info('Redirecting to GHL location integrations page', [
+                    'locationId' => $locationId,
                     'redirectUrl' => $redirectUrl,
                     'user_id' => $user->id,
                 ]);
-            } else {
-            $redirectUrl = "https://app.gohighlevel.com/v2/location/{$locationId}/payments/integrations";
-                Log::info('Redirecting to GHL location integrations page', [
-                'locationId' => $locationId,
-                'redirectUrl' => $redirectUrl,
-                'user_id' => $user->id,
-            ]);
+                
+                return redirect($redirectUrl);
             }
-
-            return redirect($redirectUrl);
 
         } catch (\Throwable $e) {
             Log::error('Integration failed', ['error' => $e->getMessage()]);
