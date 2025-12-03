@@ -693,6 +693,152 @@ class ClientIntegrationController extends Controller
                 'scopes_array' => $scope ? explode(' ', $scope) : null
             ]);
 
+            // Fetch all locations by company ID to check if approved location is in the list
+            // This helps us understand which locations are available and if the selected location is among them
+            if ($companyId) {
+                try {
+                    $allLocationsUrl = "https://services.leadconnectorhq.com/locations";
+                    
+                    Log::info('🔍 Fetching all locations by company ID', [
+                        'companyId' => $companyId,
+                        'url' => $allLocationsUrl,
+                        'api_docs' => 'https://marketplace.gohighlevel.com/docs/ghl/locations/get-locations'
+                    ]);
+                    
+                    $allLocationsResponse = Http::timeout(30)
+                        ->acceptJson()
+                        ->withToken($accessToken)
+                        ->withHeaders(['Version' => '2021-07-28'])
+                        ->get($allLocationsUrl, [
+                            'companyId' => $companyId,
+                            'limit' => 100
+                        ]);
+                    
+                    Log::info('📡 All Locations API response', [
+                        'status' => $allLocationsResponse->status(),
+                        'successful' => $allLocationsResponse->successful(),
+                        'response_keys' => $allLocationsResponse->successful() ? array_keys($allLocationsResponse->json() ?? []) : null,
+                        'body_preview' => substr($allLocationsResponse->body(), 0, 500)
+                    ]);
+                    
+                    if ($allLocationsResponse->successful()) {
+                        $allLocationsData = $allLocationsResponse->json();
+                        $allLocations = $allLocationsData['locations'] ?? $allLocationsData['data'] ?? $allLocationsData ?? [];
+                        
+                        if (!is_array($allLocations)) {
+                            $allLocations = [];
+                        }
+                        
+                        // Extract location IDs from the response
+                        $locationIds = [];
+                        foreach ($allLocations as $loc) {
+                            $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
+                            if ($locId) {
+                                $locationIds[] = $locId;
+                            }
+                        }
+                        
+                        // Check if selected location ID is in the list
+                        $selectedLocationFound = false;
+                        if ($selectedLocationId && in_array($selectedLocationId, $locationIds)) {
+                            $selectedLocationFound = true;
+                        }
+                        
+                        Log::info('📋 All Locations by Company ID - Full Response', [
+                            'companyId' => $companyId,
+                            'total_locations_count' => count($allLocations),
+                            'location_ids' => $locationIds,
+                            'selectedLocationId' => $selectedLocationId ?? null,
+                            'selectedLocationFound' => $selectedLocationFound,
+                            'all_locations' => array_map(function($loc) {
+                                return [
+                                    'id' => $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null,
+                                    'name' => $loc['name'] ?? $loc['locationName'] ?? null,
+                                    'address' => $loc['address'] ?? null,
+                                    'companyId' => $loc['companyId'] ?? null,
+                                    'full_data' => $loc
+                                ];
+                            }, $allLocations),
+                            'full_response' => $allLocationsData
+                        ]);
+                        
+                        // Handle pagination if needed
+                        $totalLocations = count($allLocations);
+                        $allLocationsList = $allLocations;
+                        $skip = 100;
+                        
+                        while ($totalLocations >= 100) {
+                            Log::info('📄 Fetching additional page of all locations', [
+                                'skip' => $skip,
+                                'current_count' => $totalLocations
+                            ]);
+                            
+                            $nextPageResponse = Http::timeout(30)
+                                ->acceptJson()
+                                ->withToken($accessToken)
+                                ->withHeaders(['Version' => '2021-07-28'])
+                                ->get($allLocationsUrl, [
+                                    'companyId' => $companyId,
+                                    'skip' => $skip,
+                                    'limit' => 100
+                                ]);
+                            
+                            if ($nextPageResponse->successful()) {
+                                $nextPageData = $nextPageResponse->json();
+                                $nextPageLocations = $nextPageData['locations'] ?? $nextPageData['data'] ?? [];
+                                
+                                if (is_array($nextPageLocations) && count($nextPageLocations) > 0) {
+                                    $allLocationsList = array_merge($allLocationsList, $nextPageLocations);
+                                    $totalLocations = count($nextPageLocations);
+                                    $skip += 100;
+                                    
+                                    // Update location IDs list
+                                    foreach ($nextPageLocations as $loc) {
+                                        $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
+                                        if ($locId && !in_array($locId, $locationIds)) {
+                                            $locationIds[] = $locId;
+                                        }
+                                    }
+                                    
+                                    // Re-check if selected location is found
+                                    if ($selectedLocationId && !$selectedLocationFound && in_array($selectedLocationId, $locationIds)) {
+                                        $selectedLocationFound = true;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                        
+                        Log::info('📊 All Locations by Company ID - Final Summary', [
+                            'companyId' => $companyId,
+                            'total_locations_fetched' => count($allLocationsList),
+                            'all_location_ids' => $locationIds,
+                            'selectedLocationId' => $selectedLocationId ?? null,
+                            'selectedLocationFound' => $selectedLocationFound,
+                            'selectedLocationInList' => $selectedLocationId ? in_array($selectedLocationId, $locationIds) : false
+                        ]);
+                    } else {
+                        Log::warning('⚠️ Failed to fetch all locations by company ID', [
+                            'companyId' => $companyId,
+                            'status' => $allLocationsResponse->status(),
+                            'response' => $allLocationsResponse->json()
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    Log::error('❌ Exception fetching all locations by company ID', [
+                        'companyId' => $companyId,
+                        'error' => $e->getMessage(),
+                        'error_code' => $e->getCode(),
+                        'error_file' => $e->getFile(),
+                        'error_line' => $e->getLine(),
+                        'trace' => $e->getTraceAsString()
+                    ]);
+                }
+            }
+
             // For Company-level bulk installations, fetch installed locations and register provider for each
             // According to GHL docs, provider config must be created for the integration to appear
             // API Reference: https://marketplace.gohighlevel.com/docs/ghl/oauth/get-installed-locations
