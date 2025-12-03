@@ -13,15 +13,84 @@ class ClientIntegrationController extends Controller
     public function connect(Request $request)
     {
         // Log all requests to this endpoint for debugging
-        Log::info('Connect endpoint called', [
+        Log::info('🔵 === CONNECT ENDPOINT CALLED ===', [
+            'timestamp' => now()->toIso8601String(),
             'url' => $request->fullUrl(),
             'method' => $request->method(),
-            'all_params' => $request->all(),
-            'query_params' => $request->query(),
+            'path' => $request->path(),
             'has_code' => $request->has('code'),
             'code_value' => $request->input('code'),
+            'code_length' => $request->input('code') ? strlen($request->input('code')) : 0,
+        ]);
+        
+        // Log all query parameters
+        $allQueryParams = $request->query()->all();
+        Log::info('📋 [REQUEST] All Query Parameters', [
+            'query_params' => $allQueryParams,
+            'query_params_count' => count($allQueryParams),
+            'query_string' => $request->getQueryString(),
+        ]);
+        
+        // Log all request parameters (query + body)
+        Log::info('📋 [REQUEST] All Request Parameters', [
+            'all_params' => $request->all(),
+            'all_params_count' => count($request->all()),
+        ]);
+        
+        // Log headers
+        Log::info('📋 [REQUEST] Headers', [
             'referer' => $request->header('referer'),
-            'user_agent' => $request->userAgent()
+            'user_agent' => $request->userAgent(),
+            'host' => $request->header('host'),
+            'origin' => $request->header('origin'),
+            'accept' => $request->header('accept'),
+            'content_type' => $request->header('content-type'),
+            'all_headers' => $request->headers->all(),
+        ]);
+        
+        // Log cookies
+        $allCookies = $request->cookies->all();
+        Log::info('📋 [REQUEST] Cookies', [
+            'cookies' => $allCookies,
+            'cookies_count' => count($allCookies),
+            'has_selected_location_id_cookie' => $request->hasCookie('selected_location_id'),
+            'selected_location_id_cookie_value' => $request->cookie('selected_location_id'),
+        ]);
+        
+        // Log session data
+        Log::info('📋 [REQUEST] Session Data', [
+            'session_id' => session()->getId(),
+            'has_selected_location_id_session' => session()->has('selected_location_id'),
+            'selected_location_id_session_value' => session('selected_location_id'),
+            'all_session_data' => session()->all(),
+        ]);
+        
+        // Check if GHL passes location ID in query parameters (e.g., ?code=xxx&locationId=xxx)
+        $locationIdFromQuery = $request->query('locationId') ?? $request->query('location_id') ?? null;
+        if ($locationIdFromQuery) {
+            Log::info('📍 [REQUEST] Found locationId in query parameters', [
+                'locationId' => $locationIdFromQuery,
+                'source' => 'query_params',
+                'param_name' => $request->query('locationId') ? 'locationId' : 'location_id'
+            ]);
+        } else {
+            Log::info('📍 [REQUEST] No locationId found in query parameters', [
+                'checked_params' => ['locationId', 'location_id'],
+                'all_query_keys' => array_keys($allQueryParams)
+            ]);
+        }
+        
+        // Log full request details summary
+        Log::info('📊 [REQUEST] Full Request Summary', [
+            'full_url' => $request->fullUrl(),
+            'scheme' => $request->getScheme(),
+            'host' => $request->getHost(),
+            'port' => $request->getPort(),
+            'path' => $request->path(),
+            'query_string' => $request->getQueryString(),
+            'fragment' => $request->getFragment(),
+            'ip' => $request->ip(),
+            'ips' => $request->ips(),
         ]);
         
         // Check if this is a proper OAuth request
@@ -169,7 +238,11 @@ class ClientIntegrationController extends Controller
                 'has_access_token' => !empty($body['access_token']),
                 'has_refresh_token' => !empty($body['refresh_token']),
                 'locationId' => $body['locationId'] ?? 'missing',
-                'userType' => $body['userType'] ?? 'missing'
+                'companyId' => $body['companyId'] ?? 'missing',
+                'userType' => $body['userType'] ?? 'missing',
+                'isBulkInstallation' => $body['isBulkInstallation'] ?? false,
+                'all_response_keys' => array_keys($body ?? []),
+                'full_response' => $body // Log full response to check for location info
             ]);
 
             // Extract what we need
@@ -194,69 +267,170 @@ class ClientIntegrationController extends Controller
             $isBulk         = (bool) ($body['isBulkInstallation'] ?? false);
             $providerUserId = $body['userId'] ?? null;
 
-            // For bulk installations, try to get specific location ID from session/cookie (stored before OAuth redirect)
-            // This happens when user clicks a direct installation link for a specific location
+            // Log initial OAuth response location data
+            Log::info('🔍 === LOCATION ID EXTRACTION START ===', [
+                'oauth_response_locationId' => $locationId,
+                'oauth_response_companyId' => $companyId,
+                'oauth_response_userType' => $userType,
+                'oauth_response_isBulk' => $isBulk,
+                'request_url' => $request->fullUrl(),
+                'request_query_params' => $request->query()->all(),
+                'request_referer' => $request->header('referer'),
+                'has_code' => $request->has('code')
+            ]);
+
+            // For bulk installations, try to get specific location ID from multiple sources
+            // Priority: 1) Query params, 2) Session, 3) Cookie, 4) Referer/URL
             $selectedLocationId = null;
+            $extractionSource = null;
             if ($isBulk && $userType === 'Company') {
-                // First, try to get from session (stored before OAuth redirect)
-                $selectedLocationId = session('selected_location_id');
-                if ($selectedLocationId) {
-                    Log::info('📍 Retrieved selected locationId from session (after OAuth)', [
+                // Priority 1: Check query parameters (GHL might pass it in redirect URL)
+                $queryLocationId = $request->query('locationId') ?? $request->query('location_id') ?? null;
+                Log::info('🔍 [EXTRACTION] Checking query parameters', [
+                    'locationId_param' => $request->query('locationId'),
+                    'location_id_param' => $request->query('location_id'),
+                    'found' => !empty($queryLocationId),
+                    'value' => $queryLocationId
+                ]);
+                
+                if ($queryLocationId) {
+                    $selectedLocationId = $queryLocationId;
+                    $extractionSource = 'query_params';
+                    Log::info('✅ [EXTRACTION] Found selected locationId in query parameters (Priority 1)', [
                         'selectedLocationId' => $selectedLocationId,
                         'companyId' => $locationId,
-                        'session_id' => session()->getId()
+                        'source' => $extractionSource
                     ]);
-                    // Clear session after use
-                    session()->forget('selected_location_id');
                 }
                 
-                // Fallback: try to get from cookie
+                // Priority 2: Try to get from session (stored before OAuth redirect)
                 if (!$selectedLocationId) {
-                    $selectedLocationId = $request->cookie('selected_location_id');
-                    if ($selectedLocationId) {
-                        Log::info('📍 Retrieved selected locationId from cookie (after OAuth)', [
+                    $sessionLocationId = session('selected_location_id');
+                    Log::info('🔍 [EXTRACTION] Checking session', [
+                        'session_id' => session()->getId(),
+                        'found' => !empty($sessionLocationId),
+                        'value' => $sessionLocationId
+                    ]);
+                    
+                    if ($sessionLocationId) {
+                        $selectedLocationId = $sessionLocationId;
+                        $extractionSource = 'session';
+                        Log::info('✅ [EXTRACTION] Retrieved selected locationId from session (Priority 2)', [
                             'selectedLocationId' => $selectedLocationId,
-                            'companyId' => $locationId
+                            'companyId' => $locationId,
+                            'source' => $extractionSource,
+                            'session_id' => session()->getId()
+                        ]);
+                        // Clear session after use
+                        session()->forget('selected_location_id');
+                    }
+                }
+                
+                // Priority 3: Try to get from cookie
+                if (!$selectedLocationId) {
+                    $cookieLocationId = $request->cookie('selected_location_id');
+                    Log::info('🔍 [EXTRACTION] Checking cookie', [
+                        'found' => !empty($cookieLocationId),
+                        'value' => $cookieLocationId
+                    ]);
+                    
+                    if ($cookieLocationId) {
+                        $selectedLocationId = $cookieLocationId;
+                        $extractionSource = 'cookie';
+                        Log::info('✅ [EXTRACTION] Retrieved selected locationId from cookie (Priority 3)', [
+                            'selectedLocationId' => $selectedLocationId,
+                            'companyId' => $locationId,
+                            'source' => $extractionSource
                         ]);
                         // Clear cookie after use
                         \Cookie::queue(\Cookie::forget('selected_location_id'));
                     }
                 }
                 
-                // Fallback: try to extract from referer (might not work after OAuth redirect)
+                // Priority 4: Try to extract from referer (might not work after OAuth redirect)
                 if (!$selectedLocationId) {
                     $referer = $request->header('referer');
+                    $refererLocationId = null;
                     if ($referer && preg_match('/\/location\/([^\/]+)/', $referer, $matches)) {
-                        $selectedLocationId = $matches[1];
-                        Log::info('📍 Extracted selected locationId from referer (fallback)', [
+                        $refererLocationId = $matches[1];
+                    }
+                    
+                    Log::info('🔍 [EXTRACTION] Checking referer', [
+                        'referer' => $referer,
+                        'found' => !empty($refererLocationId),
+                        'value' => $refererLocationId
+                    ]);
+                    
+                    if ($refererLocationId) {
+                        $selectedLocationId = $refererLocationId;
+                        $extractionSource = 'referer';
+                        Log::info('✅ [EXTRACTION] Extracted selected locationId from referer (Priority 4)', [
                             'selectedLocationId' => $selectedLocationId,
                             'companyId' => $locationId,
+                            'source' => $extractionSource,
                             'referer' => $referer
                         ]);
                     }
                 }
                 
-                // Also try to extract from current URL
-                if (!$selectedLocationId && preg_match('/\/location\/([^\/]+)/', $request->fullUrl(), $matches)) {
-                    $selectedLocationId = $matches[1];
-                    Log::info('📍 Extracted selected locationId from current URL (fallback)', [
-                        'selectedLocationId' => $selectedLocationId,
-                        'companyId' => $locationId
+                // Priority 5: Also try to extract from current URL
+                if (!$selectedLocationId) {
+                    $urlLocationId = null;
+                    if (preg_match('/\/location\/([^\/]+)/', $request->fullUrl(), $matches)) {
+                        $urlLocationId = $matches[1];
+                    }
+                    
+                    Log::info('🔍 [EXTRACTION] Checking current URL', [
+                        'url' => $request->fullUrl(),
+                        'found' => !empty($urlLocationId),
+                        'value' => $urlLocationId
                     ]);
+                    
+                    if ($urlLocationId) {
+                        $selectedLocationId = $urlLocationId;
+                        $extractionSource = 'current_url';
+                        Log::info('✅ [EXTRACTION] Extracted selected locationId from current URL (Priority 5)', [
+                            'selectedLocationId' => $selectedLocationId,
+                            'companyId' => $locationId,
+                            'source' => $extractionSource
+                        ]);
+                    }
                 }
+                
+                // Log final extraction result
+                Log::info('📊 [EXTRACTION] Final location ID extraction result', [
+                    'selectedLocationId' => $selectedLocationId,
+                    'extractionSource' => $extractionSource,
+                    'companyId_from_oauth' => $locationId,
+                    'companyId_from_body' => $companyId,
+                    'was_found' => !empty($selectedLocationId),
+                    'will_use_for_user' => $selectedLocationId ?? $locationId
+                ]);
             }
 
             // If locationId is missing, try to extract it from the JWT access token
             // This happens for Company-level bulk installations
             if (!$locationId && $accessToken) {
-                $locationId = $this->extractLocationIdFromToken($accessToken);
+                $tokenLocationId = $this->extractLocationIdFromToken($accessToken);
                 
-                Log::info('Attempted to extract locationId from JWT token', [
-                    'extracted_location_id' => $locationId,
+                Log::info('🔍 [EXTRACTION] Extracting locationId from JWT token', [
+                    'token_has_data' => !empty($accessToken),
+                    'extracted_location_id' => $tokenLocationId,
                     'userType' => $userType,
                     'isBulk' => $isBulk,
-                    'selectedLocationId' => $selectedLocationId
+                    'selectedLocationId' => $selectedLocationId ?? null
                 ]);
+                
+                if ($tokenLocationId) {
+                    $locationId = $tokenLocationId;
+                    Log::info('✅ [EXTRACTION] Successfully extracted locationId from JWT token', [
+                        'locationId' => $locationId
+                    ]);
+                } else {
+                    Log::warning('⚠️ [EXTRACTION] Failed to extract locationId from JWT token', [
+                        'token_preview' => substr($accessToken, 0, 50) . '...'
+                    ]);
+                }
             }
 
             Log::info('Validating OAuth data', [
@@ -285,6 +459,18 @@ class ClientIntegrationController extends Controller
             // For bulk installations with a selected location, create/update location-specific user
             // Otherwise, use company-level location ID
             $userLocationId = $selectedLocationId ?? $locationId;
+            
+            Log::info('📋 === LOCATION ID EXTRACTION SUMMARY ===', [
+                'oauth_response_locationId' => $locationId,
+                'oauth_response_companyId' => $companyId,
+                'selectedLocationId' => $selectedLocationId ?? null,
+                'extractionSource' => $extractionSource ?? null,
+                'userLocationId' => $userLocationId,
+                'isBulk' => $isBulk,
+                'userType' => $userType,
+                'will_create_user_for' => $userLocationId,
+                'will_register_provider_for' => $selectedLocationId ?? $locationId
+            ]);
             
             Log::info('🔍 Looking for user', [
                 'companyId' => $locationId,
@@ -917,9 +1103,14 @@ class ClientIntegrationController extends Controller
 
             // For Company-level bulk installations, return success response (no redirect)
             if ($userType === 'Company' && $isBulk) {
+                // Use selected location ID if available, otherwise use company ID
+                $finalLocationId = $selectedLocationId ?? $userLocationId ?? $locationId;
+                
                 Log::info('✅ Bulk installation completed successfully (no redirect)', [
                     'companyId' => $locationId,
                     'selectedLocationId' => $selectedLocationId ?? null,
+                    'userLocationId' => $userLocationId ?? null,
+                    'finalLocationId' => $finalLocationId,
                     'user_id' => $user->id,
                     'user_location_id' => $user->lead_location_id,
                 ]);
@@ -928,7 +1119,7 @@ class ClientIntegrationController extends Controller
                     'success' => true,
                     'message' => 'Integration installed successfully',
                     'companyId' => $locationId,
-                    'locationId' => $selectedLocationId ?? $locationId,
+                    'locationId' => $finalLocationId, // Use selected location ID, not company ID
                     'userId' => $user->id
                 ], 200);
             } else {
