@@ -24,7 +24,7 @@ class ClientIntegrationController extends Controller
         ]);
         
         // Log all query parameters
-        $allQueryParams = $request->query()->all();
+        $allQueryParams = $request->query->all();
         Log::info('📋 [REQUEST] All Query Parameters', [
             'query_params' => $allQueryParams,
             'query_params_count' => count($allQueryParams),
