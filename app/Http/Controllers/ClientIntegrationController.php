@@ -566,7 +566,9 @@ class ClientIntegrationController extends Controller
                 ]);
 
                 $user = new User();
-                $user->name = $selectedLocationId ? "Location {$selectedLocationId}" : "Location {$locationId}";
+                // Use userLocationId (which is selectedLocationId ?? locationId) for the name
+                // This ensures we use the location ID, not the company ID
+                $user->name = "Location {$userLocationId}";
                 $user->email = $placeholderEmail;
                 $user->password = Hash::make(Str::random(40));
             }
@@ -1138,31 +1140,87 @@ class ClientIntegrationController extends Controller
                             ];
                             
                             try {
+                                Log::info('📤 [PROVIDER REGISTRATION] Request details', [
+                                    'locationId' => $actualLocationId,
+                                    'locationName' => $location['name'] ?? 'N/A',
+                                    'url' => $providerUrl,
+                                    'payload' => $providerPayload,
+                                    'has_access_token' => !empty($accessToken),
+                                    'token_preview' => $accessToken ? substr($accessToken, 0, 20) . '...' : null
+                                ]);
+                                
+                                $startTime = microtime(true);
                                 $providerResp = Http::timeout(30)
                                     ->acceptJson()
                                     ->withToken($accessToken)
                                     ->withHeaders(['Version' => '2021-07-28'])
                                     ->post($providerUrl, $providerPayload);
+                                $endTime = microtime(true);
+                                $duration = round(($endTime - $startTime) * 1000, 2);
+                                
+                                Log::info('📥 [PROVIDER REGISTRATION] Response details', [
+                                    'locationId' => $actualLocationId,
+                                    'locationName' => $location['name'] ?? 'N/A',
+                                    'status_code' => $providerResp->status(),
+                                    'successful' => $providerResp->successful(),
+                                    'failed' => $providerResp->failed(),
+                                    'client_error' => $providerResp->clientError(),
+                                    'server_error' => $providerResp->serverError(),
+                                    'duration_ms' => $duration,
+                                    'response_headers' => $providerResp->headers(),
+                                    'response_body_raw' => $providerResp->body(),
+                                    'response_body_json' => $providerResp->json(),
+                                    'response_body_string' => (string) $providerResp->body(),
+                                    'response_size' => strlen($providerResp->body())
+                                ]);
                                 
                                 if ($providerResp->successful()) {
                                     $successCount++;
+                                    $responseData = $providerResp->json();
                                     Log::info('✅ Provider registered for location', [
                                         'locationId' => $actualLocationId,
-                                        'locationName' => $location['name'] ?? 'N/A'
+                                        'locationName' => $location['name'] ?? 'N/A',
+                                        'status_code' => $providerResp->status(),
+                                        'response_data' => $responseData,
+                                        'provider_id' => $responseData['id'] ?? $responseData['providerId'] ?? $responseData['_id'] ?? null,
+                                        'provider_name' => $responseData['name'] ?? null,
+                                        'duration_ms' => $duration
                                     ]);
                                 } else {
                                     $failCount++;
-                                    Log::warning('⚠️ Failed to register provider for location', [
+                                    $responseData = $providerResp->json();
+                                    $errorMessage = $responseData['message'] ?? $responseData['error'] ?? $responseData['errorMessage'] ?? 'Unknown error';
+                                    Log::error('❌ [PROVIDER REGISTRATION] Failed to register provider for location', [
                                         'locationId' => $actualLocationId,
-                                        'status' => $providerResp->status(),
-                                        'response' => $providerResp->json()
+                                        'locationName' => $location['name'] ?? 'N/A',
+                                        'status_code' => $providerResp->status(),
+                                        'status_text' => $providerResp->reason(),
+                                        'error_message' => $errorMessage,
+                                        'response_body' => $providerResp->body(),
+                                        'response_json' => $responseData,
+                                        'response_headers' => $providerResp->headers(),
+                                        'duration_ms' => $duration,
+                                        'possible_causes' => [
+                                            'missing_scope' => !in_array('payments/custom-provider.write', $tokenData['oauthMeta']['scopes'] ?? []),
+                                            'locationId_mismatch' => ($tokenData['primaryAuthClassId'] ?? $tokenData['authClassId'] ?? null) !== $actualLocationId,
+                                            'invalid_location_id' => empty($actualLocationId),
+                                            'token_expired' => false, // Would need to check token expiry
+                                            'api_error' => $providerResp->serverError()
+                                        ]
                                     ]);
                                 }
                             } catch (\Exception $e) {
                                 $failCount++;
-                                Log::error('❌ Exception registering provider for location', [
+                                Log::error('❌ [PROVIDER REGISTRATION] Exception registering provider for location', [
                                     'locationId' => $actualLocationId,
-                                    'error' => $e->getMessage()
+                                    'locationName' => $location['name'] ?? 'N/A',
+                                    'error_message' => $e->getMessage(),
+                                    'error_code' => $e->getCode(),
+                                    'error_file' => $e->getFile(),
+                                    'error_line' => $e->getLine(),
+                                    'error_trace' => $e->getTraceAsString(),
+                                    'url' => $providerUrl,
+                                    'payload' => $providerPayload
                                 ]);
                             }
                         }
@@ -1357,6 +1415,8 @@ class ClientIntegrationController extends Controller
                                     'new_selectedLocationId' => $selectedLocationId,
                                     'source' => $extractionSource
                                 ]);
+                                
+                                // Note: $newlySelectedLocationId is set, so STEP 5 will update the user record
                             } else {
                                 // No status changes or new locations found
                                 // Check locations with isInstalled: true in AFTER that are NOT in the main processing list
@@ -1420,15 +1480,29 @@ class ClientIntegrationController extends Controller
                         // ===== STEP 5: If we found a newly selected location, update user and ensure it's registered =====
                         if ($newlySelectedLocationId) {
                             // Update user record with the newly found location ID
+                            // Also update userType to "Location" (same as marketplace installation flow)
+                            // And update name to use location ID instead of company ID
                             if ($user && $user->exists) {
                                 $oldLocationId = $user->lead_location_id;
+                                $oldUserType = $user->lead_user_type;
+                                $oldName = $user->name;
                                 $user->lead_location_id = $newlySelectedLocationId;
+                                // When a specific location is selected, userType should be "Location" (not "Company")
+                                // This matches the marketplace installation flow behavior
+                                $user->lead_user_type = 'Location';
+                                // Update name to use location ID instead of company ID
+                                $user->name = "Location {$newlySelectedLocationId}";
                                 try {
                                     $user->save();
-                                    Log::info('✅ Updated user record with newly selected location ID', [
+                                    Log::info('✅ Updated user record with newly selected location ID, userType, and name', [
                                         'user_id' => $user->id,
                                         'old_location_id' => $oldLocationId,
-                                        'new_location_id' => $newlySelectedLocationId
+                                        'new_location_id' => $newlySelectedLocationId,
+                                        'old_user_type' => $oldUserType,
+                                        'new_user_type' => 'Location',
+                                        'old_name' => $oldName,
+                                        'new_name' => $user->name,
+                                        'note' => 'Changed userType to Location and name to use locationId (same as marketplace installation flow)'
                                     ]);
                                 } catch (\Exception $e) {
                                     Log::error('❌ Failed to update user record with newly selected location ID', [
@@ -1459,7 +1533,9 @@ class ClientIntegrationController extends Controller
                                 }
                             }
                             
-                            if ($newlySelectedLocation && !$alreadyRegistered) {
+                            // Always register provider for the newly selected location (even if already registered)
+                            // This ensures the integration appears in the integration tab
+                            if ($newlySelectedLocation) {
                                 // Register provider for the newly selected location
                                 $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                                             . '?locationId=' . urlencode($newlySelectedLocationId);
@@ -1472,35 +1548,137 @@ class ClientIntegrationController extends Controller
                                     'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
                                 ];
                                 
+                                Log::info('📤 [PROVIDER REGISTRATION - SELECTED LOCATION] Request details', [
+                                    'locationId' => $newlySelectedLocationId,
+                                    'locationName' => $newlySelectedLocation['name'] ?? 'N/A',
+                                    'url' => $providerUrl,
+                                    'payload' => $providerPayload,
+                                    'has_access_token' => !empty($accessToken),
+                                    'token_preview' => $accessToken ? substr($accessToken, 0, 20) . '...' : null,
+                                    'already_registered' => $alreadyRegistered,
+                                    'note' => 'Registering provider for selected location found via BEFORE/AFTER comparison'
+                                ]);
+                                
                                 try {
+                                    $startTime = microtime(true);
                                     $providerResp = Http::timeout(30)
                                         ->acceptJson()
                                         ->withToken($accessToken)
                                         ->withHeaders(['Version' => '2021-07-28'])
                                         ->post($providerUrl, $providerPayload);
+                                    $endTime = microtime(true);
+                                    $duration = round(($endTime - $startTime) * 1000, 2);
+                                    
+                                    Log::info('📥 [PROVIDER REGISTRATION - SELECTED LOCATION] Response details', [
+                                        'locationId' => $newlySelectedLocationId,
+                                        'locationName' => $newlySelectedLocation['name'] ?? 'N/A',
+                                        'status_code' => $providerResp->status(),
+                                        'successful' => $providerResp->successful(),
+                                        'failed' => $providerResp->failed(),
+                                        'client_error' => $providerResp->clientError(),
+                                        'server_error' => $providerResp->serverError(),
+                                        'duration_ms' => $duration,
+                                        'response_headers' => $providerResp->headers(),
+                                        'response_body_raw' => $providerResp->body(),
+                                        'response_body_json' => $providerResp->json(),
+                                        'response_body_string' => (string) $providerResp->body(),
+                                        'response_size' => strlen($providerResp->body())
+                                    ]);
                                     
                                     if ($providerResp->successful()) {
+                                        $responseData = $providerResp->json();
                                         Log::info('✅ Provider registered for newly selected location (from BEFORE/AFTER comparison)', [
                                             'locationId' => $newlySelectedLocationId,
-                                            'locationName' => $newlySelectedLocation['name'] ?? 'N/A'
+                                            'locationName' => $newlySelectedLocation['name'] ?? 'N/A',
+                                            'status_code' => $providerResp->status(),
+                                            'response_data' => $responseData,
+                                            'provider_id' => $responseData['id'] ?? $responseData['providerId'] ?? $responseData['_id'] ?? null,
+                                            'provider_name' => $responseData['name'] ?? null,
+                                            'duration_ms' => $duration,
+                                            'already_registered_before' => $alreadyRegistered
                                         ]);
                                     } else {
-                                        Log::warning('⚠️ Failed to register provider for newly selected location', [
+                                        $responseData = $providerResp->json();
+                                        $errorMessage = $responseData['message'] ?? $responseData['error'] ?? $responseData['errorMessage'] ?? 'Unknown error';
+                                        Log::error('❌ [PROVIDER REGISTRATION - SELECTED LOCATION] Failed to register provider', [
                                             'locationId' => $newlySelectedLocationId,
-                                            'status' => $providerResp->status(),
-                                            'response' => $providerResp->json()
+                                            'locationName' => $newlySelectedLocation['name'] ?? 'N/A',
+                                            'status_code' => $providerResp->status(),
+                                            'status_text' => $providerResp->reason(),
+                                            'error_message' => $errorMessage,
+                                            'response_body' => $providerResp->body(),
+                                            'response_json' => $responseData,
+                                            'response_headers' => $providerResp->headers(),
+                                            'duration_ms' => $duration,
+                                            'possible_causes' => [
+                                                'missing_scope' => !in_array('payments/custom-provider.write', $tokenData['oauthMeta']['scopes'] ?? []),
+                                                'locationId_mismatch' => ($tokenData['primaryAuthClassId'] ?? $tokenData['authClassId'] ?? null) !== $newlySelectedLocationId,
+                                                'invalid_location_id' => empty($newlySelectedLocationId),
+                                                'api_error' => $providerResp->serverError()
+                                            ]
                                         ]);
                                     }
                                 } catch (\Exception $e) {
-                                    Log::error('❌ Exception registering provider for newly selected location', [
+                                    Log::error('❌ [PROVIDER REGISTRATION - SELECTED LOCATION] Exception registering provider', [
+                                        'locationId' => $newlySelectedLocationId,
+                                        'locationName' => $newlySelectedLocation['name'] ?? 'N/A',
+                                        'error_message' => $e->getMessage(),
+                                        'error_code' => $e->getCode(),
+                                        'error_file' => $e->getFile(),
+                                        'error_line' => $e->getLine(),
+                                        'error_trace' => $e->getTraceAsString(),
+                                        'url' => $providerUrl,
+                                        'payload' => $providerPayload
+                                    ]);
+                                }
+                            } else {
+                                // Location not found in AFTER response, but we should still try to register
+                                Log::warning('⚠️ Newly selected location not found in AFTER response, but will attempt registration', [
+                                    'locationId' => $newlySelectedLocationId,
+                                    'note' => 'Location was found via comparison but not in AFTER locations list'
+                                ]);
+                                
+                                $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
+                                            . '?locationId=' . urlencode($newlySelectedLocationId);
+                                
+                                $providerPayload = [
+                                    'name'        => 'Tap Payments',
+                                    'description' => 'Innovating payment acceptance & collection in MENA',
+                                    'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
+                                    'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
+                                    'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
+                                ];
+                                
+                                try {
+                                    $startTime = microtime(true);
+                                    $providerResp = Http::timeout(30)
+                                        ->acceptJson()
+                                        ->withToken($accessToken)
+                                        ->withHeaders(['Version' => '2021-07-28'])
+                                        ->post($providerUrl, $providerPayload);
+                                    $endTime = microtime(true);
+                                    $duration = round(($endTime - $startTime) * 1000, 2);
+                                    
+                                    Log::info('📥 [PROVIDER REGISTRATION - SELECTED LOCATION] Response details (location not in AFTER)', [
+                                        'locationId' => $newlySelectedLocationId,
+                                        'status_code' => $providerResp->status(),
+                                        'successful' => $providerResp->successful(),
+                                        'response_body' => $providerResp->body(),
+                                        'response_json' => $providerResp->json(),
+                                        'duration_ms' => $duration
+                                    ]);
+                                    
+                                    if ($providerResp->successful()) {
+                                        Log::info('✅ Provider registered for newly selected location (not in AFTER response)', [
+                                            'locationId' => $newlySelectedLocationId
+                                        ]);
+                                    }
+                                } catch (\Exception $e) {
+                                    Log::error('❌ Exception registering provider for newly selected location (not in AFTER)', [
                                         'locationId' => $newlySelectedLocationId,
                                         'error' => $e->getMessage()
                                     ]);
                                 }
-                            } elseif ($alreadyRegistered) {
-                                Log::info('ℹ️ Provider already registered for newly selected location', [
-                                    'locationId' => $newlySelectedLocationId
-                                ]);
                             }
                         }
                     } else {
