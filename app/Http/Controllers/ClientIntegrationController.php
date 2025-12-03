@@ -1321,6 +1321,7 @@ class ClientIntegrationController extends Controller
                         ]);
                         
                         // Find locations where isInstalled changed from false to true
+                        // These are the MOST reliable indicator of the selected location
                         $statusChangedLocations = [];
                         foreach ($afterStatusMap as $locId => $isInstalledAfter) {
                             $isInstalledBefore = $beforeStatusMap[$locId] ?? false;
@@ -1334,28 +1335,53 @@ class ClientIntegrationController extends Controller
                         // Also find locations that are newly added (in AFTER but not in BEFORE)
                         $newLocationIds = array_diff($locationIdsAfter, $locationIdsBefore);
                         
-                        // Combine both: status changes and new locations
-                        $candidateLocationIds = array_unique(array_merge($statusChangedLocations, $newLocationIds));
+                        Log::info('🔍 [COMPARISON] Status change analysis', [
+                            'status_changed_locations' => $statusChangedLocations,
+                            'new_location_ids' => array_values($newLocationIds),
+                            'status_changed_count' => count($statusChangedLocations),
+                            'new_locations_count' => count($newLocationIds)
+                        ]);
                         
-                        if (!empty($candidateLocationIds)) {
-                            // If multiple candidates, prioritize the one that matches selectedLocationId if we have it
-                            if ($selectedLocationId && in_array($selectedLocationId, $candidateLocationIds)) {
+                        // PRIORITY 1: Status changed locations (false -> true) are the most reliable
+                        // These indicate the location that was just selected during this installation
+                        if (!empty($statusChangedLocations)) {
+                            // If we have a selectedLocationId hint and it's in status changed, use it
+                            if ($selectedLocationId && in_array($selectedLocationId, $statusChangedLocations)) {
+                                $newlySelectedLocationId = $selectedLocationId;
+                                Log::info('✅ [COMPARISON] Using selectedLocationId from status changed locations', [
+                                    'newlySelectedLocationId' => $newlySelectedLocationId,
+                                    'status_changed_locations' => $statusChangedLocations
+                                ]);
+                            } else {
+                                // Use the first status changed location (most reliable)
+                                $newlySelectedLocationId = reset($statusChangedLocations);
+                                Log::info('✅ [COMPARISON] Using first status changed location', [
+                                    'newlySelectedLocationId' => $newlySelectedLocationId,
+                                    'status_changed_locations' => $statusChangedLocations
+                                ]);
+                            }
+                        } elseif (!empty($newLocationIds)) {
+                            // PRIORITY 2: New locations (in AFTER but not in BEFORE)
+                            if ($selectedLocationId && in_array($selectedLocationId, $newLocationIds)) {
                                 $newlySelectedLocationId = $selectedLocationId;
                             } else {
-                                // Prefer status changes over new locations
-                                if (!empty($statusChangedLocations)) {
-                                    $newlySelectedLocationId = reset($statusChangedLocations);
-                                } else {
-                                    $newlySelectedLocationId = reset($newLocationIds);
-                                }
+                                $newlySelectedLocationId = reset($newLocationIds);
                             }
-                            
+                            Log::info('✅ [COMPARISON] Using new location (not status change)', [
+                                'newlySelectedLocationId' => $newlySelectedLocationId,
+                                'new_location_ids' => array_values($newLocationIds)
+                            ]);
+                        }
+                        
+                        // If we found a location from status changes or new locations, update selectedLocationId
+                        if ($newlySelectedLocationId) {
                             Log::info('✅ [COMPARISON] Found newly selected location by comparing BEFORE and AFTER', [
                                 'newlySelectedLocationId' => $newlySelectedLocationId,
                                 'status_changed_locations' => $statusChangedLocations,
                                 'new_location_ids' => array_values($newLocationIds),
-                                'all_candidate_ids' => array_values($candidateLocationIds),
-                                'selectedLocationId_from_extraction' => $selectedLocationId ?? null
+                                'selectedLocationId_from_extraction' => $selectedLocationId ?? null,
+                                'detection_method' => !empty($statusChangedLocations) && in_array($newlySelectedLocationId, $statusChangedLocations) ? 'status_change' : 'new_location',
+                                'is_status_change' => in_array($newlySelectedLocationId, $statusChangedLocations)
                             ]);
                             
                             // Always update selectedLocationId with the newly found location (this is the most accurate)
@@ -1365,7 +1391,8 @@ class ClientIntegrationController extends Controller
                             Log::info('✅ [EXTRACTION] Updated selectedLocationId from BEFORE/AFTER comparison', [
                                 'old_selectedLocationId' => $oldSelectedLocationId,
                                 'new_selectedLocationId' => $selectedLocationId,
-                                'source' => $extractionSource
+                                'source' => $extractionSource,
+                                'is_status_change_detection' => in_array($newlySelectedLocationId, $statusChangedLocations)
                             ]);
                         } else {
                             // No status changes or new locations found
@@ -1436,17 +1463,36 @@ class ClientIntegrationController extends Controller
                                 if (!empty($installedButNotInMainProcessing)) {
                                     // These are locations that were already installed (so not in main processing)
                                     // but are the ones selected during this installation flow
-                                    if ($selectedLocationId && in_array($selectedLocationId, $installedButNotInMainProcessing)) {
+                                    // PRIORITY: If any of these had a status change, use that one
+                                    $statusChangedInList = array_intersect($installedButNotInMainProcessing, $statusChangedLocations);
+                                    
+                                    if (!empty($statusChangedInList)) {
+                                        // Prioritize status changed locations
+                                        $newlySelectedLocationId = reset($statusChangedInList);
+                                        Log::info('✅ [COMPARISON] Found status changed location in installed but not in main processing', [
+                                            'newlySelectedLocationId' => $newlySelectedLocationId,
+                                            'status_changed_in_list' => array_values($statusChangedInList),
+                                            'installed_but_not_in_main_processing' => $installedButNotInMainProcessing
+                                        ]);
+                                    } elseif ($selectedLocationId && in_array($selectedLocationId, $installedButNotInMainProcessing)) {
                                         $newlySelectedLocationId = $selectedLocationId;
+                                        Log::info('✅ [COMPARISON] Using selectedLocationId from installed but not in main processing', [
+                                            'newlySelectedLocationId' => $newlySelectedLocationId
+                                        ]);
                                     } else {
                                         $newlySelectedLocationId = reset($installedButNotInMainProcessing);
+                                        Log::info('✅ [COMPARISON] Using first location from installed but not in main processing', [
+                                            'newlySelectedLocationId' => $newlySelectedLocationId,
+                                            'installed_but_not_in_main_processing' => $installedButNotInMainProcessing
+                                        ]);
                                     }
                                     
                                     Log::info('✅ [COMPARISON] Found selected location from installed locations not in main processing', [
                                         'newlySelectedLocationId' => $newlySelectedLocationId,
                                         'installed_but_not_in_main_processing' => $installedButNotInMainProcessing,
                                         'main_processing_location_ids' => $mainProcessingLocationIds,
-                                        'selectedLocationId_from_extraction' => $selectedLocationId ?? null
+                                        'selectedLocationId_from_extraction' => $selectedLocationId ?? null,
+                                        'status_changed_in_list' => !empty($statusChangedInList) ? array_values($statusChangedInList) : []
                                     ]);
                                     
                                     $oldSelectedLocationId = $selectedLocationId;
@@ -1486,12 +1532,16 @@ class ClientIntegrationController extends Controller
                                 $user->lead_user_type = 'Location';
                                 try {
                                     $user->save();
+                                    // Refresh the user model to ensure we have the latest data
+                                    $user->refresh();
                                     Log::info('✅ Updated user record with newly selected location ID and userType', [
                                         'user_id' => $user->id,
                                         'old_location_id' => $oldLocationId,
                                         'new_location_id' => $newlySelectedLocationId,
                                         'old_user_type' => $oldUserType,
                                         'new_user_type' => 'Location',
+                                        'user_lead_location_id_after_save' => $user->lead_location_id,
+                                        'user_lead_user_type_after_save' => $user->lead_user_type,
                                         'note' => 'Changed userType to Location (same as marketplace installation flow)'
                                     ]);
                                 } catch (\Exception $e) {
@@ -1748,16 +1798,32 @@ class ClientIntegrationController extends Controller
 
             // For Company-level bulk installations, return success response (no redirect)
             if ($userType === 'Company' && $isBulk) {
-                // Use selected location ID if available, otherwise use company ID
-                $finalLocationId = $selectedLocationId ?? $userLocationId ?? $locationId;
+                // Use the user's lead_location_id (which was updated by the comparison logic)
+                // This ensures we use the actual selected location, not the company ID
+                // Priority: 1) User's lead_location_id (most accurate, updated by comparison)
+                //           2) selectedLocationId (from comparison/extraction)
+                //           3) userLocationId (initial value)
+                //           4) locationId (company ID, fallback)
+                $finalLocationId = $user->lead_location_id ?? $selectedLocationId ?? $userLocationId ?? $locationId;
+                
+                // Ensure we're not using the company ID if we found a specific location
+                if ($finalLocationId === $locationId && $locationId === $companyId && !empty($selectedLocationId)) {
+                    $finalLocationId = $selectedLocationId;
+                    Log::info('⚠️ [FINAL] Corrected finalLocationId - was using companyId, now using selectedLocationId', [
+                        'old_finalLocationId' => $locationId,
+                        'new_finalLocationId' => $selectedLocationId
+                    ]);
+                }
                 
                 Log::info('✅ Bulk installation completed successfully (no redirect)', [
                     'companyId' => $locationId,
                     'selectedLocationId' => $selectedLocationId ?? null,
                     'userLocationId' => $userLocationId ?? null,
+                    'user_lead_location_id' => $user->lead_location_id ?? null,
                     'finalLocationId' => $finalLocationId,
                     'user_id' => $user->id,
                     'user_location_id' => $user->lead_location_id,
+                    'finalLocationId_source' => $user->lead_location_id ? 'user_lead_location_id' : ($selectedLocationId ? 'selectedLocationId' : ($userLocationId ? 'userLocationId' : 'locationId'))
                 ]);
                 
                 return response()->json([
