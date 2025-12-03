@@ -892,16 +892,19 @@ class ClientIntegrationController extends Controller
                     
                     // Extract location IDs from BEFORE state
                     $locationIdsBefore = [];
+                    $beforeLocations = [];
                     if ($locationsResponseBefore->successful()) {
                         $beforeData = $locationsResponseBefore->json();
                         $beforeLocations = $beforeData['locations'] ?? $beforeData['data'] ?? [];
                         
-                        if (is_array($beforeLocations)) {
-                            foreach ($beforeLocations as $loc) {
-                                $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
-                                if ($locId) {
-                                    $locationIdsBefore[] = $locId;
-                                }
+                        if (!is_array($beforeLocations)) {
+                            $beforeLocations = [];
+                        }
+                        
+                        foreach ($beforeLocations as $loc) {
+                            $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
+                            if ($locId) {
+                                $locationIdsBefore[] = $locId;
                             }
                         }
                         
@@ -1199,12 +1202,14 @@ class ClientIntegrationController extends Controller
                             $afterData = $locationsResponseAfter->json();
                             $afterLocations = $afterData['locations'] ?? $afterData['data'] ?? [];
                             
-                            if (is_array($afterLocations)) {
-                                foreach ($afterLocations as $loc) {
-                                    $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
-                                    if ($locId) {
-                                        $locationIdsAfter[] = $locId;
-                                    }
+                            if (!is_array($afterLocations)) {
+                                $afterLocations = [];
+                            }
+                            
+                            foreach ($afterLocations as $loc) {
+                                $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
+                                if ($locId) {
+                                    $locationIdsAfter[] = $locId;
                                 }
                             }
                             
@@ -1230,49 +1235,186 @@ class ClientIntegrationController extends Controller
                         
                         // ===== STEP 4: Compare BEFORE and AFTER to find newly selected location =====
                         $newlySelectedLocationId = null;
-                        if (!empty($locationIdsBefore) && !empty($locationIdsAfter)) {
-                            // Find locations that are in AFTER but not in BEFORE
-                            $newLocationIds = array_diff($locationIdsAfter, $locationIdsBefore);
+                        
+                        // Build maps of location ID => isInstalled status for both BEFORE and AFTER
+                        $beforeStatusMap = [];
+                        if (!empty($beforeLocations)) {
+                            foreach ($beforeLocations as $loc) {
+                                $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
+                                if ($locId) {
+                                    $beforeStatusMap[$locId] = $loc['isInstalled'] ?? false;
+                                }
+                            }
+                        }
+                        
+                        $afterStatusMap = [];
+                        if (!empty($afterLocations)) {
+                            foreach ($afterLocations as $loc) {
+                                $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
+                                if ($locId) {
+                                    $afterStatusMap[$locId] = $loc['isInstalled'] ?? false;
+                                }
+                            }
+                        }
+                        
+                        Log::info('🔍 [COMPARISON] Building status maps for comparison', [
+                            'before_status_map_count' => count($beforeStatusMap),
+                            'after_status_map_count' => count($afterStatusMap),
+                            'before_installed_count' => count(array_filter($beforeStatusMap)),
+                            'after_installed_count' => count(array_filter($afterStatusMap))
+                        ]);
+                        
+                        // Find locations where isInstalled changed from false to true
+                        $statusChangedLocations = [];
+                        foreach ($afterStatusMap as $locId => $isInstalledAfter) {
+                            $isInstalledBefore = $beforeStatusMap[$locId] ?? false;
                             
-                            if (!empty($newLocationIds)) {
-                                // If multiple new locations, take the first one (or the one that matches our selectedLocationId if we have it)
-                                if ($selectedLocationId && in_array($selectedLocationId, $newLocationIds)) {
+                            // Location changed from not installed to installed
+                            if (!$isInstalledBefore && $isInstalledAfter) {
+                                $statusChangedLocations[] = $locId;
+                            }
+                        }
+                        
+                        // Also find locations that are newly added (in AFTER but not in BEFORE)
+                        $newLocationIds = array_diff($locationIdsAfter, $locationIdsBefore);
+                        
+                        // Combine both: status changes and new locations
+                        $candidateLocationIds = array_unique(array_merge($statusChangedLocations, $newLocationIds));
+                        
+                        if (!empty($candidateLocationIds)) {
+                            // If multiple candidates, prioritize the one that matches selectedLocationId if we have it
+                            if ($selectedLocationId && in_array($selectedLocationId, $candidateLocationIds)) {
+                                $newlySelectedLocationId = $selectedLocationId;
+                            } else {
+                                // Prefer status changes over new locations
+                                if (!empty($statusChangedLocations)) {
+                                    $newlySelectedLocationId = reset($statusChangedLocations);
+                                } else {
+                                    $newlySelectedLocationId = reset($newLocationIds);
+                                }
+                            }
+                            
+                            Log::info('✅ [COMPARISON] Found newly selected location by comparing BEFORE and AFTER', [
+                                'newlySelectedLocationId' => $newlySelectedLocationId,
+                                'status_changed_locations' => $statusChangedLocations,
+                                'new_location_ids' => array_values($newLocationIds),
+                                'all_candidate_ids' => array_values($candidateLocationIds),
+                                'selectedLocationId_from_extraction' => $selectedLocationId ?? null
+                            ]);
+                            
+                            // Always update selectedLocationId with the newly found location (this is the most accurate)
+                            $oldSelectedLocationId = $selectedLocationId;
+                            $selectedLocationId = $newlySelectedLocationId;
+                            $extractionSource = 'before_after_comparison';
+                            Log::info('✅ [EXTRACTION] Updated selectedLocationId from BEFORE/AFTER comparison', [
+                                'old_selectedLocationId' => $oldSelectedLocationId,
+                                'new_selectedLocationId' => $selectedLocationId,
+                                'source' => $extractionSource
+                            ]);
+                        } else {
+                            // No status changes or new locations found
+                            // Check if there are locations with isInstalled: true in AFTER that we registered providers for
+                            // These might be the selected location even if status didn't change
+                            $installedInAfter = [];
+                            foreach ($afterStatusMap as $locId => $isInstalled) {
+                                if ($isInstalled) {
+                                    $installedInAfter[] = $locId;
+                                }
+                            }
+                            
+                            // Check which of these installed locations we registered providers for
+                            $registeredLocationIds = [];
+                            foreach ($locationsToRegister as $regLoc) {
+                                $regLocId = $regLoc['_id'] ?? $regLoc['id'] ?? $regLoc['locationId'] ?? null;
+                                if ($regLocId) {
+                                    $registeredLocationIds[] = $regLocId;
+                                }
+                            }
+                            
+                            // Find installed locations that we registered providers for
+                            $installedAndRegistered = array_intersect($installedInAfter, $registeredLocationIds);
+                            
+                            if (!empty($installedAndRegistered)) {
+                                // If we have a selectedLocationId hint, use it if it's in the list
+                                if ($selectedLocationId && in_array($selectedLocationId, $installedAndRegistered)) {
                                     $newlySelectedLocationId = $selectedLocationId;
                                 } else {
-                                    $newlySelectedLocationId = reset($newLocationIds); // Get first new location
+                                    // Use the first installed and registered location
+                                    $newlySelectedLocationId = reset($installedAndRegistered);
                                 }
                                 
-                                Log::info('✅ [COMPARISON] Found newly selected location by comparing BEFORE and AFTER', [
+                                Log::info('✅ [COMPARISON] Found selected location from installed and registered locations', [
                                     'newlySelectedLocationId' => $newlySelectedLocationId,
-                                    'all_new_location_ids' => array_values($newLocationIds),
-                                    'location_ids_before' => $locationIdsBefore,
-                                    'location_ids_after' => $locationIdsAfter,
+                                    'installed_and_registered' => array_values($installedAndRegistered),
                                     'selectedLocationId_from_extraction' => $selectedLocationId ?? null
                                 ]);
                                 
-                                // Always update selectedLocationId with the newly found location (this is the most accurate)
                                 $oldSelectedLocationId = $selectedLocationId;
                                 $selectedLocationId = $newlySelectedLocationId;
-                                $extractionSource = 'before_after_comparison';
-                                Log::info('✅ [EXTRACTION] Updated selectedLocationId from BEFORE/AFTER comparison', [
+                                $extractionSource = 'installed_and_registered';
+                                Log::info('✅ [EXTRACTION] Updated selectedLocationId from installed and registered locations', [
                                     'old_selectedLocationId' => $oldSelectedLocationId,
                                     'new_selectedLocationId' => $selectedLocationId,
                                     'source' => $extractionSource
                                 ]);
                             } else {
-                                Log::info('ℹ️ [COMPARISON] No new locations found - all locations were already present', [
-                                    'location_ids_before' => $locationIdsBefore,
-                                    'location_ids_after' => $locationIdsAfter,
-                                    'selectedLocationId_from_extraction' => $selectedLocationId ?? null
-                                ]);
+                                // No status changes or new locations found
+                                // Check locations with isInstalled: true in AFTER that are NOT in the main processing list
+                                // These are locations that were already installed but are the ones selected during this flow
+                                $mainProcessingLocationIds = [];
+                                foreach ($locations as $loc) {
+                                    $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
+                                    if ($locId) {
+                                        $mainProcessingLocationIds[] = $locId;
+                                    }
+                                }
+                                
+                                // Find installed locations in AFTER that are NOT in main processing list
+                                $installedButNotInMainProcessing = [];
+                                foreach ($afterStatusMap as $locId => $isInstalled) {
+                                    if ($isInstalled && !in_array($locId, $mainProcessingLocationIds)) {
+                                        $installedButNotInMainProcessing[] = $locId;
+                                    }
+                                }
+                                
+                                if (!empty($installedButNotInMainProcessing)) {
+                                    // These are locations that were already installed (so not in main processing)
+                                    // but are the ones selected during this installation flow
+                                    if ($selectedLocationId && in_array($selectedLocationId, $installedButNotInMainProcessing)) {
+                                        $newlySelectedLocationId = $selectedLocationId;
+                                    } else {
+                                        $newlySelectedLocationId = reset($installedButNotInMainProcessing);
+                                    }
+                                    
+                                    Log::info('✅ [COMPARISON] Found selected location from installed locations not in main processing', [
+                                        'newlySelectedLocationId' => $newlySelectedLocationId,
+                                        'installed_but_not_in_main_processing' => $installedButNotInMainProcessing,
+                                        'main_processing_location_ids' => $mainProcessingLocationIds,
+                                        'selectedLocationId_from_extraction' => $selectedLocationId ?? null
+                                    ]);
+                                    
+                                    $oldSelectedLocationId = $selectedLocationId;
+                                    $selectedLocationId = $newlySelectedLocationId;
+                                    $extractionSource = 'installed_not_in_main_processing';
+                                    Log::info('✅ [EXTRACTION] Updated selectedLocationId from installed locations not in main processing', [
+                                        'old_selectedLocationId' => $oldSelectedLocationId,
+                                        'new_selectedLocationId' => $selectedLocationId,
+                                        'source' => $extractionSource
+                                    ]);
+                                } else {
+                                    Log::info('ℹ️ [COMPARISON] No status changes, new locations, or installed locations not in main processing', [
+                                        'location_ids_before' => $locationIdsBefore,
+                                        'location_ids_after' => $locationIdsAfter,
+                                        'status_changed_locations' => $statusChangedLocations,
+                                        'new_location_ids' => array_values($newLocationIds),
+                                        'installed_in_after' => $installedInAfter,
+                                        'registered_location_ids' => $registeredLocationIds,
+                                        'main_processing_location_ids' => $mainProcessingLocationIds,
+                                        'installed_but_not_in_main_processing' => $installedButNotInMainProcessing,
+                                        'selectedLocationId_from_extraction' => $selectedLocationId ?? null
+                                    ]);
+                                }
                             }
-                        } else {
-                            Log::warning('⚠️ [COMPARISON] Cannot compare - missing BEFORE or AFTER data', [
-                                'has_before_data' => !empty($locationIdsBefore),
-                                'has_after_data' => !empty($locationIdsAfter),
-                                'before_count' => count($locationIdsBefore),
-                                'after_count' => count($locationIdsAfter)
-                            ]);
                         }
                         
                         // ===== STEP 5: If we found a newly selected location, update user and ensure it's registered =====
