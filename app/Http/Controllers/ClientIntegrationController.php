@@ -1336,8 +1336,12 @@ class ClientIntegrationController extends Controller
                             'after_installed_count' => count(array_filter($afterStatusMap))
                         ]);
                         
-                        // Find locations where isInstalled changed from false to true
-                        // These are the MOST reliable indicator of the selected location
+                        // KEY INSIGHT: When a location is installed, it gets REMOVED from the list
+                        // So the selected location is the one that appears in BEFORE but NOT in AFTER
+                        // This is the MOST reliable indicator - the missing location is the selected one!
+                        $removedLocationIds = array_diff($locationIdsBefore, $locationIdsAfter);
+                        
+                        // Also check for status changes (false -> true) as a secondary indicator
                         $statusChangedLocations = [];
                         foreach ($afterStatusMap as $locId => $isInstalledAfter) {
                             $isInstalledBefore = $beforeStatusMap[$locId] ?? false;
@@ -1351,16 +1355,38 @@ class ClientIntegrationController extends Controller
                         // Also find locations that are newly added (in AFTER but not in BEFORE)
                         $newLocationIds = array_diff($locationIdsAfter, $locationIdsBefore);
                         
-                        Log::info('🔍 [COMPARISON] Status change analysis', [
+                        Log::info('🔍 [COMPARISON] Location comparison analysis', [
+                            'removed_location_ids' => array_values($removedLocationIds),
                             'status_changed_locations' => $statusChangedLocations,
                             'new_location_ids' => array_values($newLocationIds),
+                            'removed_count' => count($removedLocationIds),
                             'status_changed_count' => count($statusChangedLocations),
-                            'new_locations_count' => count($newLocationIds)
+                            'new_locations_count' => count($newLocationIds),
+                            'note' => 'Removed locations = locations in BEFORE but NOT in AFTER (these are the selected ones!)'
                         ]);
                         
-                        // PRIORITY 1: Status changed locations (false -> true) are the most reliable
-                        // These indicate the location that was just selected during this installation
-                        if (!empty($statusChangedLocations)) {
+                        // PRIORITY 1: Removed locations (in BEFORE but NOT in AFTER) - THIS IS THE SELECTED LOCATION!
+                        // When a location is installed, it gets removed from the list, so the missing one is selected
+                        if (!empty($removedLocationIds)) {
+                            // If we have a selectedLocationId hint and it's in removed locations, use it
+                            if ($selectedLocationId && in_array($selectedLocationId, $removedLocationIds)) {
+                                $newlySelectedLocationId = $selectedLocationId;
+                                Log::info('✅ [COMPARISON] Using selectedLocationId from REMOVED locations (most reliable)', [
+                                    'newlySelectedLocationId' => $newlySelectedLocationId,
+                                    'removed_location_ids' => array_values($removedLocationIds),
+                                    'note' => 'Location was in BEFORE but removed from AFTER - this is the selected location!'
+                                ]);
+                            } else {
+                                // Use the first removed location (most reliable - this is the selected one!)
+                                $newlySelectedLocationId = reset($removedLocationIds);
+                                Log::info('✅ [COMPARISON] Using first REMOVED location (most reliable - this is selected!)', [
+                                    'newlySelectedLocationId' => $newlySelectedLocationId,
+                                    'removed_location_ids' => array_values($removedLocationIds),
+                                    'note' => 'Location was in BEFORE but removed from AFTER - this is the selected location!'
+                                ]);
+                            }
+                        } elseif (!empty($statusChangedLocations)) {
+                            // PRIORITY 2: Status changed locations (false -> true) - secondary indicator
                             // If we have a selectedLocationId hint and it's in status changed, use it
                             if ($selectedLocationId && in_array($selectedLocationId, $statusChangedLocations)) {
                                 $newlySelectedLocationId = $selectedLocationId;
@@ -1369,7 +1395,7 @@ class ClientIntegrationController extends Controller
                                     'status_changed_locations' => $statusChangedLocations
                                 ]);
                             } else {
-                                // Use the first status changed location (most reliable)
+                                // Use the first status changed location
                                 $newlySelectedLocationId = reset($statusChangedLocations);
                                 Log::info('✅ [COMPARISON] Using first status changed location', [
                                     'newlySelectedLocationId' => $newlySelectedLocationId,
@@ -1377,7 +1403,7 @@ class ClientIntegrationController extends Controller
                                 ]);
                             }
                         } elseif (!empty($newLocationIds)) {
-                            // PRIORITY 2: New locations (in AFTER but not in BEFORE)
+                            // PRIORITY 3: New locations (in AFTER but not in BEFORE)
                             if ($selectedLocationId && in_array($selectedLocationId, $newLocationIds)) {
                                 $newlySelectedLocationId = $selectedLocationId;
                             } else {
@@ -1389,15 +1415,28 @@ class ClientIntegrationController extends Controller
                             ]);
                         }
                         
-                        // If we found a location from status changes or new locations, update selectedLocationId
+                        // If we found a location from comparison, update selectedLocationId
                         if ($newlySelectedLocationId) {
+                            // Determine detection method
+                            $detectionMethod = 'unknown';
+                            if (!empty($removedLocationIds) && in_array($newlySelectedLocationId, $removedLocationIds)) {
+                                $detectionMethod = 'removed_from_list';
+                            } elseif (!empty($statusChangedLocations) && in_array($newlySelectedLocationId, $statusChangedLocations)) {
+                                $detectionMethod = 'status_change';
+                            } elseif (!empty($newLocationIds) && in_array($newlySelectedLocationId, $newLocationIds)) {
+                                $detectionMethod = 'new_location';
+                            }
+                            
                             Log::info('✅ [COMPARISON] Found newly selected location by comparing BEFORE and AFTER', [
                                 'newlySelectedLocationId' => $newlySelectedLocationId,
+                                'removed_location_ids' => array_values($removedLocationIds),
                                 'status_changed_locations' => $statusChangedLocations,
                                 'new_location_ids' => array_values($newLocationIds),
                                 'selectedLocationId_from_extraction' => $selectedLocationId ?? null,
-                                'detection_method' => !empty($statusChangedLocations) && in_array($newlySelectedLocationId, $statusChangedLocations) ? 'status_change' : 'new_location',
-                                'is_status_change' => in_array($newlySelectedLocationId, $statusChangedLocations)
+                                'detection_method' => $detectionMethod,
+                                'is_removed_from_list' => in_array($newlySelectedLocationId, $removedLocationIds),
+                                'is_status_change' => in_array($newlySelectedLocationId, $statusChangedLocations),
+                                'note' => 'Removed locations are the most reliable - they were in BEFORE but removed from AFTER (selected location!)'
                             ]);
                             
                             // Always update selectedLocationId with the newly found location (this is the most accurate)
@@ -1408,7 +1447,8 @@ class ClientIntegrationController extends Controller
                                 'old_selectedLocationId' => $oldSelectedLocationId,
                                 'new_selectedLocationId' => $selectedLocationId,
                                 'source' => $extractionSource,
-                                'is_status_change_detection' => in_array($newlySelectedLocationId, $statusChangedLocations)
+                                'detection_method' => $detectionMethod,
+                                'is_removed_from_list' => in_array($newlySelectedLocationId, $removedLocationIds)
                             ]);
                         } else {
                             // No status changes or new locations found
