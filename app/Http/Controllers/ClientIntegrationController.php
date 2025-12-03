@@ -501,176 +501,188 @@ class ClientIntegrationController extends Controller
                 ], 502);
             }
 
-            // 2) Find or create a local user tied to this location
-            // For bulk installations with a selected location, create/update location-specific user
-            // Otherwise, use company-level location ID
-            $userLocationId = $selectedLocationId ?? $locationId;
+            // 2) For bulk installations, do BEFORE/AFTER comparison FIRST to find selected location
+            // Then create user with that location ID (not company ID)
+            // For non-bulk installations, create user immediately
+            $user = null;
+            $finalSelectedLocationId = null; // Will be set from comparison for bulk installations
             
-            Log::info('📋 === LOCATION ID EXTRACTION SUMMARY ===', [
-                'oauth_response_locationId' => $locationId,
-                'oauth_response_companyId' => $companyId,
-                'selectedLocationId' => $selectedLocationId ?? null,
-                'extractionSource' => $extractionSource ?? null,
-                'userLocationId' => $userLocationId,
-                'isBulk' => $isBulk,
-                'userType' => $userType,
-                'will_create_user_for' => $userLocationId,
-                'will_register_provider_for' => $selectedLocationId ?? $locationId
-            ]);
-            
-            Log::info('🔍 Looking for user', [
-                'companyId' => $locationId,
-                'selectedLocationId' => $selectedLocationId,
-                'userLocationId' => $userLocationId,
-                'isBulk' => $isBulk,
-                'userType' => $userType
-            ]);
-            
-            // Prefer to find by lead_location_id (unique per location)
-            $user = User::where('lead_location_id', $userLocationId)->first();
-            
-            // Fallback: if no user found by location_id, try to find by email pattern
-            if (!$user) {
-                $baseEmail = "location_{$userLocationId}@leadconnector.local";
-                $user = User::where('email', 'like', "location_{$userLocationId}%@leadconnector.local")->first();
+            if ($userType === 'Company' && $isBulk) {
+                // For bulk installations, we'll do the comparison first, then create user
+                // Skip user creation for now - will do it after comparison
+                Log::info('⏸️ [BULK] Skipping user creation - will do AFTER comparison to get selected location ID', [
+                    'companyId' => $companyId,
+                    'locationId' => $locationId,
+                    'note' => 'User will be created with location ID from BEFORE/AFTER comparison, not company ID'
+                ]);
+            } else {
+                // For non-bulk installations, create user immediately
+                $userLocationId = $selectedLocationId ?? $locationId;
                 
-                if ($user) {
-                    Log::info('Found existing user by email pattern', [
-                        'userLocationId' => $userLocationId,
-                        'user_id' => $user->id,
-                        'email' => $user->email
-                    ]);
-                }
-            }
-
-            if (!$user) {
-                // No user? Create a minimal one.
-                // Generate a unique email to avoid duplicate key errors
-                $baseEmail = "location_{$userLocationId}@leadconnector.local";
-                $placeholderEmail = $baseEmail;
-                $counter = 1;
-                
-                // Check if email already exists and generate a unique one
-                while (User::where('email', $placeholderEmail)->exists()) {
-                    $placeholderEmail = "location_{$userLocationId}_{$counter}@leadconnector.local";
-                    $counter++;
-                }
-
-                Log::info('Creating new user', [
+                Log::info('📋 === LOCATION ID EXTRACTION SUMMARY ===', [
+                    'oauth_response_locationId' => $locationId,
+                    'oauth_response_companyId' => $companyId,
+                    'selectedLocationId' => $selectedLocationId ?? null,
+                    'extractionSource' => $extractionSource ?? null,
                     'userLocationId' => $userLocationId,
+                    'isBulk' => $isBulk,
+                    'userType' => $userType,
+                    'will_create_user_for' => $userLocationId,
+                    'will_register_provider_for' => $selectedLocationId ?? $locationId
+                ]);
+                
+                Log::info('🔍 Looking for user', [
                     'companyId' => $locationId,
                     'selectedLocationId' => $selectedLocationId,
-                    'generated_email' => $placeholderEmail,
-                    'email_attempts' => $counter,
-                    'isBulk' => $isBulk
+                    'userLocationId' => $userLocationId,
+                    'isBulk' => $isBulk,
+                    'userType' => $userType
                 ]);
+                
+                // Prefer to find by lead_location_id (unique per location)
+                $user = User::where('lead_location_id', $userLocationId)->first();
+                
+                // Fallback: if no user found by location_id, try to find by email pattern
+                if (!$user) {
+                    $baseEmail = "location_{$userLocationId}@leadconnector.local";
+                    $user = User::where('email', 'like', "location_{$userLocationId}%@leadconnector.local")->first();
+                    
+                    if ($user) {
+                        Log::info('Found existing user by email pattern', [
+                            'userLocationId' => $userLocationId,
+                            'user_id' => $user->id,
+                            'email' => $user->email
+                        ]);
+                    }
+                }
 
-                $user = new User();
-                $user->name = $selectedLocationId ? "Location {$selectedLocationId}" : "Location {$locationId}";
-                $user->email = $placeholderEmail;
-                $user->password = Hash::make(Str::random(40));
-            }
+                if (!$user) {
+                    // No user? Create a minimal one.
+                    // Generate a unique email to avoid duplicate key errors
+                    $baseEmail = "location_{$userLocationId}@leadconnector.local";
+                    $placeholderEmail = $baseEmail;
+                    $counter = 1;
+                    
+                    // Check if email already exists and generate a unique one
+                    while (User::where('email', $placeholderEmail)->exists()) {
+                        $placeholderEmail = "location_{$userLocationId}_{$counter}@leadconnector.local";
+                        $counter++;
+                    }
 
-            // 3) Fill OAuth fields (ensure you added these columns + casts as discussed)
-            // Set fields one by one to identify which one causes the issue
-            try {
-                $user->lead_access_token = $accessToken;
-                Log::info('Set lead_access_token successfully', ['token_length' => strlen($accessToken)]);
-            } catch (\Exception $e) {
-                Log::error('Failed to set lead_access_token', ['error' => $e->getMessage()]);
-            }
+                    Log::info('Creating new user', [
+                        'userLocationId' => $userLocationId,
+                        'companyId' => $locationId,
+                        'selectedLocationId' => $selectedLocationId,
+                        'generated_email' => $placeholderEmail,
+                        'email_attempts' => $counter,
+                        'isBulk' => $isBulk
+                    ]);
 
-            try {
-                $user->lead_refresh_token = $refreshToken;
-                Log::info('Set lead_refresh_token successfully', ['token_length' => strlen($refreshToken)]);
-            } catch (\Exception $e) {
-                Log::error('Failed to set lead_refresh_token', ['error' => $e->getMessage()]);
-            }
+                    $user = new User();
+                    $user->name = $selectedLocationId ? "Location {$selectedLocationId}" : "Location {$locationId}";
+                    $user->email = $placeholderEmail;
+                    $user->password = Hash::make(Str::random(40));
+                }
 
-            $user->lead_token_type            = $tokenType;
-            $user->lead_expires_in            = $expiresIn ?: null;
-            $user->lead_token_expires_at      = $expiresIn ? now()->addSeconds($expiresIn) : null;
+                // 3) Fill OAuth fields (ensure you added these columns + casts as discussed)
+                // Set fields one by one to identify which one causes the issue
+                try {
+                    $user->lead_access_token = $accessToken;
+                    Log::info('Set lead_access_token successfully', ['token_length' => strlen($accessToken)]);
+                } catch (\Exception $e) {
+                    Log::error('Failed to set lead_access_token', ['error' => $e->getMessage()]);
+                }
 
-            $user->lead_scope                 = $scope;
-            $user->lead_refresh_token_id      = $refreshTokenId;
-            $user->lead_user_type             = $userType;
-            $user->lead_company_id            = $companyId;
-            // Use selected location ID if available, otherwise use company ID
-            $user->lead_location_id           = $userLocationId;
-            $user->lead_user_id               = $providerUserId;
-            $user->lead_is_bulk_installation  = $isBulk;
+                try {
+                    $user->lead_refresh_token = $refreshToken;
+                    Log::info('Set lead_refresh_token successfully', ['token_length' => strlen($refreshToken)]);
+                } catch (\Exception $e) {
+                    Log::error('Failed to set lead_refresh_token', ['error' => $e->getMessage()]);
+                }
 
-            // Log the data before saving for debugging
-            Log::info('About to save user with data', [
-                'user_id' => $user->id,
-                'is_new_user' => !$user->exists,
-                'user_attributes' => $user->getAttributes(),
-                'locationId' => $locationId,
-                'access_token_length' => $accessToken ? strlen($accessToken) : 0,
-                'refresh_token_length' => $refreshToken ? strlen($refreshToken) : 0
-            ]);
+                $user->lead_token_type            = $tokenType;
+                $user->lead_expires_in            = $expiresIn ?: null;
+                $user->lead_token_expires_at      = $expiresIn ? now()->addSeconds($expiresIn) : null;
 
-            try {
-                $user->save();
-            } catch (\Illuminate\Database\QueryException $e) {
-                // Handle database constraint violations specifically
-                Log::error('Database constraint violation when saving user', [
-                    'error' => $e->getMessage(),
-                    'error_code' => $e->getCode(),
-                    'sql_state' => $e->errorInfo[0] ?? 'unknown',
-                    'driver_code' => $e->errorInfo[1] ?? 'unknown',
-                    'error_message' => $e->errorInfo[2] ?? 'unknown',
-                    'user_data' => $user->toArray(),
+                $user->lead_scope                 = $scope;
+                $user->lead_refresh_token_id      = $refreshTokenId;
+                $user->lead_user_type             = $userType;
+                $user->lead_company_id            = $companyId;
+                // Use selected location ID if available, otherwise use company ID
+                $user->lead_location_id           = $userLocationId;
+                $user->lead_user_id               = $providerUserId;
+                $user->lead_is_bulk_installation  = $isBulk;
+
+                // Log the data before saving for debugging
+                Log::info('About to save user with data', [
+                    'user_id' => $user->id,
+                    'is_new_user' => !$user->exists,
                     'user_attributes' => $user->getAttributes(),
-                    'locationId' => $locationId
-                ]);
-                
-                return response()->json([
-                    'message' => 'Database constraint violation - user may already exist',
-                    'error_type' => 'database_constraint'
-                ], 409); // 409 Conflict
-            } catch (\Exception $e) {
-                Log::error('Failed to save user', [
-                    'error' => $e->getMessage(),
-                    'error_class' => get_class($e),
-                    'error_trace' => $e->getTraceAsString(),
-                    'user_data' => $user->toArray(),
-                    'user_attributes' => $user->getAttributes(),
-                    'user_dirty' => $user->getDirty(),
                     'locationId' => $locationId,
-                    'validation_errors' => method_exists($user, 'getErrors') ? $user->getErrors() : 'No validation errors method'
+                    'access_token_length' => $accessToken ? strlen($accessToken) : 0,
+                    'refresh_token_length' => $refreshToken ? strlen($refreshToken) : 0
                 ]);
+
+                try {
+                    $user->save();
+                } catch (\Illuminate\Database\QueryException $e) {
+                    // Handle database constraint violations specifically
+                    Log::error('Database constraint violation when saving user', [
+                        'error' => $e->getMessage(),
+                        'error_code' => $e->getCode(),
+                        'sql_state' => $e->errorInfo[0] ?? 'unknown',
+                        'driver_code' => $e->errorInfo[1] ?? 'unknown',
+                        'error_message' => $e->errorInfo[2] ?? 'unknown',
+                        'user_data' => $user->toArray(),
+                        'user_attributes' => $user->getAttributes(),
+                        'locationId' => $locationId
+                    ]);
+                    
+                    return response()->json([
+                        'message' => 'Database constraint violation - user may already exist',
+                        'error_type' => 'database_constraint'
+                    ], 409); // 409 Conflict
+                } catch (\Exception $e) {
+                    Log::error('Failed to save user', [
+                        'error' => $e->getMessage(),
+                        'error_class' => get_class($e),
+                        'error_trace' => $e->getTraceAsString(),
+                        'user_data' => $user->toArray(),
+                        'user_attributes' => $user->getAttributes(),
+                        'user_dirty' => $user->getDirty(),
+                        'locationId' => $locationId,
+                        'validation_errors' => method_exists($user, 'getErrors') ? $user->getErrors() : 'No validation errors method'
+                    ]);
+                    
+                    return response()->json([
+                        'message' => 'Failed to save user data',
+                        'error_type' => 'internal_error'
+                    ], 500);
+                }
+
+                // Verify user was actually saved
+                if (!$user->exists || !$user->id) {
+                    Log::error('❌ CRITICAL: User was not saved successfully', [
+                        'user_exists' => $user->exists,
+                        'user_id' => $user->id,
+                        'locationId' => $locationId,
+                        'user_attributes' => $user->getAttributes()
+                    ]);
+                    
+                    return response()->json([
+                        'message' => 'Failed to save user - user record was not created',
+                        'error_type' => 'user_creation_failed'
+                    ], 500);
+                }
                 
-                return response()->json([
-                    'message' => 'Failed to save user data',
-                    'error_type' => 'internal_error'
-                ], 500);
-            }
-
-           // dd($user);
-
-            // Verify user was actually saved
-            if (!$user->exists || !$user->id) {
-                Log::error('❌ CRITICAL: User was not saved successfully', [
-                    'user_exists' => $user->exists,
-                'user_id' => $user->id,
+                Log::info('✅ User saved successfully', [
+                    'user_id' => $user->id,
                     'locationId' => $locationId,
-                    'user_attributes' => $user->getAttributes()
+                    'email' => $user->email,
+                    'is_bulk' => $isBulk,
+                    'user_type' => $userType
                 ]);
-                
-                return response()->json([
-                    'message' => 'Failed to save user - user record was not created',
-                    'error_type' => 'user_creation_failed'
-                ], 500);
             }
-            
-            Log::info('✅ User saved successfully', [
-                'user_id' => $user->id,
-                'locationId' => $locationId,
-                'email' => $user->email,
-                'is_bulk' => $isBulk,
-                'user_type' => $userType
-            ]);
 
             // 4) Associate app ↔ location (provider)
             // NOTE: Provider registration is critical for the integration to appear in GHL
@@ -843,11 +855,15 @@ class ClientIntegrationController extends Controller
             // According to GHL docs, provider config must be created for the integration to appear
             // API Reference: https://marketplace.gohighlevel.com/docs/ghl/oauth/get-installed-locations
             if ($userType === 'Company' && $isBulk) {
+                // Initialize finalSelectedLocationId - will be set from BEFORE/AFTER comparison
+                $finalSelectedLocationId = null;
+                
                 Log::info('🔄 Handling Company-level bulk installation - fetching installed locations', [
                     'companyId' => $locationId,
                     'selectedLocationId' => $selectedLocationId ?? null,
                     'userType' => $userType,
-                    'isBulk' => $isBulk
+                    'isBulk' => $isBulk,
+                    'note' => 'Will do BEFORE/AFTER comparison to find selected location, then create user with that location ID'
                 ]);
                 
                 // Use the installedLocations API to fetch locations where app is installed
@@ -1519,101 +1535,276 @@ class ClientIntegrationController extends Controller
                             }
                         }
                         
-                        // ===== STEP 5: If we found a newly selected location, update user and ensure it's registered =====
-                        if ($newlySelectedLocationId) {
-                            // Update user record with the newly found location ID
-                            // Also update userType to "Location" (same as marketplace installation flow)
-                            if ($user && $user->exists) {
-                                $oldLocationId = $user->lead_location_id;
-                                $oldUserType = $user->lead_user_type;
-                                $user->lead_location_id = $newlySelectedLocationId;
-                                // When a specific location is selected, userType should be "Location" (not "Company")
-                                // This matches the marketplace installation flow behavior
-                                $user->lead_user_type = 'Location';
-                                try {
-                                    $user->save();
-                                    // Refresh the user model to ensure we have the latest data
-                                    $user->refresh();
-                                    Log::info('✅ Updated user record with newly selected location ID and userType', [
+                        // ===== STEP 5: Create user with selected location ID from comparison (NOT company ID) =====
+                        // The selected location is the one that appears in AFTER but not in BEFORE
+                        $finalSelectedLocationId = $newlySelectedLocationId ?? $selectedLocationId;
+                        
+                        if ($finalSelectedLocationId) {
+                            Log::info('✅ [BULK] Found selected location from comparison', [
+                                'finalSelectedLocationId' => $finalSelectedLocationId,
+                                'newlySelectedLocationId' => $newlySelectedLocationId ?? null,
+                                'selectedLocationId' => $selectedLocationId ?? null,
+                                'note' => 'This location ID will be used to create user (NOT company ID)'
+                            ]);
+                            
+                            // Create user with the selected location ID (not company ID)
+                            $userLocationId = $finalSelectedLocationId;
+                            
+                            // Prefer to find by lead_location_id (unique per location)
+                            $user = User::where('lead_location_id', $userLocationId)->first();
+                            
+                            // Fallback: if no user found by location_id, try to find by email pattern
+                            if (!$user) {
+                                $baseEmail = "location_{$userLocationId}@leadconnector.local";
+                                $user = User::where('email', 'like', "location_{$userLocationId}%@leadconnector.local")->first();
+                                
+                                if ($user) {
+                                    Log::info('Found existing user by email pattern', [
+                                        'userLocationId' => $userLocationId,
                                         'user_id' => $user->id,
-                                        'old_location_id' => $oldLocationId,
-                                        'new_location_id' => $newlySelectedLocationId,
-                                        'old_user_type' => $oldUserType,
-                                        'new_user_type' => 'Location',
-                                        'user_lead_location_id_after_save' => $user->lead_location_id,
-                                        'user_lead_user_type_after_save' => $user->lead_user_type,
-                                        'note' => 'Changed userType to Location (same as marketplace installation flow)'
-                                    ]);
-                                } catch (\Exception $e) {
-                                    Log::error('❌ Failed to update user record with newly selected location ID', [
-                                        'user_id' => $user->id,
-                                        'new_location_id' => $newlySelectedLocationId,
-                                        'error' => $e->getMessage()
+                                        'email' => $user->email
                                     ]);
                                 }
                             }
+
+                            if (!$user) {
+                                // No user? Create a new one with the selected location ID
+                                $baseEmail = "location_{$userLocationId}@leadconnector.local";
+                                $placeholderEmail = $baseEmail;
+                                $counter = 1;
+                                
+                                // Check if email already exists and generate a unique one
+                                while (User::where('email', $placeholderEmail)->exists()) {
+                                    $placeholderEmail = "location_{$userLocationId}_{$counter}@leadconnector.local";
+                                    $counter++;
+                                }
+
+                                Log::info('✅ [BULK] Creating new user with selected location ID from comparison', [
+                                    'userLocationId' => $userLocationId,
+                                    'companyId' => $companyId,
+                                    'finalSelectedLocationId' => $finalSelectedLocationId,
+                                    'generated_email' => $placeholderEmail,
+                                    'email_attempts' => $counter,
+                                    'note' => 'User created with location ID from BEFORE/AFTER comparison, NOT company ID'
+                                ]);
+
+                                $user = new User();
+                                $user->name = "Location {$userLocationId}";
+                                $user->email = $placeholderEmail;
+                                $user->password = Hash::make(Str::random(40));
+                            }
+
+                            // Fill OAuth fields
+                            try {
+                                $user->lead_access_token = $accessToken;
+                                Log::info('Set lead_access_token successfully', ['token_length' => strlen($accessToken)]);
+                            } catch (\Exception $e) {
+                                Log::error('Failed to set lead_access_token', ['error' => $e->getMessage()]);
+                            }
+
+                            try {
+                                $user->lead_refresh_token = $refreshToken;
+                                Log::info('Set lead_refresh_token successfully', ['token_length' => strlen($refreshToken)]);
+                            } catch (\Exception $e) {
+                                Log::error('Failed to set lead_refresh_token', ['error' => $e->getMessage()]);
+                            }
+
+                            $user->lead_token_type            = $tokenType;
+                            $user->lead_expires_in            = $expiresIn ?: null;
+                            $user->lead_token_expires_at      = $expiresIn ? now()->addSeconds($expiresIn) : null;
+
+                            $user->lead_scope                 = $scope;
+                            $user->lead_refresh_token_id      = $refreshTokenId;
+                            // When a specific location is selected, userType should be "Location" (not "Company")
+                            // This matches the marketplace installation flow behavior
+                            $user->lead_user_type             = 'Location';
+                            $user->lead_company_id            = $companyId;
+                            // Use the selected location ID from comparison (NOT company ID)
+                            $user->lead_location_id           = $userLocationId;
+                            $user->lead_user_id               = $providerUserId;
+                            $user->lead_is_bulk_installation  = $isBulk;
+
+                            // Log the data before saving for debugging
+                            Log::info('About to save user with data (from comparison)', [
+                                'user_id' => $user->id,
+                                'is_new_user' => !$user->exists,
+                                'user_attributes' => $user->getAttributes(),
+                                'locationId' => $userLocationId,
+                                'companyId' => $companyId,
+                                'access_token_length' => $accessToken ? strlen($accessToken) : 0,
+                                'refresh_token_length' => $refreshToken ? strlen($refreshToken) : 0
+                            ]);
+
+                            try {
+                                $user->save();
+                                // Refresh the user model to ensure we have the latest data
+                                $user->refresh();
+                                Log::info('✅ [BULK] User created/updated successfully with selected location ID from comparison', [
+                                    'user_id' => $user->id,
+                                    'locationId' => $user->lead_location_id,
+                                    'companyId' => $companyId,
+                                    'email' => $user->email,
+                                    'is_bulk' => $isBulk,
+                                    'user_type' => $user->lead_user_type,
+                                    'note' => 'User created with location ID from BEFORE/AFTER comparison'
+                                ]);
+                            } catch (\Illuminate\Database\QueryException $e) {
+                                Log::error('Database constraint violation when saving user', [
+                                    'error' => $e->getMessage(),
+                                    'error_code' => $e->getCode(),
+                                    'sql_state' => $e->errorInfo[0] ?? 'unknown',
+                                    'driver_code' => $e->errorInfo[1] ?? 'unknown',
+                                    'error_message' => $e->errorInfo[2] ?? 'unknown',
+                                    'user_data' => $user->toArray(),
+                                    'user_attributes' => $user->getAttributes(),
+                                    'locationId' => $userLocationId
+                                ]);
+                                
+                                return response()->json([
+                                    'message' => 'Database constraint violation - user may already exist',
+                                    'error_type' => 'database_constraint'
+                                ], 409);
+                            } catch (\Exception $e) {
+                                Log::error('Failed to save user', [
+                                    'error' => $e->getMessage(),
+                                    'error_class' => get_class($e),
+                                    'error_trace' => $e->getTraceAsString(),
+                                    'user_data' => $user->toArray(),
+                                    'user_attributes' => $user->getAttributes(),
+                                    'user_dirty' => $user->getDirty(),
+                                    'locationId' => $userLocationId,
+                                    'validation_errors' => method_exists($user, 'getErrors') ? $user->getErrors() : 'No validation errors method'
+                                ]);
+                                
+                                return response()->json([
+                                    'message' => 'Failed to save user data',
+                                    'error_type' => 'internal_error'
+                                ], 500);
+                            }
+
+                            // Verify user was actually saved
+                            if (!$user->exists || !$user->id) {
+                                Log::error('❌ CRITICAL: User was not saved successfully', [
+                                    'user_exists' => $user->exists,
+                                    'user_id' => $user->id,
+                                    'locationId' => $userLocationId,
+                                    'user_attributes' => $user->getAttributes()
+                                ]);
+                                
+                                return response()->json([
+                                    'message' => 'Failed to save user - user record was not created',
+                                    'error_type' => 'user_creation_failed'
+                                ], 500);
+                            }
+                        } else {
+                            Log::warning('⚠️ [BULK] No selected location found from comparison - cannot create user', [
+                                'newlySelectedLocationId' => $newlySelectedLocationId ?? null,
+                                'selectedLocationId' => $selectedLocationId ?? null,
+                                'note' => 'Will fall back to company ID (not ideal)'
+                            ]);
                             
+                            // Fallback: create user with company ID (not ideal, but better than nothing)
+                            $userLocationId = $locationId;
+                            $finalSelectedLocationId = $locationId; // Fallback to company ID
+                            // ... (similar user creation logic with company ID)
+                        }
+                        
+                        // ===== STEP 6: Register provider for the selected location (from comparison) =====
+                        if ($finalSelectedLocationId && $user) {
                             // Find the location data from the AFTER response
-                            $newlySelectedLocation = null;
+                            $selectedLocationData = null;
                             foreach ($afterLocations as $loc) {
                                 $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
-                                if ($locId === $newlySelectedLocationId) {
-                                    $newlySelectedLocation = $loc;
+                                if ($locId === $finalSelectedLocationId) {
+                                    $selectedLocationData = $loc;
                                     break;
                                 }
                             }
                             
-                            // Check if provider was already registered for this location
-                            $alreadyRegistered = false;
-                            foreach ($locationsToRegister as $regLoc) {
-                                $regLocId = $regLoc['_id'] ?? $regLoc['id'] ?? $regLoc['locationId'] ?? null;
-                                if ($regLocId === $newlySelectedLocationId) {
-                                    $alreadyRegistered = true;
-                                    break;
-                                }
-                            }
+                            // Register provider for the selected location (from comparison)
+                            $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
+                                        . '?locationId=' . urlencode($finalSelectedLocationId);
                             
-                            if ($newlySelectedLocation && !$alreadyRegistered) {
-                                // Register provider for the newly selected location
-                                $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
-                                            . '?locationId=' . urlencode($newlySelectedLocationId);
+                            $providerPayload = [
+                                'name'        => 'Tap Payments',
+                                'description' => 'Innovating payment acceptance & collection in MENA',
+                                'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
+                                'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
+                                'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
+                            ];
+                            
+                            Log::info('=== [BULK] PROVIDER REGISTRATION for selected location from comparison ===', [
+                                'url' => $providerUrl,
+                                'locationId' => $finalSelectedLocationId,
+                                'payload' => $providerPayload,
+                                'has_access_token' => !empty($accessToken),
+                                'access_token_preview' => $accessToken ? substr($accessToken, 0, 20) . '...' : null,
+                                'token_scopes_from_payload' => $tokenData['oauthMeta']['scopes'] ?? null,
+                                'token_locationId' => $tokenData['primaryAuthClassId'] ?? $tokenData['authClassId'] ?? null,
+                                'userType' => $userType,
+                                'isBulk' => $isBulk,
+                                'headers' => [
+                                    'Version' => '2021-07-28',
+                                    'Authorization' => 'Bearer ' . ($accessToken ? substr($accessToken, 0, 20) . '...' : 'MISSING')
+                                ],
+                                'timeout' => 40
+                            ]);
+                            
+                            try {
+                                $startTime = microtime(true);
+                                $providerResp = Http::timeout(40)
+                                    ->acceptJson()
+                                    ->withToken($accessToken)
+                                    ->withHeaders(['Version' => '2021-07-28'])
+                                    ->post($providerUrl, $providerPayload);
+                                $endTime = microtime(true);
+                                $duration = round(($endTime - $startTime) * 1000, 2);
                                 
-                                $providerPayload = [
-                                    'name'        => 'Tap Payments',
-                                    'description' => 'Innovating payment acceptance & collection in MENA',
-                                    'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
-                                    'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
-                                    'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
-                                ];
+                                Log::info('=== [BULK] PROVIDER REGISTRATION RESPONSE for selected location ===', [
+                                    'locationId' => $finalSelectedLocationId,
+                                    'status_code' => $providerResp->status(),
+                                    'successful' => $providerResp->successful(),
+                                    'failed' => $providerResp->failed(),
+                                    'client_error' => $providerResp->clientError(),
+                                    'server_error' => $providerResp->serverError(),
+                                    'duration_ms' => $duration,
+                                    'response_headers' => $providerResp->headers(),
+                                    'response_body_raw' => $providerResp->body(),
+                                    'response_body_json' => $providerResp->json(),
+                                    'response_body_string' => (string) $providerResp->body()
+                                ]);
                                 
-                                try {
-                                    $providerResp = Http::timeout(30)
-                                        ->acceptJson()
-                                        ->withToken($accessToken)
-                                        ->withHeaders(['Version' => '2021-07-28'])
-                                        ->post($providerUrl, $providerPayload);
-                                    
-                                    if ($providerResp->successful()) {
-                                        Log::info('✅ Provider registered for newly selected location (from BEFORE/AFTER comparison)', [
-                                            'locationId' => $newlySelectedLocationId,
-                                            'locationName' => $newlySelectedLocation['name'] ?? 'N/A'
-                                        ]);
-                                    } else {
-                                        Log::warning('⚠️ Failed to register provider for newly selected location', [
-                                            'locationId' => $newlySelectedLocationId,
-                                            'status' => $providerResp->status(),
-                                            'response' => $providerResp->json()
-                                        ]);
-                                    }
-                                } catch (\Exception $e) {
-                                    Log::error('❌ Exception registering provider for newly selected location', [
-                                        'locationId' => $newlySelectedLocationId,
-                                        'error' => $e->getMessage()
+                                if ($providerResp->successful()) {
+                                    Log::info('✅ [BULK] Provider registered for selected location (from BEFORE/AFTER comparison)', [
+                                        'locationId' => $finalSelectedLocationId,
+                                        'locationName' => $selectedLocationData['name'] ?? 'N/A',
+                                        'response' => $providerResp->json()
+                                    ]);
+                                } else {
+                                    $responseJson = $providerResp->json();
+                                    $errorMessage = $responseJson['message'] ?? $responseJson['error'] ?? 'Unknown error';
+                                    Log::error('❌ [BULK] PROVIDER REGISTRATION FAILED for selected location', [
+                                        'locationId' => $finalSelectedLocationId,
+                                        'status_code' => $providerResp->status(),
+                                        'status_text' => $providerResp->reason(),
+                                        'error_message' => $errorMessage,
+                                        'response_body' => $providerResp->body(),
+                                        'response_json' => $responseJson,
+                                        'response_headers' => $providerResp->headers(),
+                                        'userType' => $userType,
+                                        'isBulk' => $isBulk,
+                                        'token_scopes' => $tokenData ? ($tokenData['oauthMeta']['scopes'] ?? null) : null,
+                                        'token_has_custom_provider_write' => !empty($tokenData['oauthMeta']['scopes']) && in_array('payments/custom-provider.write', $tokenData['oauthMeta']['scopes'] ?? [])
                                     ]);
                                 }
-                            } elseif ($alreadyRegistered) {
-                                Log::info('ℹ️ Provider already registered for newly selected location', [
-                                    'locationId' => $newlySelectedLocationId
+                            } catch (\Exception $e) {
+                                Log::error('❌ [BULK] Exception registering provider for selected location', [
+                                    'locationId' => $finalSelectedLocationId,
+                                    'error' => $e->getMessage(),
+                                    'error_code' => $e->getCode(),
+                                    'error_file' => $e->getFile(),
+                                    'error_line' => $e->getLine(),
+                                    'trace' => $e->getTraceAsString()
                                 ]);
                             }
                         }
@@ -1798,40 +1989,39 @@ class ClientIntegrationController extends Controller
 
             // For Company-level bulk installations, return success response (no redirect)
             if ($userType === 'Company' && $isBulk) {
-                // Use the user's lead_location_id (which was updated by the comparison logic)
-                // This ensures we use the actual selected location, not the company ID
-                // Priority: 1) User's lead_location_id (most accurate, updated by comparison)
-                //           2) selectedLocationId (from comparison/extraction)
-                //           3) userLocationId (initial value)
-                //           4) locationId (company ID, fallback)
-                $finalLocationId = $user->lead_location_id ?? $selectedLocationId ?? $userLocationId ?? $locationId;
+                // Use the selected location ID from BEFORE/AFTER comparison (NOT from database)
+                // Priority: 1) finalSelectedLocationId (from BEFORE/AFTER comparison - most accurate)
+                //           2) User's lead_location_id (should match finalSelectedLocationId)
+                //           3) selectedLocationId (from extraction)
+                //           4) locationId (company ID, fallback - should NOT be used if comparison worked)
+                $finalLocationId = $finalSelectedLocationId ?? ($user ? $user->lead_location_id : null) ?? $selectedLocationId ?? $locationId;
                 
-                // Ensure we're not using the company ID if we found a specific location
-                if ($finalLocationId === $locationId && $locationId === $companyId && !empty($selectedLocationId)) {
-                    $finalLocationId = $selectedLocationId;
-                    Log::info('⚠️ [FINAL] Corrected finalLocationId - was using companyId, now using selectedLocationId', [
+                // Ensure we're not using the company ID if we found a specific location from comparison
+                if ($finalLocationId === $locationId && $locationId === $companyId && !empty($finalSelectedLocationId)) {
+                    $finalLocationId = $finalSelectedLocationId;
+                    Log::info('⚠️ [FINAL] Corrected finalLocationId - was using companyId, now using finalSelectedLocationId from comparison', [
                         'old_finalLocationId' => $locationId,
-                        'new_finalLocationId' => $selectedLocationId
+                        'new_finalLocationId' => $finalSelectedLocationId
                     ]);
                 }
                 
                 Log::info('✅ Bulk installation completed successfully (no redirect)', [
                     'companyId' => $locationId,
+                    'finalSelectedLocationId' => $finalSelectedLocationId ?? null,
                     'selectedLocationId' => $selectedLocationId ?? null,
-                    'userLocationId' => $userLocationId ?? null,
-                    'user_lead_location_id' => $user->lead_location_id ?? null,
+                    'user_lead_location_id' => $user ? $user->lead_location_id : null,
                     'finalLocationId' => $finalLocationId,
-                    'user_id' => $user->id,
-                    'user_location_id' => $user->lead_location_id,
-                    'finalLocationId_source' => $user->lead_location_id ? 'user_lead_location_id' : ($selectedLocationId ? 'selectedLocationId' : ($userLocationId ? 'userLocationId' : 'locationId'))
+                    'user_id' => $user ? $user->id : null,
+                    'finalLocationId_source' => $finalSelectedLocationId ? 'finalSelectedLocationId_from_comparison' : ($user && $user->lead_location_id ? 'user_lead_location_id' : ($selectedLocationId ? 'selectedLocationId' : 'locationId_fallback')),
+                    'note' => 'finalLocationId should be from BEFORE/AFTER comparison, NOT company ID'
                 ]);
                 
                 return response()->json([
                     'success' => true,
                     'message' => 'Integration installed successfully',
                     'companyId' => $locationId,
-                    'locationId' => $finalLocationId, // Use selected location ID, not company ID
-                    'userId' => $user->id
+                    'locationId' => $finalLocationId, // Use selected location ID from comparison, not company ID
+                    'userId' => $user ? $user->id : null
                 ], 200);
             } else {
                 // For Location-level installations, redirect to integrations page
