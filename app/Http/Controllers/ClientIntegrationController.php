@@ -55,10 +55,14 @@ class ClientIntegrationController extends Controller
             }
             
             // Store selected location ID in session so we can retrieve it after OAuth callback
+            // Also store in a cookie as backup since sessions might not persist across OAuth redirect
             if ($selectedLocationId) {
                 session(['selected_location_id' => $selectedLocationId]);
-                Log::info('💾 Stored selected locationId in session', [
-                    'selectedLocationId' => $selectedLocationId
+                // Also store in cookie as backup (expires in 10 minutes)
+                \Cookie::queue('selected_location_id', $selectedLocationId, 10);
+                Log::info('💾 Stored selected locationId in session and cookie', [
+                    'selectedLocationId' => $selectedLocationId,
+                    'session_id' => session()->getId()
                 ]);
             }
             
@@ -190,7 +194,7 @@ class ClientIntegrationController extends Controller
             $isBulk         = (bool) ($body['isBulkInstallation'] ?? false);
             $providerUserId = $body['userId'] ?? null;
 
-            // For bulk installations, try to get specific location ID from session (stored before OAuth redirect)
+            // For bulk installations, try to get specific location ID from session/cookie (stored before OAuth redirect)
             // This happens when user clicks a direct installation link for a specific location
             $selectedLocationId = null;
             if ($isBulk && $userType === 'Company') {
@@ -199,10 +203,24 @@ class ClientIntegrationController extends Controller
                 if ($selectedLocationId) {
                     Log::info('📍 Retrieved selected locationId from session (after OAuth)', [
                         'selectedLocationId' => $selectedLocationId,
-                        'companyId' => $locationId
+                        'companyId' => $locationId,
+                        'session_id' => session()->getId()
                     ]);
                     // Clear session after use
                     session()->forget('selected_location_id');
+                }
+                
+                // Fallback: try to get from cookie
+                if (!$selectedLocationId) {
+                    $selectedLocationId = $request->cookie('selected_location_id');
+                    if ($selectedLocationId) {
+                        Log::info('📍 Retrieved selected locationId from cookie (after OAuth)', [
+                            'selectedLocationId' => $selectedLocationId,
+                            'companyId' => $locationId
+                        ]);
+                        // Clear cookie after use
+                        \Cookie::queue(\Cookie::forget('selected_location_id'));
+                    }
                 }
                 
                 // Fallback: try to extract from referer (might not work after OAuth redirect)
@@ -264,17 +282,29 @@ class ClientIntegrationController extends Controller
             }
 
             // 2) Find or create a local user tied to this location
+            // For bulk installations with a selected location, create/update location-specific user
+            // Otherwise, use company-level location ID
+            $userLocationId = $selectedLocationId ?? $locationId;
+            
+            Log::info('🔍 Looking for user', [
+                'companyId' => $locationId,
+                'selectedLocationId' => $selectedLocationId,
+                'userLocationId' => $userLocationId,
+                'isBulk' => $isBulk,
+                'userType' => $userType
+            ]);
+            
             // Prefer to find by lead_location_id (unique per location)
-            $user = User::where('lead_location_id', $locationId)->first();
+            $user = User::where('lead_location_id', $userLocationId)->first();
             
             // Fallback: if no user found by location_id, try to find by email pattern
             if (!$user) {
-                $baseEmail = "location_{$locationId}@leadconnector.local";
-                $user = User::where('email', 'like', "location_{$locationId}%@leadconnector.local")->first();
+                $baseEmail = "location_{$userLocationId}@leadconnector.local";
+                $user = User::where('email', 'like', "location_{$userLocationId}%@leadconnector.local")->first();
                 
                 if ($user) {
                     Log::info('Found existing user by email pattern', [
-                        'locationId' => $locationId,
+                        'userLocationId' => $userLocationId,
                         'user_id' => $user->id,
                         'email' => $user->email
                     ]);
@@ -284,24 +314,27 @@ class ClientIntegrationController extends Controller
             if (!$user) {
                 // No user? Create a minimal one.
                 // Generate a unique email to avoid duplicate key errors
-                $baseEmail = "location_{$locationId}@leadconnector.local";
+                $baseEmail = "location_{$userLocationId}@leadconnector.local";
                 $placeholderEmail = $baseEmail;
                 $counter = 1;
                 
                 // Check if email already exists and generate a unique one
                 while (User::where('email', $placeholderEmail)->exists()) {
-                    $placeholderEmail = "location_{$locationId}_{$counter}@leadconnector.local";
+                    $placeholderEmail = "location_{$userLocationId}_{$counter}@leadconnector.local";
                     $counter++;
                 }
 
                 Log::info('Creating new user', [
-                    'locationId' => $locationId,
+                    'userLocationId' => $userLocationId,
+                    'companyId' => $locationId,
+                    'selectedLocationId' => $selectedLocationId,
                     'generated_email' => $placeholderEmail,
-                    'email_attempts' => $counter
+                    'email_attempts' => $counter,
+                    'isBulk' => $isBulk
                 ]);
 
                 $user = new User();
-                $user->name = "Location {$locationId}";
+                $user->name = $selectedLocationId ? "Location {$selectedLocationId}" : "Location {$locationId}";
                 $user->email = $placeholderEmail;
                 $user->password = Hash::make(Str::random(40));
             }
@@ -330,7 +363,8 @@ class ClientIntegrationController extends Controller
             $user->lead_refresh_token_id      = $refreshTokenId;
             $user->lead_user_type             = $userType;
             $user->lead_company_id            = $companyId;
-            $user->lead_location_id           = $locationId;
+            // Use selected location ID if available, otherwise use company ID
+            $user->lead_location_id           = $userLocationId;
             $user->lead_user_id               = $providerUserId;
             $user->lead_is_bulk_installation  = $isBulk;
 
@@ -562,39 +596,44 @@ class ClientIntegrationController extends Controller
                         $failCount = 0;
                         
                         // For bulk installations, we need to register provider for:
-                        // 1. The selected location (if user clicked a direct link)
+                        // 1. The selected location (if user clicked a direct link) - ALWAYS register this first
                         // 2. All locations where app is installed (isInstalled: true)
                         // 3. If no specific location selected and all are false, register for all locations
                         
                         $locationsToRegister = [];
+                        $selectedLocationFound = false;
                         
-                        // If a specific location was selected, prioritize it
+                        // If a specific location was selected, prioritize it and ALWAYS register it
                         if ($selectedLocationId) {
                             $selectedLocation = null;
                             foreach ($locations as $loc) {
                                 $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
                                 if ($locId === $selectedLocationId) {
                                     $selectedLocation = $loc;
+                                    $selectedLocationFound = true;
                                     break;
                                 }
                             }
                             
                             if ($selectedLocation) {
                                 $locationsToRegister[] = $selectedLocation;
-                                Log::info('✅ Found selected location in API response', [
+                                Log::info('✅ Found selected location in API response - will register provider', [
                                     'locationId' => $selectedLocationId,
-                                    'locationName' => $selectedLocation['name'] ?? 'N/A'
+                                    'locationName' => $selectedLocation['name'] ?? 'N/A',
+                                    'isInstalled' => $selectedLocation['isInstalled'] ?? false
                                 ]);
                             } else {
-                                // Location not in API response, but we'll register it anyway
+                                // Location not in API response, but we MUST register it anyway
+                                // This is the location the user specifically selected
                                 $locationsToRegister[] = [
                                     '_id' => $selectedLocationId,
                                     'id' => $selectedLocationId,
-                                    'name' => 'Selected Location',
+                                    'name' => 'Selected Location (Not in API response)',
                                     'isInstalled' => false
                                 ];
-                                Log::info('⚠️ Selected location not in API response, will register anyway', [
-                                    'locationId' => $selectedLocationId
+                                Log::info('⚠️ Selected location NOT in API response - will register provider anyway', [
+                                    'locationId' => $selectedLocationId,
+                                    'note' => 'This is the location the user clicked on, so we must register the provider for it'
                                 ]);
                             }
                         }
