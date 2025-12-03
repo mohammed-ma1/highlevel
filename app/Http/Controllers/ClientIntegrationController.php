@@ -354,19 +354,32 @@ class ClientIntegrationController extends Controller
                 'scopes_array' => $scope ? explode(' ', $scope) : null
             ]);
 
-            $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
-                        . '?locationId=' . urlencode($locationId);
+            // For Company-level bulk installations, skip provider registration
+            // The provider registration API requires a Location ID, not a Company ID
+            // For bulk installations, GHL handles provider availability automatically
+            if ($userType === 'Company' && $isBulk) {
+                Log::info('⚠️ Skipping provider registration for Company-level bulk installation', [
+                    'locationId' => $locationId,
+                    'userType' => $userType,
+                    'isBulk' => $isBulk,
+                    'reason' => 'Provider registration requires Location ID, but this is a Company-level bulk installation. GHL handles provider availability automatically for bulk installations.',
+                    'note' => 'The integration will be available to all locations in the company, but provider registration must be done per-location when each location uses the integration.'
+                ]);
+            } else {
+                // Only register provider for Location-level installations
+                $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
+                            . '?locationId=' . urlencode($locationId);
                 
-            $providerPayload = [
-                'name'        => 'Tap Payments',
-                'description' => 'Innovating payment acceptance & collection in MENA',
-                'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
-                'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
-                'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
-            ];
+                $providerPayload = [
+                    'name'        => 'Tap Payments',
+                    'description' => 'Innovating payment acceptance & collection in MENA',
+                    'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
+                    'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
+                    'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
+                ];
 
-            // Log request details before making the call
-            Log::info('=== PROVIDER REGISTRATION REQUEST ===', [
+                // Log request details before making the call
+                Log::info('=== PROVIDER REGISTRATION REQUEST ===', [
                 'url' => $providerUrl,
                 'locationId' => $locationId,
                 'payload' => $providerPayload,
@@ -376,27 +389,27 @@ class ClientIntegrationController extends Controller
                 'token_locationId' => $tokenData['primaryAuthClassId'] ?? $tokenData['authClassId'] ?? null,
                 'userType' => $userType,
                 'isBulk' => $isBulk,
-                'headers' => [
-                    'Version' => '2021-07-28',
-                    'Authorization' => 'Bearer ' . ($accessToken ? substr($accessToken, 0, 20) . '...' : 'MISSING')
-                ],
-                'timeout' => 40
-            ]);
+                    'headers' => [
+                        'Version' => '2021-07-28',
+                        'Authorization' => 'Bearer ' . ($accessToken ? substr($accessToken, 0, 20) . '...' : 'MISSING')
+                    ],
+                    'timeout' => 40
+                ]);
 
-            try {
-                $startTime = microtime(true);
-                
-                $providerResp = Http::timeout(40)
-                    ->acceptJson()
-                    ->withToken($accessToken)
-                    ->withHeaders(['Version' => '2021-07-28'])
-                    ->post($providerUrl, $providerPayload);
-                
-                $endTime = microtime(true);
-                $duration = round(($endTime - $startTime) * 1000, 2); // milliseconds
+                try {
+                    $startTime = microtime(true);
+                    
+                    $providerResp = Http::timeout(40)
+                        ->acceptJson()
+                        ->withToken($accessToken)
+                        ->withHeaders(['Version' => '2021-07-28'])
+                        ->post($providerUrl, $providerPayload);
+                    
+                    $endTime = microtime(true);
+                    $duration = round(($endTime - $startTime) * 1000, 2); // milliseconds
 
-                // Log full response details
-                Log::info('=== PROVIDER REGISTRATION RESPONSE ===', [
+                    // Log full response details
+                    Log::info('=== PROVIDER REGISTRATION RESPONSE ===', [
                     'locationId' => $locationId,
                     'status_code' => $providerResp->status(),
                     'successful' => $providerResp->successful(),
@@ -407,14 +420,14 @@ class ClientIntegrationController extends Controller
                     'response_headers' => $providerResp->headers(),
                     'response_body_raw' => $providerResp->body(),
                     'response_body_json' => $providerResp->json(),
-                    'response_body_string' => (string) $providerResp->body()
-                ]);
+                        'response_body_string' => (string) $providerResp->body()
+                    ]);
 
-                if ($providerResp->failed()) {
-                    $responseJson = $providerResp->json();
-                    $errorMessage = $responseJson['message'] ?? $responseJson['error'] ?? 'Unknown error';
-                    
-                    Log::error('❌ PROVIDER ASSOCIATION FAILED - Integration may not be visible', [
+                    if ($providerResp->failed()) {
+                        $responseJson = $providerResp->json();
+                        $errorMessage = $responseJson['message'] ?? $responseJson['error'] ?? 'Unknown error';
+                        
+                        Log::error('❌ PROVIDER ASSOCIATION FAILED - Integration may not be visible', [
                         'locationId' => $locationId,
                         'status_code' => $providerResp->status(),
                         'status_text' => $providerResp->reason(),
@@ -443,41 +456,51 @@ class ClientIntegrationController extends Controller
                             'Check if token has payments/custom-provider.write scope',
                             'Verify locationId matches token authorized location',
                             'For bulk installations, provider registration might need to be done manually',
-                            'Company-level tokens might require different authentication'
-                        ]
-                    ]);
-                    // This is critical - if provider registration fails, the integration won't appear
-                    // We'll still save the user but log the error for debugging
-                } else {
-                    Log::info('✅ PROVIDER ASSOCIATION SUCCESSFUL', [
+                                'Company-level tokens might require different authentication'
+                            ]
+                        ]);
+                        // This is critical - if provider registration fails, the integration won't appear
+                        // We'll still save the user but log the error for debugging
+                    } else {
+                        Log::info('✅ PROVIDER ASSOCIATION SUCCESSFUL', [
+                            'locationId' => $locationId,
+                            'status_code' => $providerResp->status(),
+                            'response_body' => $providerResp->json(),
+                            'duration_ms' => $duration
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    Log::error('❌ EXCEPTION during provider registration', [
                         'locationId' => $locationId,
-                        'status_code' => $providerResp->status(),
-                        'response_body' => $providerResp->json(),
-                        'duration_ms' => $duration
+                        'exception_message' => $e->getMessage(),
+                        'exception_code' => $e->getCode(),
+                        'exception_file' => $e->getFile(),
+                        'exception_line' => $e->getLine(),
+                        'exception_trace' => $e->getTraceAsString(),
+                        'url' => $providerUrl ?? 'N/A',
+                        'payload' => $providerPayload ?? 'N/A'
                     ]);
+                    // Continue execution even if provider registration fails
                 }
-            } catch (\Exception $e) {
-                Log::error('❌ EXCEPTION during provider registration', [
-                    'locationId' => $locationId,
-                    'exception_message' => $e->getMessage(),
-                    'exception_code' => $e->getCode(),
-                    'exception_file' => $e->getFile(),
-                    'exception_line' => $e->getLine(),
-                    'exception_trace' => $e->getTraceAsString(),
-                    'url' => $providerUrl,
-                    'payload' => $providerPayload
-                ]);
-                // Continue execution even if provider registration fails
-            }
+            } // End else block for non-bulk Company installations
 
             // Redirect to GHL integrations page after successful connection
-            $redirectUrl = "https://app.gohighlevel.com/v2/location/{$locationId}/payments/integrations";
-            
-            Log::info('Redirecting to GHL integrations page', [
-                'locationId' => $locationId,
-                'redirectUrl' => $redirectUrl,
-                'user_id' => $user->id,
-            ]);
+            // For Company-level bulk installations, redirect to company integrations page
+            if ($userType === 'Company' && $isBulk) {
+                $redirectUrl = "https://app.gohighlevel.com/v2/company/{$locationId}/integrations";
+                Log::info('Redirecting to GHL company integrations page (bulk installation)', [
+                    'companyId' => $locationId,
+                    'redirectUrl' => $redirectUrl,
+                    'user_id' => $user->id,
+                ]);
+            } else {
+                $redirectUrl = "https://app.gohighlevel.com/v2/location/{$locationId}/payments/integrations";
+                Log::info('Redirecting to GHL location integrations page', [
+                    'locationId' => $locationId,
+                    'redirectUrl' => $redirectUrl,
+                    'user_id' => $user->id,
+                ]);
+            }
 
             return redirect($redirectUrl);
 
