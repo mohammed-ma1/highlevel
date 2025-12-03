@@ -19,20 +19,77 @@ class ClientIntegrationController extends Controller
             'all_params' => $request->all(),
             'query_params' => $request->query(),
             'has_code' => $request->has('code'),
-            'code_value' => $request->input('code')
+            'code_value' => $request->input('code'),
+            'referer' => $request->header('referer'),
+            'user_agent' => $request->userAgent()
         ]);
         
         // Check if this is a proper OAuth request
         if (!$request->has('code')) {
-            Log::warning('Connect endpoint called without authorization code', [
+            Log::info('Connect endpoint called without authorization code - redirecting to OAuth', [
                 'url' => $request->fullUrl(),
-                'params' => $request->all()
+                'params' => $request->all(),
+                'referer' => $request->header('referer')
             ]);
             
-            return response()->json([
-                'message' => 'This endpoint requires OAuth authorization code. Use /provider/connect-or-disconnect for form submissions.',
-                'error' => 'Missing authorization code'
-            ], 400);
+            // Extract locationId from referer or URL if available
+            $locationId = null;
+            $referer = $request->header('referer');
+            
+            // Try to extract locationId from referer URL (e.g., https://app.gohighlevel.com/v2/location/OLV8XtEfBZn2hdbkwPAI/...)
+            if ($referer && preg_match('/\/location\/([^\/]+)/', $referer, $matches)) {
+                $locationId = $matches[1];
+                Log::info('Extracted locationId from referer', ['locationId' => $locationId]);
+            }
+            
+            // Try to extract from current URL
+            if (!$locationId && preg_match('/\/location\/([^\/]+)/', $request->fullUrl(), $matches)) {
+                $locationId = $matches[1];
+                Log::info('Extracted locationId from current URL', ['locationId' => $locationId]);
+            }
+            
+            // Build OAuth authorization URL
+            $clientId = config('services.external_auth.client_id');
+            $redirectUri = config('services.external_auth.redirect_uri', 'https://dashboard.mediasolution.io/connect');
+            
+            // Required scopes for the integration
+            $scopes = [
+                'payments/orders.write',
+                'payments/integration.readonly',
+                'payments/integration.write',
+                'payments/transactions.readonly',
+                'payments/subscriptions.readonly',
+                'payments/custom-provider.readonly',
+                'payments/custom-provider.write',
+                'payments/orders.readonly',
+                'products/prices.readonly',
+                'products.readonly',
+                'invoices.readonly',
+                'invoices.write',
+                'locations.readonly',
+                'payments/orders.collectPayment',
+                'oauth.write',
+                'oauth.readonly'
+            ];
+            
+            $scopeString = implode(' ', array_map('urlencode', $scopes));
+            
+            // Build the OAuth URL
+            $oauthUrl = 'https://marketplace.gohighlevel.com/oauth/chooselocation?' . http_build_query([
+                'response_type' => 'code',
+                'redirect_uri' => $redirectUri,
+                'client_id' => $clientId,
+                'scope' => $scopeString,
+                'version_id' => $clientId // Using client_id as version_id
+            ]);
+            
+            Log::info('Redirecting to OAuth authorization', [
+                'oauth_url' => $oauthUrl,
+                'locationId_from_referer' => $locationId
+            ]);
+            
+            // Redirect to OAuth flow
+            return redirect($oauthUrl);
         }
         
         $tokenUrl = config('services.external_auth.token_url', 'https://services.leadconnectorhq.com/oauth/token');
