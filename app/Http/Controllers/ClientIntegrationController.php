@@ -49,7 +49,27 @@ class ClientIntegrationController extends Controller
         ]);
         
         // Log cookies
-        $allCookies = $request->cookies->all();
+        $allCookies = [];
+        try {
+            // Check if cookies is an object with all() method
+            if (is_object($request->cookies) && method_exists($request->cookies, 'all')) {
+                $allCookies = $request->cookies->all();
+            } elseif (is_array($request->cookies)) {
+                // If it's already an array, use it directly
+                $allCookies = $request->cookies;
+            } else {
+                // Fallback: try to get all cookies from headers
+                $cookieHeader = $request->header('cookie');
+                if ($cookieHeader) {
+                    // Parse cookie header manually if needed
+                    $allCookies = ['raw_header' => $cookieHeader];
+                }
+            }
+        } catch (\Exception $e) {
+            Log::warning('Failed to get cookies', ['error' => $e->getMessage()]);
+            $allCookies = [];
+        }
+        
         Log::info('📋 [REQUEST] Cookies', [
             'cookies' => $allCookies,
             'cookies_count' => count($allCookies),
@@ -273,17 +293,42 @@ class ClientIntegrationController extends Controller
                 'oauth_response_userType' => $userType,
                 'oauth_response_isBulk' => $isBulk,
                 'request_url' => $request->fullUrl(),
-                'request_query_params' => $request->query()->all(),
+                'request_query_params' => $request->query->all(),
                 'request_referer' => $request->header('referer'),
                 'has_code' => $request->has('code')
             ]);
 
-            // For bulk installations, try to get specific location ID from multiple sources
-            // Priority: 1) Query params, 2) Session, 3) Cookie, 4) Referer/URL
+            // For ALL installations (marketplace and bulk), use the SAME flow:
+            // Priority: 1) OAuth response locationId, 2) Query params, 3) Session, 4) Cookie, 5) Referer/URL
             $selectedLocationId = null;
             $extractionSource = null;
-            if ($isBulk && $userType === 'Company') {
-                // Priority 1: Check query parameters (GHL might pass it in redirect URL)
+            
+            // Priority 1: Check OAuth response locationId FIRST (same as marketplace installation)
+            // GHL might include locationId in the response even for bulk installations
+            if ($locationId && $locationId !== $companyId) {
+                // If locationId is different from companyId, it's a specific location
+                $selectedLocationId = $locationId;
+                $extractionSource = 'oauth_response';
+                Log::info('✅ [EXTRACTION] Found locationId in OAuth response (Priority 1 - Highest)', [
+                    'selectedLocationId' => $selectedLocationId,
+                    'companyId' => $companyId,
+                    'source' => $extractionSource,
+                    'isBulk' => $isBulk,
+                    'userType' => $userType
+                ]);
+            } elseif ($locationId && $isBulk && $userType === 'Company') {
+                // For bulk installations, if locationId equals companyId, we need to find the specific location
+                // Continue to fallback methods below
+                Log::info('🔍 [EXTRACTION] OAuth response locationId equals companyId - checking fallback sources', [
+                    'locationId' => $locationId,
+                    'companyId' => $companyId,
+                    'isBulk' => $isBulk
+                ]);
+            }
+            
+            // For bulk installations, try additional sources if OAuth response didn't provide specific location
+            if ($isBulk && $userType === 'Company' && !$selectedLocationId) {
+                // Priority 2: Check query parameters (GHL might pass it in redirect URL)
                 $queryLocationId = $request->query('locationId') ?? $request->query('location_id') ?? null;
                 Log::info('🔍 [EXTRACTION] Checking query parameters', [
                     'locationId_param' => $request->query('locationId'),
@@ -295,14 +340,14 @@ class ClientIntegrationController extends Controller
                 if ($queryLocationId) {
                     $selectedLocationId = $queryLocationId;
                     $extractionSource = 'query_params';
-                    Log::info('✅ [EXTRACTION] Found selected locationId in query parameters (Priority 1)', [
+                    Log::info('✅ [EXTRACTION] Found selected locationId in query parameters (Priority 2)', [
                         'selectedLocationId' => $selectedLocationId,
                         'companyId' => $locationId,
                         'source' => $extractionSource
                     ]);
                 }
                 
-                // Priority 2: Try to get from session (stored before OAuth redirect)
+                // Priority 3: Try to get from session (stored before OAuth redirect)
                 if (!$selectedLocationId) {
                     $sessionLocationId = session('selected_location_id');
                     Log::info('🔍 [EXTRACTION] Checking session', [
@@ -314,7 +359,7 @@ class ClientIntegrationController extends Controller
                     if ($sessionLocationId) {
                         $selectedLocationId = $sessionLocationId;
                         $extractionSource = 'session';
-                        Log::info('✅ [EXTRACTION] Retrieved selected locationId from session (Priority 2)', [
+                        Log::info('✅ [EXTRACTION] Retrieved selected locationId from session (Priority 3)', [
                             'selectedLocationId' => $selectedLocationId,
                             'companyId' => $locationId,
                             'source' => $extractionSource,
@@ -325,7 +370,7 @@ class ClientIntegrationController extends Controller
                     }
                 }
                 
-                // Priority 3: Try to get from cookie
+                // Priority 4: Try to get from cookie
                 if (!$selectedLocationId) {
                     $cookieLocationId = $request->cookie('selected_location_id');
                     Log::info('🔍 [EXTRACTION] Checking cookie', [
@@ -336,7 +381,7 @@ class ClientIntegrationController extends Controller
                     if ($cookieLocationId) {
                         $selectedLocationId = $cookieLocationId;
                         $extractionSource = 'cookie';
-                        Log::info('✅ [EXTRACTION] Retrieved selected locationId from cookie (Priority 3)', [
+                        Log::info('✅ [EXTRACTION] Retrieved selected locationId from cookie (Priority 4)', [
                             'selectedLocationId' => $selectedLocationId,
                             'companyId' => $locationId,
                             'source' => $extractionSource
@@ -346,7 +391,7 @@ class ClientIntegrationController extends Controller
                     }
                 }
                 
-                // Priority 4: Try to extract from referer (might not work after OAuth redirect)
+                // Priority 5: Try to extract from referer (might not work after OAuth redirect)
                 if (!$selectedLocationId) {
                     $referer = $request->header('referer');
                     $refererLocationId = null;
@@ -363,7 +408,7 @@ class ClientIntegrationController extends Controller
                     if ($refererLocationId) {
                         $selectedLocationId = $refererLocationId;
                         $extractionSource = 'referer';
-                        Log::info('✅ [EXTRACTION] Extracted selected locationId from referer (Priority 4)', [
+                        Log::info('✅ [EXTRACTION] Extracted selected locationId from referer (Priority 5)', [
                             'selectedLocationId' => $selectedLocationId,
                             'companyId' => $locationId,
                             'source' => $extractionSource,
@@ -372,7 +417,7 @@ class ClientIntegrationController extends Controller
                     }
                 }
                 
-                // Priority 5: Also try to extract from current URL
+                // Priority 6: Also try to extract from current URL
                 if (!$selectedLocationId) {
                     $urlLocationId = null;
                     if (preg_match('/\/location\/([^\/]+)/', $request->fullUrl(), $matches)) {
@@ -388,24 +433,26 @@ class ClientIntegrationController extends Controller
                     if ($urlLocationId) {
                         $selectedLocationId = $urlLocationId;
                         $extractionSource = 'current_url';
-                        Log::info('✅ [EXTRACTION] Extracted selected locationId from current URL (Priority 5)', [
+                        Log::info('✅ [EXTRACTION] Extracted selected locationId from current URL (Priority 6)', [
                             'selectedLocationId' => $selectedLocationId,
                             'companyId' => $locationId,
                             'source' => $extractionSource
                         ]);
                     }
                 }
-                
-                // Log final extraction result
-                Log::info('📊 [EXTRACTION] Final location ID extraction result', [
-                    'selectedLocationId' => $selectedLocationId,
-                    'extractionSource' => $extractionSource,
-                    'companyId_from_oauth' => $locationId,
-                    'companyId_from_body' => $companyId,
-                    'was_found' => !empty($selectedLocationId),
-                    'will_use_for_user' => $selectedLocationId ?? $locationId
-                ]);
             }
+            
+            // Log final extraction result for ALL installations
+            Log::info('📊 [EXTRACTION] Final location ID extraction result', [
+                'selectedLocationId' => $selectedLocationId,
+                'extractionSource' => $extractionSource,
+                'oauth_response_locationId' => $locationId,
+                'oauth_response_companyId' => $companyId,
+                'was_found' => !empty($selectedLocationId),
+                'will_use_for_user' => $selectedLocationId ?? $locationId,
+                'isBulk' => $isBulk,
+                'userType' => $userType
+            ]);
 
             // If locationId is missing, try to extract it from the JWT access token
             // This happens for Company-level bulk installations
