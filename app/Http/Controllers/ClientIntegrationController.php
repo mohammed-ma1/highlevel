@@ -328,88 +328,38 @@ class ClientIntegrationController extends Controller
             
             // For bulk installations, try additional sources if OAuth response didn't provide specific location
             if ($isBulk && $userType === 'Company' && !$selectedLocationId) {
-                // Priority 2: Check OAuth state parameter (might contain location ID)
-                $stateParam = $request->query('state');
-                $stateLocationId = null;
-                if ($stateParam) {
-                    try {
-                        // Try to decode base64 state parameter (GHL sometimes uses base64-encoded JSON)
-                        $decodedState = base64_decode($stateParam, true);
-                        if ($decodedState) {
-                            $stateData = json_decode($decodedState, true);
-                            if ($stateData && isset($stateData['id'])) {
-                                $stateLocationId = $stateData['id'];
-                            }
-                        }
-                    } catch (\Exception $e) {
-                        // If decoding fails, try to extract location ID from state as-is
-                        if (preg_match('/["\']?id["\']?\s*:\s*["\']?([^"\']+)["\']?/', $stateParam, $matches)) {
-                            $stateLocationId = $matches[1];
-                        }
-                    }
-                }
-                
-                Log::info('🔍 [EXTRACTION] Checking OAuth state parameter', [
-                    'state_param' => $stateParam ? substr($stateParam, 0, 100) : null,
-                    'found' => !empty($stateLocationId),
-                    'value' => $stateLocationId
+                // Priority 2: Check query parameters (GHL might pass it in redirect URL)
+                $queryLocationId = $request->query('locationId') ?? $request->query('location_id') ?? null;
+                Log::info('🔍 [EXTRACTION] Checking query parameters', [
+                    'locationId_param' => $request->query('locationId'),
+                    'location_id_param' => $request->query('location_id'),
+                    'found' => !empty($queryLocationId),
+                    'value' => $queryLocationId
                 ]);
                 
-                if ($stateLocationId) {
-                    $selectedLocationId = $stateLocationId;
-                    $extractionSource = 'oauth_state';
-                    Log::info('✅ [EXTRACTION] Found selected locationId in OAuth state parameter (Priority 2)', [
+                if ($queryLocationId) {
+                    $selectedLocationId = $queryLocationId;
+                    $extractionSource = 'query_params';
+                    Log::info('✅ [EXTRACTION] Found selected locationId in query parameters (Priority 2)', [
                         'selectedLocationId' => $selectedLocationId,
                         'companyId' => $locationId,
                         'source' => $extractionSource
                     ]);
                 }
                 
-                // Priority 3: Check query parameters (GHL might pass it in redirect URL)
-                if (!$selectedLocationId) {
-                    $queryLocationId = $request->query('locationId') ?? $request->query('location_id') ?? null;
-                    Log::info('🔍 [EXTRACTION] Checking query parameters', [
-                        'locationId_param' => $request->query('locationId'),
-                        'location_id_param' => $request->query('location_id'),
-                        'found' => !empty($queryLocationId),
-                        'value' => $queryLocationId
-                    ]);
-                    
-                    if ($queryLocationId) {
-                        $selectedLocationId = $queryLocationId;
-                        $extractionSource = 'query_params';
-                        Log::info('✅ [EXTRACTION] Found selected locationId in query parameters (Priority 3)', [
-                            'selectedLocationId' => $selectedLocationId,
-                            'companyId' => $locationId,
-                            'source' => $extractionSource
-                        ]);
-                    }
-                }
-                
-                // Priority 4: Try to get from session (stored before OAuth redirect)
+                // Priority 3: Try to get from session (stored before OAuth redirect)
                 if (!$selectedLocationId) {
                     $sessionLocationId = session('selected_location_id');
-                    
-                    // Also try to extract from session's previous URL
-                    $previousUrl = session('_previous.url');
-                    $previousUrlLocationId = null;
-                    if ($previousUrl && preg_match('/\/location\/([^\/\?]+)/', $previousUrl, $matches)) {
-                        $previousUrlLocationId = $matches[1];
-                    }
-                    
                     Log::info('🔍 [EXTRACTION] Checking session', [
                         'session_id' => session()->getId(),
-                        'found_in_selected_location_id' => !empty($sessionLocationId),
-                        'value_from_selected_location_id' => $sessionLocationId,
-                        'previous_url' => $previousUrl,
-                        'found_in_previous_url' => !empty($previousUrlLocationId),
-                        'value_from_previous_url' => $previousUrlLocationId
+                        'found' => !empty($sessionLocationId),
+                        'value' => $sessionLocationId
                     ]);
                     
                     if ($sessionLocationId) {
                         $selectedLocationId = $sessionLocationId;
                         $extractionSource = 'session';
-                        Log::info('✅ [EXTRACTION] Retrieved selected locationId from session (Priority 4)', [
+                        Log::info('✅ [EXTRACTION] Retrieved selected locationId from session (Priority 3)', [
                             'selectedLocationId' => $selectedLocationId,
                             'companyId' => $locationId,
                             'source' => $extractionSource,
@@ -417,19 +367,10 @@ class ClientIntegrationController extends Controller
                         ]);
                         // Clear session after use
                         session()->forget('selected_location_id');
-                    } elseif ($previousUrlLocationId) {
-                        $selectedLocationId = $previousUrlLocationId;
-                        $extractionSource = 'session_previous_url';
-                        Log::info('✅ [EXTRACTION] Extracted selected locationId from session previous URL (Priority 4b)', [
-                            'selectedLocationId' => $selectedLocationId,
-                            'companyId' => $locationId,
-                            'source' => $extractionSource,
-                            'previous_url' => $previousUrl
-                        ]);
                     }
                 }
                 
-                // Priority 5: Try to get from cookie
+                // Priority 4: Try to get from cookie
                 if (!$selectedLocationId) {
                     $cookieLocationId = $request->cookie('selected_location_id');
                     Log::info('🔍 [EXTRACTION] Checking cookie', [
@@ -440,7 +381,7 @@ class ClientIntegrationController extends Controller
                     if ($cookieLocationId) {
                         $selectedLocationId = $cookieLocationId;
                         $extractionSource = 'cookie';
-                        Log::info('✅ [EXTRACTION] Retrieved selected locationId from cookie (Priority 5)', [
+                        Log::info('✅ [EXTRACTION] Retrieved selected locationId from cookie (Priority 4)', [
                             'selectedLocationId' => $selectedLocationId,
                             'companyId' => $locationId,
                             'source' => $extractionSource
@@ -450,7 +391,7 @@ class ClientIntegrationController extends Controller
                     }
                 }
                 
-                // Priority 6: Try to extract from referer (might not work after OAuth redirect)
+                // Priority 5: Try to extract from referer (might not work after OAuth redirect)
                 if (!$selectedLocationId) {
                     $referer = $request->header('referer');
                     $refererLocationId = null;
@@ -467,7 +408,7 @@ class ClientIntegrationController extends Controller
                     if ($refererLocationId) {
                         $selectedLocationId = $refererLocationId;
                         $extractionSource = 'referer';
-                        Log::info('✅ [EXTRACTION] Extracted selected locationId from referer (Priority 6)', [
+                        Log::info('✅ [EXTRACTION] Extracted selected locationId from referer (Priority 5)', [
                             'selectedLocationId' => $selectedLocationId,
                             'companyId' => $locationId,
                             'source' => $extractionSource,
@@ -476,7 +417,7 @@ class ClientIntegrationController extends Controller
                     }
                 }
                 
-                // Priority 7: Also try to extract from current URL
+                // Priority 6: Also try to extract from current URL
                 if (!$selectedLocationId) {
                     $urlLocationId = null;
                     if (preg_match('/\/location\/([^\/]+)/', $request->fullUrl(), $matches)) {
@@ -492,7 +433,7 @@ class ClientIntegrationController extends Controller
                     if ($urlLocationId) {
                         $selectedLocationId = $urlLocationId;
                         $extractionSource = 'current_url';
-                        Log::info('✅ [EXTRACTION] Extracted selected locationId from current URL (Priority 7)', [
+                        Log::info('✅ [EXTRACTION] Extracted selected locationId from current URL (Priority 6)', [
                             'selectedLocationId' => $selectedLocationId,
                             'companyId' => $locationId,
                             'source' => $extractionSource
@@ -625,9 +566,7 @@ class ClientIntegrationController extends Controller
                 ]);
 
                 $user = new User();
-                // Use userLocationId (which is selectedLocationId ?? locationId) for the name
-                // This ensures we use the location ID, not the company ID
-                $user->name = "Location {$userLocationId}";
+                $user->name = $selectedLocationId ? "Location {$selectedLocationId}" : "Location {$locationId}";
                 $user->email = $placeholderEmail;
                 $user->password = Hash::make(Str::random(40));
             }
@@ -1474,8 +1413,6 @@ class ClientIntegrationController extends Controller
                                     'new_selectedLocationId' => $selectedLocationId,
                                     'source' => $extractionSource
                                 ]);
-                                
-                                // Note: $newlySelectedLocationId is set, so STEP 5 will update the user record
                             } else {
                                 // No status changes or new locations found
                                 // Check locations with isInstalled: true in AFTER that are NOT in the main processing list
@@ -1499,44 +1436,10 @@ class ClientIntegrationController extends Controller
                                 if (!empty($installedButNotInMainProcessing)) {
                                     // These are locations that were already installed (so not in main processing)
                                     // but are the ones selected during this installation flow
-                                    // Prioritize the extracted location ID if it's in the list
                                     if ($selectedLocationId && in_array($selectedLocationId, $installedButNotInMainProcessing)) {
                                         $newlySelectedLocationId = $selectedLocationId;
-                                        Log::info('✅ [COMPARISON] Using extracted locationId that matches installed locations', [
-                                            'newlySelectedLocationId' => $newlySelectedLocationId,
-                                            'extracted_locationId' => $selectedLocationId,
-                                            'installed_but_not_in_main_processing' => $installedButNotInMainProcessing
-                                        ]);
                                     } else {
-                                        // If we don't have an extracted location ID, we need to find the most likely one
-                                        // Check if we can get it from session's previous URL or other sources
-                                        $hintLocationId = null;
-                                        
-                                        // Try to extract from session's previous URL
-                                        $previousUrl = session('_previous.url');
-                                        if ($previousUrl && preg_match('/\/location\/([^\/\?]+)/', $previousUrl, $matches)) {
-                                            $hintLocationId = $matches[1];
-                                            Log::info('🔍 [COMPARISON] Found location ID hint in session previous URL', [
-                                                'hint_locationId' => $hintLocationId,
-                                                'previous_url' => $previousUrl
-                                            ]);
-                                        }
-                                        
-                                        // Use hint if it's in the list, otherwise use first one
-                                        if ($hintLocationId && in_array($hintLocationId, $installedButNotInMainProcessing)) {
-                                            $newlySelectedLocationId = $hintLocationId;
-                                            Log::info('✅ [COMPARISON] Using location ID from session previous URL', [
-                                                'newlySelectedLocationId' => $newlySelectedLocationId
-                                            ]);
-                                        } else {
-                                            // As a last resort, use the first one, but log a warning
-                                            $newlySelectedLocationId = reset($installedButNotInMainProcessing);
-                                            Log::warning('⚠️ [COMPARISON] No extracted location ID found - using first installed location', [
-                                                'newlySelectedLocationId' => $newlySelectedLocationId,
-                                                'all_installed_locations' => $installedButNotInMainProcessing,
-                                                'note' => 'This might not be the correct selected location. Consider checking OAuth state parameter or session data.'
-                                            ]);
-                                        }
+                                        $newlySelectedLocationId = reset($installedButNotInMainProcessing);
                                     }
                                     
                                     Log::info('✅ [COMPARISON] Found selected location from installed locations not in main processing', [
@@ -1574,28 +1477,22 @@ class ClientIntegrationController extends Controller
                         if ($newlySelectedLocationId) {
                             // Update user record with the newly found location ID
                             // Also update userType to "Location" (same as marketplace installation flow)
-                            // And update name to use location ID instead of company ID
                             if ($user && $user->exists) {
                                 $oldLocationId = $user->lead_location_id;
                                 $oldUserType = $user->lead_user_type;
-                                $oldName = $user->name;
                                 $user->lead_location_id = $newlySelectedLocationId;
                                 // When a specific location is selected, userType should be "Location" (not "Company")
                                 // This matches the marketplace installation flow behavior
                                 $user->lead_user_type = 'Location';
-                                // Update name to use location ID instead of company ID
-                                $user->name = "Location {$newlySelectedLocationId}";
                                 try {
                                     $user->save();
-                                    Log::info('✅ Updated user record with newly selected location ID, userType, and name', [
+                                    Log::info('✅ Updated user record with newly selected location ID and userType', [
                                         'user_id' => $user->id,
                                         'old_location_id' => $oldLocationId,
                                         'new_location_id' => $newlySelectedLocationId,
                                         'old_user_type' => $oldUserType,
                                         'new_user_type' => 'Location',
-                                        'old_name' => $oldName,
-                                        'new_name' => $user->name,
-                                        'note' => 'Changed userType to Location and name to use locationId (same as marketplace installation flow)'
+                                        'note' => 'Changed userType to Location (same as marketplace installation flow)'
                                     ]);
                                 } catch (\Exception $e) {
                                     Log::error('❌ Failed to update user record with newly selected location ID', [
@@ -1626,9 +1523,7 @@ class ClientIntegrationController extends Controller
                                 }
                             }
                             
-                            // Always register provider for the newly selected location (even if already registered)
-                            // This ensures the integration appears in the integration tab
-                            if ($newlySelectedLocation) {
+                            if ($newlySelectedLocation && !$alreadyRegistered) {
                                 // Register provider for the newly selected location
                                 $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                                             . '?locationId=' . urlencode($newlySelectedLocationId);
@@ -1641,137 +1536,35 @@ class ClientIntegrationController extends Controller
                                     'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
                                 ];
                                 
-                                Log::info('📤 [PROVIDER REGISTRATION - SELECTED LOCATION] Request details', [
-                                    'locationId' => $newlySelectedLocationId,
-                                    'locationName' => $newlySelectedLocation['name'] ?? 'N/A',
-                                    'url' => $providerUrl,
-                                    'payload' => $providerPayload,
-                                    'has_access_token' => !empty($accessToken),
-                                    'token_preview' => $accessToken ? substr($accessToken, 0, 20) . '...' : null,
-                                    'already_registered' => $alreadyRegistered,
-                                    'note' => 'Registering provider for selected location found via BEFORE/AFTER comparison'
-                                ]);
-                                
                                 try {
-                                    $startTime = microtime(true);
                                     $providerResp = Http::timeout(30)
                                         ->acceptJson()
                                         ->withToken($accessToken)
                                         ->withHeaders(['Version' => '2021-07-28'])
                                         ->post($providerUrl, $providerPayload);
-                                    $endTime = microtime(true);
-                                    $duration = round(($endTime - $startTime) * 1000, 2);
-                                    
-                                    Log::info('📥 [PROVIDER REGISTRATION - SELECTED LOCATION] Response details', [
-                                        'locationId' => $newlySelectedLocationId,
-                                        'locationName' => $newlySelectedLocation['name'] ?? 'N/A',
-                                        'status_code' => $providerResp->status(),
-                                        'successful' => $providerResp->successful(),
-                                        'failed' => $providerResp->failed(),
-                                        'client_error' => $providerResp->clientError(),
-                                        'server_error' => $providerResp->serverError(),
-                                        'duration_ms' => $duration,
-                                        'response_headers' => $providerResp->headers(),
-                                        'response_body_raw' => $providerResp->body(),
-                                        'response_body_json' => $providerResp->json(),
-                                        'response_body_string' => (string) $providerResp->body(),
-                                        'response_size' => strlen($providerResp->body())
-                                    ]);
                                     
                                     if ($providerResp->successful()) {
-                                        $responseData = $providerResp->json();
                                         Log::info('✅ Provider registered for newly selected location (from BEFORE/AFTER comparison)', [
                                             'locationId' => $newlySelectedLocationId,
-                                            'locationName' => $newlySelectedLocation['name'] ?? 'N/A',
-                                            'status_code' => $providerResp->status(),
-                                            'response_data' => $responseData,
-                                            'provider_id' => $responseData['id'] ?? $responseData['providerId'] ?? $responseData['_id'] ?? null,
-                                            'provider_name' => $responseData['name'] ?? null,
-                                            'duration_ms' => $duration,
-                                            'already_registered_before' => $alreadyRegistered
+                                            'locationName' => $newlySelectedLocation['name'] ?? 'N/A'
                                         ]);
                                     } else {
-                                        $responseData = $providerResp->json();
-                                        $errorMessage = $responseData['message'] ?? $responseData['error'] ?? $responseData['errorMessage'] ?? 'Unknown error';
-                                        Log::error('❌ [PROVIDER REGISTRATION - SELECTED LOCATION] Failed to register provider', [
+                                        Log::warning('⚠️ Failed to register provider for newly selected location', [
                                             'locationId' => $newlySelectedLocationId,
-                                            'locationName' => $newlySelectedLocation['name'] ?? 'N/A',
-                                            'status_code' => $providerResp->status(),
-                                            'status_text' => $providerResp->reason(),
-                                            'error_message' => $errorMessage,
-                                            'response_body' => $providerResp->body(),
-                                            'response_json' => $responseData,
-                                            'response_headers' => $providerResp->headers(),
-                                            'duration_ms' => $duration,
-                                            'possible_causes' => [
-                                                'missing_scope' => !in_array('payments/custom-provider.write', $tokenData['oauthMeta']['scopes'] ?? []),
-                                                'locationId_mismatch' => ($tokenData['primaryAuthClassId'] ?? $tokenData['authClassId'] ?? null) !== $newlySelectedLocationId,
-                                                'invalid_location_id' => empty($newlySelectedLocationId),
-                                                'api_error' => $providerResp->serverError()
-                                            ]
+                                            'status' => $providerResp->status(),
+                                            'response' => $providerResp->json()
                                         ]);
                                     }
                                 } catch (\Exception $e) {
-                                    Log::error('❌ [PROVIDER REGISTRATION - SELECTED LOCATION] Exception registering provider', [
-                                        'locationId' => $newlySelectedLocationId,
-                                        'locationName' => $newlySelectedLocation['name'] ?? 'N/A',
-                                        'error_message' => $e->getMessage(),
-                                        'error_code' => $e->getCode(),
-                                        'error_file' => $e->getFile(),
-                                        'error_line' => $e->getLine(),
-                                        'error_trace' => $e->getTraceAsString(),
-                                        'url' => $providerUrl,
-                                        'payload' => $providerPayload
-                                    ]);
-                                }
-                            } else {
-                                // Location not found in AFTER response, but we should still try to register
-                                Log::warning('⚠️ Newly selected location not found in AFTER response, but will attempt registration', [
-                                    'locationId' => $newlySelectedLocationId,
-                                    'note' => 'Location was found via comparison but not in AFTER locations list'
-                                ]);
-                                
-                                $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
-                                            . '?locationId=' . urlencode($newlySelectedLocationId);
-                                
-                                $providerPayload = [
-                                    'name'        => 'Tap Payments',
-                                    'description' => 'Innovating payment acceptance & collection in MENA',
-                                    'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
-                                    'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
-                                    'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
-                                ];
-                                
-                                try {
-                                    $startTime = microtime(true);
-                                    $providerResp = Http::timeout(30)
-                                        ->acceptJson()
-                                        ->withToken($accessToken)
-                                        ->withHeaders(['Version' => '2021-07-28'])
-                                        ->post($providerUrl, $providerPayload);
-                                    $endTime = microtime(true);
-                                    $duration = round(($endTime - $startTime) * 1000, 2);
-                                    
-                                    Log::info('📥 [PROVIDER REGISTRATION - SELECTED LOCATION] Response details (location not in AFTER)', [
-                                        'locationId' => $newlySelectedLocationId,
-                                        'status_code' => $providerResp->status(),
-                                        'successful' => $providerResp->successful(),
-                                        'response_body' => $providerResp->body(),
-                                        'response_json' => $providerResp->json(),
-                                        'duration_ms' => $duration
-                                    ]);
-                                    
-                                    if ($providerResp->successful()) {
-                                        Log::info('✅ Provider registered for newly selected location (not in AFTER response)', [
-                                            'locationId' => $newlySelectedLocationId
-                                        ]);
-                                    }
-                                } catch (\Exception $e) {
-                                    Log::error('❌ Exception registering provider for newly selected location (not in AFTER)', [
+                                    Log::error('❌ Exception registering provider for newly selected location', [
                                         'locationId' => $newlySelectedLocationId,
                                         'error' => $e->getMessage()
                                     ]);
                                 }
+                            } elseif ($alreadyRegistered) {
+                                Log::info('ℹ️ Provider already registered for newly selected location', [
+                                    'locationId' => $newlySelectedLocationId
+                                ]);
                             }
                         }
                     } else {
