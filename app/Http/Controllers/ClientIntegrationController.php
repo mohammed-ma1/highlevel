@@ -374,37 +374,56 @@ class ClientIntegrationController extends Controller
                 'scopes_array' => $scope ? explode(' ', $scope) : null
             ]);
 
-            // For Company-level bulk installations, fetch all locations and register provider for each
+            // For Company-level bulk installations, fetch installed locations and register provider for each
             // According to GHL docs, provider config must be created for the integration to appear
+            // API Reference: https://marketplace.gohighlevel.com/docs/ghl/oauth/get-installed-locations
             if ($userType === 'Company' && $isBulk) {
-                Log::info('🔄 Handling Company-level bulk installation - fetching locations', [
+                Log::info('🔄 Handling Company-level bulk installation - fetching installed locations', [
                     'companyId' => $locationId,
                     'userType' => $userType,
                     'isBulk' => $isBulk
                 ]);
                 
-                // Try to fetch locations from the company
-                // For bulk installations, we need to register provider for each location
-                // According to GHL docs: https://help.gohighlevel.com/support/solutions/articles/155000002620
+                // Use the installedLocations API to fetch locations where app is installed
+                // API Reference: https://marketplace.gohighlevel.com/docs/ghl/oauth/get-installed-locations
+                // This is the correct API for bulk installations - it returns only locations where app is installed
                 try {
-                    // Try the locations API endpoint
-                    // Format: GET /locations with companyId query parameter
-                    $locationsUrl = "https://services.leadconnectorhq.com/locations";
+                    // Extract appId from client_id or token
+                    // client_id format: "68323dc0642d285465c0b85a-mdxt9tp5"
+                    // appId is the base part: "68323dc0642d285465c0b85a"
+                    $clientId = config('services.external_auth.client_id', '68323dc0642d285465c0b85a-mdxt9tp5');
+                    $appId = explode('-', $clientId)[0] ?? '68323dc0642d285465c0b85a';
                     
-                    Log::info('🔍 Attempting to fetch locations for bulk installation', [
+                    // Also try to get from token metadata if available
+                    if ($tokenData && isset($tokenData['oauthMeta']['client'])) {
+                        $appIdFromToken = $tokenData['oauthMeta']['client'] ?? null;
+                        if ($appIdFromToken) {
+                            $appId = $appIdFromToken;
+                        }
+                    }
+                    
+                    $installedLocationsUrl = "https://services.leadconnectorhq.com/oauth/installedLocations";
+                    
+                    Log::info('🔍 Fetching installed locations using installedLocations API', [
                         'companyId' => $locationId,
-                        'url' => $locationsUrl
+                        'appId' => $appId,
+                        'clientId' => $clientId,
+                        'url' => $installedLocationsUrl,
+                        'api_docs' => 'https://marketplace.gohighlevel.com/docs/ghl/oauth/get-installed-locations'
                     ]);
                     
                     $locationsResponse = Http::timeout(30)
                         ->acceptJson()
                         ->withToken($accessToken)
                         ->withHeaders(['Version' => '2021-07-28'])
-                        ->get($locationsUrl, [
-                            'companyId' => $locationId
+                        ->get($installedLocationsUrl, [
+                            'companyId' => $locationId,  // REQUIRED
+                            'appId' => $appId,           // REQUIRED
+                            'isInstalled' => true,       // Filter only installed locations
+                            'limit' => 100               // Get up to 100 locations per page
                         ]);
                     
-                    Log::info('📡 Locations API response', [
+                    Log::info('📡 Installed Locations API response', [
                         'status' => $locationsResponse->status(),
                         'successful' => $locationsResponse->successful(),
                         'response_keys' => $locationsResponse->successful() ? array_keys($locationsResponse->json() ?? []) : null,
@@ -421,12 +440,64 @@ class ClientIntegrationController extends Controller
                             $locations = [];
                         }
                         
-                        Log::info('📋 Fetched locations for company', [
+                        Log::info('📋 Fetched installed locations for company', [
                             'companyId' => $locationId,
+                            'appId' => $appId,
                             'locations_count' => count($locations),
                             'locations' => array_map(function($loc) {
-                                return ['id' => $loc['id'] ?? null, 'name' => $loc['name'] ?? null];
+                                return [
+                                    'id' => $loc['id'] ?? $loc['locationId'] ?? null, 
+                                    'name' => $loc['name'] ?? $loc['locationName'] ?? null,
+                                    'isInstalled' => $loc['isInstalled'] ?? true
+                                ];
                             }, $locations)
+                        ]);
+                        
+                        // Handle pagination if there are more locations
+                        // Check if we need to fetch more pages
+                        $totalLocations = count($locations);
+                        $allLocations = $locations;
+                        $skip = 100;
+                        
+                        // Fetch additional pages if limit was reached
+                        while ($totalLocations >= 100) {
+                            Log::info('📄 Fetching additional page of installed locations', [
+                                'skip' => $skip,
+                                'current_count' => $totalLocations
+                            ]);
+                            
+                            $nextPageResponse = Http::timeout(30)
+                                ->acceptJson()
+                                ->withToken($accessToken)
+                                ->withHeaders(['Version' => '2021-07-28'])
+                                ->get($installedLocationsUrl, [
+                                    'companyId' => $locationId,
+                                    'appId' => $appId,
+                                    'isInstalled' => true,
+                                    'skip' => $skip,
+                                    'limit' => 100
+                                ]);
+                            
+                            if ($nextPageResponse->successful()) {
+                                $nextPageData = $nextPageResponse->json();
+                                $nextPageLocations = $nextPageData['locations'] ?? $nextPageData['data'] ?? [];
+                                
+                                if (is_array($nextPageLocations) && count($nextPageLocations) > 0) {
+                                    $allLocations = array_merge($allLocations, $nextPageLocations);
+                                    $totalLocations = count($nextPageLocations);
+                                    $skip += 100;
+                                } else {
+                                    break; // No more locations
+                                }
+                            } else {
+                                break; // Error fetching next page
+                            }
+                        }
+                        
+                        $locations = $allLocations;
+                        Log::info('📊 Total installed locations fetched', [
+                            'companyId' => $locationId,
+                            'total_locations' => count($locations)
                         ]);
                         
                         // Register provider for each location
@@ -434,8 +505,12 @@ class ClientIntegrationController extends Controller
                         $failCount = 0;
                         
                         foreach ($locations as $location) {
-                            $actualLocationId = $location['id'] ?? null;
+                            // Handle different response formats
+                            $actualLocationId = $location['id'] ?? $location['locationId'] ?? null;
                             if (!$actualLocationId) {
+                                Log::warning('⚠️ Location entry missing ID', [
+                                    'location_data' => $location
+                                ]);
                                 continue;
                             }
                             
@@ -487,10 +562,13 @@ class ClientIntegrationController extends Controller
                             'failed' => $failCount
                         ]);
                     } else {
-                        Log::warning('⚠️ Could not fetch locations for company, trying direct registration', [
+                        Log::warning('⚠️ Could not fetch installed locations using installedLocations API', [
                             'companyId' => $locationId,
+                            'appId' => $appId,
                             'status' => $locationsResponse->status(),
-                            'response' => $locationsResponse->json()
+                            'response' => $locationsResponse->json(),
+                            'api_endpoint' => $installedLocationsUrl,
+                            'note' => 'Falling back to direct registration with company ID'
                         ]);
                         
                         // Fallback: Try to register with company ID directly
@@ -532,9 +610,14 @@ class ClientIntegrationController extends Controller
                         }
                     }
                 } catch (\Exception $e) {
-                    Log::error('❌ Exception fetching locations for bulk installation', [
+                    Log::error('❌ Exception fetching installed locations for bulk installation', [
                         'companyId' => $locationId,
+                        'appId' => $appId ?? 'unknown',
+                        'api_endpoint' => $installedLocationsUrl ?? 'N/A',
                         'error' => $e->getMessage(),
+                        'error_code' => $e->getCode(),
+                        'error_file' => $e->getFile(),
+                        'error_line' => $e->getLine(),
                         'trace' => $e->getTraceAsString()
                     ]);
                 }
@@ -640,8 +723,8 @@ class ClientIntegrationController extends Controller
                             'status_code' => $providerResp->status(),
                             'response_body' => $providerResp->json(),
                             'duration_ms' => $duration
-                        ]);
-                    }
+                ]);
+            }
                 } catch (\Exception $e) {
                     Log::error('❌ EXCEPTION during provider registration', [
                         'locationId' => $locationId,
