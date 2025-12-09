@@ -870,9 +870,9 @@
     // 1) Render the card
     function initializeTapCard() {
       const { unmount } = renderTapCard('card-sdk-id', {
-        publicKey: paymentData?.publishableKey || '{{ $publishableKey ?? "pk_test_YhUjg9PNT8oDlKJ1aE2fMRz7" }}',
+        publicKey: paymentData?.publishableKey || '',
         merchant: {
-          id: '{{ $merchantId ?? "merchant_id_here" }}'
+          id: ''
         },
         transaction: {
           amount: paymentData?.amount || 1,

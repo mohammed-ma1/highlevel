@@ -390,9 +390,9 @@
                                         <input 
                                             name="test_secretKey" 
                                             type="password" 
-                                            value="{{ old('test_secretKey') }}" 
                                             placeholder="sk_test_xxx" 
                                             class="form-input"
+                                            autocomplete="off"
                                         />
                                     </div>
                                     
@@ -401,9 +401,9 @@
                                         <input 
                                             name="live_secretKey" 
                                             type="password" 
-                                            value="{{ old('live_secretKey') }}" 
                                             placeholder="sk_live_xxx" 
                                             class="form-input"
+                                            autocomplete="off"
                                         />
                                     </div>
                                     
@@ -411,10 +411,10 @@
                                         <label class="form-label">Test - Public</label>
                                         <input 
                                             name="test_publishableKey" 
-                                            type="text" 
-                                            value="{{ old('test_publishableKey') }}" 
+                                            type="password" 
                                             placeholder="pk_test_xxx" 
                                             class="form-input"
+                                            autocomplete="off"
                                         />
                                     </div>
                                     
@@ -422,10 +422,10 @@
                                         <label class="form-label">Prod - Public Key</label>
                                         <input 
                                             name="live_publishableKey" 
-                                            type="text" 
-                                            value="{{ old('live_publishableKey') }}" 
+                                            type="password" 
                                             placeholder="pk_live_xxx" 
                                             class="form-input"
+                                            autocomplete="off"
                                         />
                                     </div>
                                     
@@ -433,10 +433,10 @@
                                         <label class="form-label">Merchant ID</label>
                                         <input 
                                             name="merchant_id" 
-                                            type="text" 
-                                            value="{{ old('merchant_id') }}" 
+                                            type="password" 
                                             placeholder="Enter your Tap Merchant ID" 
                                             class="form-input"
+                                            autocomplete="off"
                                         />
                                     </div>
                                     
@@ -444,10 +444,10 @@
                                         <label class="form-label">Prod - API Key</label>
                                         <input 
                                             name="apiKey" 
-                                            type="text" 
-                                            value="{{ old('apiKey') }}" 
+                                            type="password" 
                                             placeholder="live_xxx or test_xxx" 
                                             class="form-input"
+                                            autocomplete="off"
                                         />
                                     </div>
                                 </div>

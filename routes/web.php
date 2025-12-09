@@ -14,18 +14,14 @@ Route::get('/landing', function () {
     return view('welcome');
 })->name('welcome');
 
-Route::get('/test', function () {
-    return view('test');
-})->name('test');
+// Test route - DISABLED in production for security
+// Route::get('/test', function () {
+//     return view('test');
+// })->name('test');
 
 Route::get('/tap', function () {
-    // Get the first user's publishable key for demo purposes
-    $user = \App\Models\User::whereNotNull('lead_test_publishable_key')->first();
-    $publishableKey = $user ? $user->lead_test_publishable_key : 'pk_test_YhUjg9PNT8oDlKJ1aE2fMRz7';
-    $merchantId = 'merchant_id_here'; // You can get this from user config as well
-
-    
-    return view('tap', compact('publishableKey', 'merchantId'));
+    // Publishable key will be provided by GHL via postMessage
+    return view('tap');
 })->name('tap');
 
 Route::get('/charge', function () {
@@ -44,20 +40,20 @@ Route::post('/provider/connect-or-disconnect', [ClientIntegrationController::cla
 
 // Payment query endpoint moved to API routes to avoid CSRF issues
 
-// Test route for payment query
-Route::get('/test-payment-query', function () {
-    $testData = [
-        'type' => 'verify',
-        'locationId' => 'test_location_123',
-        'apiKey' => 'test_api_key',
-        'transactionId' => 'test_transaction_123'
-    ];
-    
-    $request = new \Illuminate\Http\Request($testData);
-    $controller = new \App\Http\Controllers\PaymentQueryController();
-    
-    return $controller->handleQuery($request);
-})->name('test.payment.query');
+// Test route for payment query - DISABLED in production for security
+// Route::get('/test-payment-query', function () {
+//     $testData = [
+//         'type' => 'verify',
+//         'locationId' => 'test_location_123',
+//         'apiKey' => 'test_api_key',
+//         'transactionId' => 'test_transaction_123'
+//     ];
+//     
+//     $request = new \Illuminate\Http\Request($testData);
+//     $controller = new \App\Http\Controllers\PaymentQueryController();
+//     
+//     return $controller->handleQuery($request);
+// })->name('test.payment.query');
 
 // New Charge API routes
 Route::post('/charge/create', [ClientIntegrationController::class, 'createCharge'])
@@ -67,13 +63,13 @@ Route::post('/charge/create', [ClientIntegrationController::class, 'createCharge
 Route::get('/charge/status', [ClientIntegrationController::class, 'getChargeStatus'])
     ->name('charge.status');
 
-// Test route for charge status (for debugging)
-Route::get('/test-charge-status/{tapId}', function ($tapId) {
-    $request = new \Illuminate\Http\Request(['tap_id' => $tapId]);
-    $controller = new \App\Http\Controllers\ClientIntegrationController();
-    
-    return $controller->getChargeStatus($request);
-})->name('test.charge.status');
+// Test route for charge status - DISABLED in production for security
+// Route::get('/test-charge-status/{tapId}', function ($tapId) {
+//     $request = new \Illuminate\Http\Request(['tap_id' => $tapId]);
+//     $controller = new \App\Http\Controllers\ClientIntegrationController();
+//     
+//     return $controller->getChargeStatus($request);
+// })->name('test.charge.status');
 
 
 Route::get('/payment/redirect', function (Request $request) {
