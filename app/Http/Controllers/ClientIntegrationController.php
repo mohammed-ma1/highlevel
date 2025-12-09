@@ -501,19 +501,19 @@ class ClientIntegrationController extends Controller
                 ], 502);
             }
 
-            // 2) For bulk installations, do BEFORE/AFTER comparison FIRST to find selected location
-            // Then create user with that location ID (not company ID)
+            // 2) For bulk installations, user creation happens after fetching installed locations
+            // Only locations with isInstalled: true are processed
             // For non-bulk installations, create user immediately
             $user = null;
             $finalSelectedLocationId = null; // Will be set from comparison for bulk installations
             
             if ($userType === 'Company' && $isBulk) {
-                // For bulk installations, we'll do the comparison first, then create user
-                // Skip user creation for now - will do it after comparison
-                Log::info('⏸️ [BULK] Skipping user creation - will do AFTER comparison to get selected location ID', [
+                // For bulk installations, we'll fetch installed locations and create user with first installed location
+                Log::info('⏸️ [BULK] Skipping user creation here - will create with first installed location', [
                     'companyId' => $companyId,
                     'locationId' => $locationId,
-                    'note' => 'User will be created with location ID from BEFORE/AFTER comparison, not company ID'
+                    'userType' => 'Location',
+                    'note' => 'User will be created with first location where isInstalled: true'
                 ]);
             } else {
                 // For non-bulk installations, create user immediately
@@ -856,7 +856,7 @@ class ClientIntegrationController extends Controller
             // According to GHL docs, provider config must be created for the integration to appear
             // API Reference: https://marketplace.gohighlevel.com/docs/ghl/oauth/get-installed-locations
             if ($userType === 'Company' && $isBulk) {
-                // Initialize finalSelectedLocationId - will be set from BEFORE/AFTER comparison
+                // Initialize finalSelectedLocationId - will be set from first installed location
                 $finalSelectedLocationId = null;
                 
                 Log::info('🔄 Handling Company-level bulk installation - fetching installed locations', [
@@ -902,8 +902,8 @@ class ClientIntegrationController extends Controller
                         ->get($installedLocationsUrl, [
                             'companyId' => $locationId,  // REQUIRED
                             'appId' => $appId,           // REQUIRED
-                            'isInstalled' => true,       // Filter only installed locations
                             'limit' => 100               // Get up to 100 locations per page
+                            // Note: Not filtering by isInstalled - we filter client-side for isInstalled: true
                         ]);
                     
                     Log::info('📡 Installed Locations API response', [
@@ -959,7 +959,6 @@ class ClientIntegrationController extends Controller
                                 ->get($installedLocationsUrl, [
                                     'companyId' => $locationId,
                                     'appId' => $appId,
-                                    'isInstalled' => true,
                                     'skip' => $skip,
                                     'limit' => 100
                                 ]);
@@ -1579,11 +1578,10 @@ class ClientIntegrationController extends Controller
 
             // For Company-level bulk installations, return success response (no redirect)
             if ($userType === 'Company' && $isBulk) {
-                // Use the selected location ID from BEFORE/AFTER comparison (NOT from database)
-                // Priority: 1) finalSelectedLocationId (from BEFORE/AFTER comparison - most accurate)
+                // Use the first installed location ID (where isInstalled: true)
+                // Priority: 1) finalSelectedLocationId (first installed location)
                 //           2) User's lead_location_id (should match finalSelectedLocationId)
-                //           3) selectedLocationId (from extraction)
-                //           4) locationId (company ID, fallback - should NOT be used if comparison worked)
+                //           3) locationId (company ID, fallback - only if no installed locations)
                 $finalLocationId = $finalSelectedLocationId ?? ($user ? $user->lead_location_id : null) ?? $selectedLocationId ?? $locationId;
                 
                 // Ensure we're not using the company ID if we found a specific location from comparison
@@ -1598,19 +1596,19 @@ class ClientIntegrationController extends Controller
                 Log::info('✅ Bulk installation completed successfully (no redirect)', [
                     'companyId' => $locationId,
                     'finalSelectedLocationId' => $finalSelectedLocationId ?? null,
-                    'selectedLocationId' => $selectedLocationId ?? null,
                     'user_lead_location_id' => $user ? $user->lead_location_id : null,
                     'finalLocationId' => $finalLocationId,
                     'user_id' => $user ? $user->id : null,
-                    'finalLocationId_source' => $finalSelectedLocationId ? 'finalSelectedLocationId_from_comparison' : ($user && $user->lead_location_id ? 'user_lead_location_id' : ($selectedLocationId ? 'selectedLocationId' : 'locationId_fallback')),
-                    'note' => 'finalLocationId should be from BEFORE/AFTER comparison, NOT company ID'
+                    'user_type' => $user ? $user->lead_user_type : 'Location',
+                    'finalLocationId_source' => $finalSelectedLocationId ? 'first_installed_location' : ($user && $user->lead_location_id ? 'user_lead_location_id' : 'locationId_fallback'),
+                    'note' => 'finalLocationId should be from first installed location (isInstalled: true)'
                 ]);
                 
                 return response()->json([
                     'success' => true,
                     'message' => 'Integration installed successfully',
                     'companyId' => $locationId,
-                    'locationId' => $finalLocationId, // Use selected location ID from comparison, not company ID
+                    'locationId' => $finalLocationId, // Use first installed location ID, not company ID
                     'userId' => $user ? $user->id : null
                 ], 200);
             } else {
