@@ -1593,24 +1593,20 @@ class ClientIntegrationController extends Controller
                     ]);
                 }
                 
-                Log::info('✅ Bulk installation completed successfully (no redirect)', [
+                // Redirect to GHL integration page for the first installed location
+                $redirectUrl = "https://app.mediasolution.io/v2/location/{$finalLocationId}/integration?selectedTab=installedApps";
+                
+                Log::info('✅ Bulk installation completed successfully - redirecting to integration page', [
                     'companyId' => $locationId,
                     'finalSelectedLocationId' => $finalSelectedLocationId ?? null,
                     'user_lead_location_id' => $user ? $user->lead_location_id : null,
                     'finalLocationId' => $finalLocationId,
                     'user_id' => $user ? $user->id : null,
                     'user_type' => $user ? $user->lead_user_type : 'Location',
-                    'finalLocationId_source' => $finalSelectedLocationId ? 'first_installed_location' : ($user && $user->lead_location_id ? 'user_lead_location_id' : 'locationId_fallback'),
-                    'note' => 'finalLocationId should be from first installed location (isInstalled: true)'
+                    'redirectUrl' => $redirectUrl
                 ]);
                 
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Integration installed successfully',
-                    'companyId' => $locationId,
-                    'locationId' => $finalLocationId, // Use first installed location ID, not company ID
-                    'userId' => $user ? $user->id : null
-                ], 200);
+                return redirect($redirectUrl);
             } else {
                 // For Location-level installations, redirect to integrations page
                 $redirectUrl = "https://app.gohighlevel.com/v2/location/{$locationId}/payments/integrations";
