@@ -1142,6 +1142,38 @@ class ClientIntegrationController extends Controller
                                 continue;
                             }
                             
+                            // For bulk installations, get a Location-scoped access token
+                            // This is required per GHL support - Company-scoped tokens cause the provider
+                            // to be registered at company level, not location level
+                            $tokenToUse = $accessToken;
+                            $tokenType = 'company';
+                            
+                            if ($isBulk && $userType === 'Company' && $companyId) {
+                                Log::info('🔑 [BULK] Getting location-scoped token for provider registration', [
+                                    'companyId' => $companyId,
+                                    'locationId' => $actualLocationId,
+                                    'reason' => 'Bulk installation requires location-scoped token for provider to appear in Integration tab'
+                                ]);
+                                
+                                $locationToken = $this->getLocationAccessToken($accessToken, $companyId, $actualLocationId);
+                                
+                                if ($locationToken) {
+                                    $tokenToUse = $locationToken;
+                                    $tokenType = 'location';
+                                    Log::info('✅ [BULK] Using location-scoped token for provider registration', [
+                                        'companyId' => $companyId,
+                                        'locationId' => $actualLocationId,
+                                        'token_type' => 'location-scoped'
+                                    ]);
+                                } else {
+                                    Log::warning('⚠️ [BULK] Could not get location-scoped token, falling back to company token', [
+                                        'companyId' => $companyId,
+                                        'locationId' => $actualLocationId,
+                                        'note' => 'Provider may be registered at company level instead of location level'
+                                    ]);
+                                }
+                            }
+                            
                             $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                                         . '?locationId=' . urlencode($actualLocationId);
                             
@@ -1159,14 +1191,17 @@ class ClientIntegrationController extends Controller
                                     'locationName' => $location['name'] ?? 'N/A',
                                     'url' => $providerUrl,
                                     'payload' => $providerPayload,
-                                    'has_access_token' => !empty($accessToken),
-                                    'token_preview' => $accessToken ? substr($accessToken, 0, 20) . '...' : null
+                                    'has_access_token' => !empty($tokenToUse),
+                                    'token_type' => $tokenType,
+                                    'token_preview' => $tokenToUse ? substr($tokenToUse, 0, 20) . '...' : null,
+                                    'is_bulk' => $isBulk,
+                                    'using_location_token' => $tokenType === 'location'
                                 ]);
                                 
                                 $startTime = microtime(true);
                                 $providerResp = Http::timeout(30)
                                     ->acceptJson()
-                                    ->withToken($accessToken)
+                                    ->withToken($tokenToUse)
                                     ->withHeaders(['Version' => '2021-07-28'])
                                     ->post($providerUrl, $providerPayload);
                                 $endTime = microtime(true);
@@ -1751,101 +1786,204 @@ class ClientIntegrationController extends Controller
                         
                         // ===== STEP 6: Register provider for the selected location (from comparison) =====
                         if ($finalSelectedLocationId && $user) {
-                            // Find the location data from the AFTER response
-                            $selectedLocationData = null;
-                            foreach ($afterLocations as $loc) {
-                                $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
-                                if ($locId === $finalSelectedLocationId) {
-                                    $selectedLocationData = $loc;
-                                    break;
+                            // Check if provider was already registered during bulk registration
+                            $alreadyRegisteredInBulk = false;
+                            if (isset($locationsToRegister) && is_array($locationsToRegister)) {
+                                foreach ($locationsToRegister as $regLoc) {
+                                    $regLocId = $regLoc['_id'] ?? $regLoc['id'] ?? $regLoc['locationId'] ?? null;
+                                    if ($regLocId === $finalSelectedLocationId) {
+                                        $alreadyRegisteredInBulk = true;
+                                        Log::info('ℹ️ [BULK] Provider already registered for selected location during bulk registration', [
+                                            'locationId' => $finalSelectedLocationId,
+                                            'note' => 'Skipping duplicate registration'
+                                        ]);
+                                        break;
+                                    }
                                 }
                             }
                             
-                            // Register provider for the selected location (from comparison)
-                            $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
-                                        . '?locationId=' . urlencode($finalSelectedLocationId);
-                            
-                            $providerPayload = [
-                                'name'        => 'Tap Payments',
-                                'description' => 'Innovating payment acceptance & collection in MENA',
-                                'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
-                                'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
-                                'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
-                            ];
-                            
-                            Log::info('=== [BULK] PROVIDER REGISTRATION for selected location from comparison ===', [
-                                'url' => $providerUrl,
-                                'locationId' => $finalSelectedLocationId,
-                                'payload' => $providerPayload,
-                                'has_access_token' => !empty($accessToken),
-                                'access_token_preview' => $accessToken ? substr($accessToken, 0, 20) . '...' : null,
-                                'token_scopes_from_payload' => $tokenData['oauthMeta']['scopes'] ?? null,
-                                'token_locationId' => $tokenData['primaryAuthClassId'] ?? $tokenData['authClassId'] ?? null,
-                                'userType' => $userType,
-                                'isBulk' => $isBulk,
-                                'headers' => [
-                                    'Version' => '2021-07-28',
-                                    'Authorization' => 'Bearer ' . ($accessToken ? substr($accessToken, 0, 20) . '...' : 'MISSING')
-                                ],
-                                'timeout' => 40
-                            ]);
-                            
-                            try {
-                                $startTime = microtime(true);
-                                $providerResp = Http::timeout(40)
-                                    ->acceptJson()
-                                    ->withToken($accessToken)
-                                    ->withHeaders(['Version' => '2021-07-28'])
-                                    ->post($providerUrl, $providerPayload);
-                                $endTime = microtime(true);
-                                $duration = round(($endTime - $startTime) * 1000, 2);
+                            // Only register if not already registered during bulk
+                            if (!$alreadyRegisteredInBulk) {
+                                // Find the location data from the AFTER response
+                                $selectedLocationData = null;
+                                foreach ($afterLocations as $loc) {
+                                    $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
+                                    if ($locId === $finalSelectedLocationId) {
+                                        $selectedLocationData = $loc;
+                                        break;
+                                    }
+                                }
                                 
-                                Log::info('=== [BULK] PROVIDER REGISTRATION RESPONSE for selected location ===', [
+                                // For bulk installations, get a Location-scoped access token
+                                // This is required per GHL support - Company-scoped tokens cause the provider
+                                // to be registered at company level, not location level
+                                $selectedLocationTokenToUse = $accessToken;
+                                $selectedLocationTokenType = 'company';
+                                
+                                if ($isBulk && $userType === 'Company' && $companyId) {
+                                    Log::info('🔑 [BULK] Getting location-scoped token for selected location provider registration', [
+                                        'companyId' => $companyId,
+                                        'locationId' => $finalSelectedLocationId,
+                                        'reason' => 'Bulk installation requires location-scoped token for provider to appear in Integration tab'
+                                    ]);
+                                    
+                                    $selectedLocationToken = $this->getLocationAccessToken($accessToken, $companyId, $finalSelectedLocationId);
+                                    
+                                    if ($selectedLocationToken) {
+                                        $selectedLocationTokenToUse = $selectedLocationToken;
+                                        $selectedLocationTokenType = 'location';
+                                        Log::info('✅ [BULK] Using location-scoped token for selected location provider registration', [
+                                            'companyId' => $companyId,
+                                            'locationId' => $finalSelectedLocationId,
+                                            'token_type' => 'location-scoped'
+                                        ]);
+                                    } else {
+                                        Log::warning('⚠️ [BULK] Could not get location-scoped token for selected location, falling back to company token', [
+                                            'companyId' => $companyId,
+                                            'locationId' => $finalSelectedLocationId,
+                                            'note' => 'Provider may be registered at company level instead of location level'
+                                        ]);
+                                    }
+                                }
+                                
+                                // Register provider for the selected location (from comparison)
+                                $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
+                                            . '?locationId=' . urlencode($finalSelectedLocationId);
+                                
+                                $providerPayload = [
+                                    'name'        => 'Tap Payments',
+                                    'description' => 'Innovating payment acceptance & collection in MENA',
+                                    'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
+                                    'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
+                                    'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
+                                ];
+                                
+                                Log::info('=== [BULK] PROVIDER REGISTRATION for selected location from comparison ===', [
+                                    'url' => $providerUrl,
                                     'locationId' => $finalSelectedLocationId,
-                                    'status_code' => $providerResp->status(),
-                                    'successful' => $providerResp->successful(),
-                                    'failed' => $providerResp->failed(),
-                                    'client_error' => $providerResp->clientError(),
-                                    'server_error' => $providerResp->serverError(),
-                                    'duration_ms' => $duration,
-                                    'response_headers' => $providerResp->headers(),
-                                    'response_body_raw' => $providerResp->body(),
-                                    'response_body_json' => $providerResp->json(),
-                                    'response_body_string' => (string) $providerResp->body()
+                                    'payload' => $providerPayload,
+                                    'has_access_token' => !empty($selectedLocationTokenToUse),
+                                    'token_type' => $selectedLocationTokenType,
+                                    'access_token_preview' => $selectedLocationTokenToUse ? substr($selectedLocationTokenToUse, 0, 20) . '...' : null,
+                                    'token_scopes_from_payload' => $tokenData['oauthMeta']['scopes'] ?? null,
+                                    'token_locationId' => $tokenData['primaryAuthClassId'] ?? $tokenData['authClassId'] ?? null,
+                                    'userType' => $userType,
+                                    'isBulk' => $isBulk,
+                                    'using_location_token' => $selectedLocationTokenType === 'location',
+                                    'headers' => [
+                                        'Version' => '2021-07-28',
+                                        'Authorization' => 'Bearer ' . ($selectedLocationTokenToUse ? substr($selectedLocationTokenToUse, 0, 20) . '...' : 'MISSING')
+                                    ],
+                                    'timeout' => 40
                                 ]);
                                 
-                                if ($providerResp->successful()) {
-                                    Log::info('✅ [BULK] Provider registered for selected location (from BEFORE/AFTER comparison)', [
-                                        'locationId' => $finalSelectedLocationId,
-                                        'locationName' => $selectedLocationData['name'] ?? 'N/A',
-                                        'response' => $providerResp->json()
-                                    ]);
-                                } else {
-                                    $responseJson = $providerResp->json();
-                                    $errorMessage = $responseJson['message'] ?? $responseJson['error'] ?? 'Unknown error';
-                                    Log::error('❌ [BULK] PROVIDER REGISTRATION FAILED for selected location', [
+                                try {
+                                    $startTime = microtime(true);
+                                    $providerResp = Http::timeout(40)
+                                        ->acceptJson()
+                                        ->withToken($selectedLocationTokenToUse)
+                                        ->withHeaders(['Version' => '2021-07-28'])
+                                        ->post($providerUrl, $providerPayload);
+                                    $endTime = microtime(true);
+                                    $duration = round(($endTime - $startTime) * 1000, 2);
+                                    
+                                    Log::info('=== [BULK] PROVIDER REGISTRATION RESPONSE for selected location ===', [
                                         'locationId' => $finalSelectedLocationId,
                                         'status_code' => $providerResp->status(),
-                                        'status_text' => $providerResp->reason(),
-                                        'error_message' => $errorMessage,
-                                        'response_body' => $providerResp->body(),
-                                        'response_json' => $responseJson,
+                                        'successful' => $providerResp->successful(),
+                                        'failed' => $providerResp->failed(),
+                                        'client_error' => $providerResp->clientError(),
+                                        'server_error' => $providerResp->serverError(),
+                                        'duration_ms' => $duration,
                                         'response_headers' => $providerResp->headers(),
-                                        'userType' => $userType,
-                                        'isBulk' => $isBulk,
-                                        'token_scopes' => $tokenData ? ($tokenData['oauthMeta']['scopes'] ?? null) : null,
-                                        'token_has_custom_provider_write' => !empty($tokenData['oauthMeta']['scopes']) && in_array('payments/custom-provider.write', $tokenData['oauthMeta']['scopes'] ?? [])
+                                        'response_body_raw' => $providerResp->body(),
+                                        'response_body_json' => $providerResp->json(),
+                                        'response_body_string' => (string) $providerResp->body()
+                                    ]);
+                                    
+                                    if ($providerResp->successful()) {
+                                        $responseData = $providerResp->json();
+                                        $responseLocationId = $responseData['locationId'] ?? null;
+                                        
+                                        // Log warning if response locationId doesn't match requested locationId
+                                        if ($responseLocationId && $responseLocationId !== $finalSelectedLocationId && $responseLocationId === $companyId) {
+                                            Log::warning('⚠️ [BULK] Provider registration response returned company ID instead of location ID', [
+                                                'requested_locationId' => $finalSelectedLocationId,
+                                                'response_locationId' => $responseLocationId,
+                                                'companyId' => $companyId,
+                                                'note' => 'This might be expected GHL behavior - provider may still be registered for the requested location'
+                                            ]);
+                                        }
+                                        
+                                        // Verify the provider is actually registered by calling GET endpoint
+                                        // Use the same location-scoped token for verification
+                                        try {
+                                            $verifyUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
+                                                        . '?locationId=' . urlencode($finalSelectedLocationId);
+                                            
+                                            $verifyResponse = Http::timeout(10)
+                                                ->acceptJson()
+                                                ->withToken($selectedLocationTokenToUse)
+                                                ->withHeaders(['Version' => '2021-07-28'])
+                                                ->get($verifyUrl);
+                                            
+                                            if ($verifyResponse->successful()) {
+                                                $verifyData = $verifyResponse->json();
+                                                Log::info('✅ [BULK] Provider verification successful', [
+                                                    'locationId' => $finalSelectedLocationId,
+                                                    'provider_exists' => true,
+                                                    'provider_data' => $verifyData,
+                                                    'provider_id' => $verifyData['_id'] ?? $verifyData['id'] ?? null,
+                                                    'provider_name' => $verifyData['name'] ?? null,
+                                                    'token_type_used' => $selectedLocationTokenType
+                                                ]);
+                                            } else {
+                                                Log::warning('⚠️ [BULK] Provider verification failed - provider might not be registered', [
+                                                    'locationId' => $finalSelectedLocationId,
+                                                    'status' => $verifyResponse->status(),
+                                                    'response' => $verifyResponse->json()
+                                                ]);
+                                            }
+                                        } catch (\Exception $verifyException) {
+                                            Log::warning('⚠️ [BULK] Could not verify provider registration', [
+                                                'locationId' => $finalSelectedLocationId,
+                                                'error' => $verifyException->getMessage()
+                                            ]);
+                                        }
+                                        
+                                        Log::info('✅ [BULK] Provider registered for selected location (from BEFORE/AFTER comparison)', [
+                                            'locationId' => $finalSelectedLocationId,
+                                            'locationName' => $selectedLocationData['name'] ?? 'N/A',
+                                            'response_locationId' => $responseLocationId,
+                                            'response' => $responseData
+                                        ]);
+                                    } else {
+                                        $responseJson = $providerResp->json();
+                                        $errorMessage = $responseJson['message'] ?? $responseJson['error'] ?? 'Unknown error';
+                                        Log::error('❌ [BULK] PROVIDER REGISTRATION FAILED for selected location', [
+                                            'locationId' => $finalSelectedLocationId,
+                                            'status_code' => $providerResp->status(),
+                                            'status_text' => $providerResp->reason(),
+                                            'error_message' => $errorMessage,
+                                            'response_body' => $providerResp->body(),
+                                            'response_json' => $responseJson,
+                                            'response_headers' => $providerResp->headers(),
+                                            'userType' => $userType,
+                                            'isBulk' => $isBulk,
+                                            'token_scopes' => $tokenData ? ($tokenData['oauthMeta']['scopes'] ?? null) : null,
+                                            'token_has_custom_provider_write' => !empty($tokenData['oauthMeta']['scopes']) && in_array('payments/custom-provider.write', $tokenData['oauthMeta']['scopes'] ?? [])
+                                        ]);
+                                    }
+                                } catch (\Exception $e) {
+                                    Log::error('❌ [BULK] Exception registering provider for selected location', [
+                                        'locationId' => $finalSelectedLocationId,
+                                        'error' => $e->getMessage(),
+                                        'error_code' => $e->getCode(),
+                                        'error_file' => $e->getFile(),
+                                        'error_line' => $e->getLine(),
+                                        'trace' => $e->getTraceAsString()
                                     ]);
                                 }
-                            } catch (\Exception $e) {
-                                Log::error('❌ [BULK] Exception registering provider for selected location', [
-                                    'locationId' => $finalSelectedLocationId,
-                                    'error' => $e->getMessage(),
-                                    'error_code' => $e->getCode(),
-                                    'error_file' => $e->getFile(),
-                                    'error_line' => $e->getLine(),
-                                    'trace' => $e->getTraceAsString()
-                                ]);
                             }
                         }
                     } else {
@@ -2005,12 +2143,75 @@ class ClientIntegrationController extends Controller
                 // This is critical - if provider registration fails, the integration won't appear
                 // We'll still save the user but log the error for debugging
             } else {
-                        Log::info('✅ PROVIDER ASSOCIATION SUCCESSFUL', [
-                    'locationId' => $locationId,
-                            'status_code' => $providerResp->status(),
-                            'response_body' => $providerResp->json(),
-                            'duration_ms' => $duration
-                ]);
+                        $responseData = $providerResp->json();
+                        $responseLocationId = $responseData['locationId'] ?? null;
+                        
+                        // Check if response locationId matches requested locationId
+                        if ($responseLocationId && $responseLocationId !== $locationId) {
+                            Log::warning('⚠️ PROVIDER REGISTRATION RESPONSE MISMATCH - Response returned different locationId', [
+                                'requested_locationId' => $locationId,
+                                'response_locationId' => $responseLocationId,
+                                'is_company_id' => $responseLocationId === $companyId,
+                                'userType' => $userType,
+                                'isBulk' => $isBulk,
+                                'note' => 'This might indicate the provider is not properly registered for the requested location. Integration may not appear in GHL.',
+                                'response_data' => $responseData
+                            ]);
+                            
+                            // Verify by calling GET endpoint to check if provider is actually registered for the requested location
+                            try {
+                                $verifyUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
+                                            . '?locationId=' . urlencode($locationId);
+                                
+                                $verifyResponse = Http::timeout(10)
+                                    ->acceptJson()
+                                    ->withToken($accessToken)
+                                    ->withHeaders(['Version' => '2021-07-28'])
+                                    ->get($verifyUrl);
+                                
+                                if ($verifyResponse->successful()) {
+                                    $verifyData = $verifyResponse->json();
+                                    $verifyLocationId = $verifyData['locationId'] ?? null;
+                                    
+                                    if ($verifyLocationId === $locationId) {
+                                        Log::info('✅ Provider verification successful - Provider is registered for correct location', [
+                                            'requested_locationId' => $locationId,
+                                            'verified_locationId' => $verifyLocationId,
+                                            'provider_id' => $verifyData['_id'] ?? $verifyData['id'] ?? null,
+                                            'provider_name' => $verifyData['name'] ?? null
+                                        ]);
+                                    } else {
+                                        Log::warning('⚠️ Provider verification failed - Provider registered for different location', [
+                                            'requested_locationId' => $locationId,
+                                            'verified_locationId' => $verifyLocationId,
+                                            'provider_data' => $verifyData,
+                                            'note' => 'Provider may not appear in integration tab for the requested location'
+                                        ]);
+                                    }
+                                } else {
+                                    Log::warning('⚠️ Provider verification failed - Provider might not be registered', [
+                                        'requested_locationId' => $locationId,
+                                        'status' => $verifyResponse->status(),
+                                        'response' => $verifyResponse->json(),
+                                        'note' => 'Integration may not appear in GHL integration tab'
+                                    ]);
+                                }
+                            } catch (\Exception $verifyException) {
+                                Log::warning('⚠️ Could not verify provider registration', [
+                                    'requested_locationId' => $locationId,
+                                    'error' => $verifyException->getMessage()
+                                ]);
+                            }
+                        } else {
+                            // Response locationId matches requested locationId - this is correct
+                            Log::info('✅ PROVIDER ASSOCIATION SUCCESSFUL - Response locationId matches requested', [
+                                'locationId' => $locationId,
+                                'response_locationId' => $responseLocationId,
+                                'status_code' => $providerResp->status(),
+                                'response_body' => $responseData,
+                                'duration_ms' => $duration
+                            ]);
+                        }
             }
                 } catch (\Exception $e) {
                     Log::error('❌ EXCEPTION during provider registration', [
@@ -4288,6 +4489,87 @@ class ClientIntegrationController extends Controller
                 'success' => false,
                 'message' => 'Internal server error'
             ], 500);
+        }
+    }
+
+    /**
+     * Get a Location-scoped access token from a Company-scoped token
+     * This is required for bulk installations where the OAuth flow returns a Company token
+     * but the payment provider registration API requires a Location token
+     * 
+     * API Reference: https://marketplace.gohighlevel.com/docs/ghl/oauth/get-location-access-token
+     *
+     * @param string $companyAccessToken Company-scoped access token
+     * @param string $companyId The company ID
+     * @param string $locationId The location ID to get token for
+     * @return string|null The location-scoped access token or null on failure
+     */
+    private function getLocationAccessToken(string $companyAccessToken, string $companyId, string $locationId): ?string
+    {
+        try {
+            $tokenUrl = 'https://services.leadconnectorhq.com/oauth/locationToken';
+            
+            Log::info('🔑 [LOCATION TOKEN] Requesting location-scoped access token', [
+                'companyId' => $companyId,
+                'locationId' => $locationId,
+                'url' => $tokenUrl,
+                'has_company_token' => !empty($companyAccessToken),
+                'company_token_preview' => $companyAccessToken ? substr($companyAccessToken, 0, 20) . '...' : null
+            ]);
+            
+            $startTime = microtime(true);
+            $response = Http::timeout(30)
+                ->acceptJson()
+                ->withToken($companyAccessToken)
+                ->withHeaders(['Version' => '2021-07-28'])
+                ->post($tokenUrl, [
+                    'companyId' => $companyId,
+                    'locationId' => $locationId
+                ]);
+            $endTime = microtime(true);
+            $duration = round(($endTime - $startTime) * 1000, 2);
+            
+            if ($response->successful()) {
+                $data = $response->json();
+                $locationToken = $data['access_token'] ?? null;
+                
+                Log::info('✅ [LOCATION TOKEN] Successfully obtained location-scoped access token', [
+                    'companyId' => $companyId,
+                    'locationId' => $locationId,
+                    'has_location_token' => !empty($locationToken),
+                    'location_token_preview' => $locationToken ? substr($locationToken, 0, 20) . '...' : null,
+                    'token_type' => $data['token_type'] ?? null,
+                    'expires_in' => $data['expires_in'] ?? null,
+                    'scope' => $data['scope'] ?? null,
+                    'duration_ms' => $duration
+                ]);
+                
+                return $locationToken;
+            } else {
+                Log::error('❌ [LOCATION TOKEN] Failed to get location-scoped access token', [
+                    'companyId' => $companyId,
+                    'locationId' => $locationId,
+                    'status_code' => $response->status(),
+                    'status_text' => $response->reason(),
+                    'response_body' => $response->body(),
+                    'response_json' => $response->json(),
+                    'duration_ms' => $duration
+                ]);
+                
+                return null;
+            }
+        } catch (\Exception $e) {
+            Log::error('❌ [LOCATION TOKEN] Exception getting location-scoped access token', [
+                'companyId' => $companyId,
+                'locationId' => $locationId,
+                'error' => $e->getMessage(),
+                'error_code' => $e->getCode(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return null;
         }
     }
 
