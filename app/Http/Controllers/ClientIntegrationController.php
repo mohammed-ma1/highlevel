@@ -606,7 +606,8 @@ class ClientIntegrationController extends Controller
 
                 $user->lead_scope                 = $scope;
                 $user->lead_refresh_token_id      = $refreshTokenId;
-                $user->lead_user_type             = $userType;
+                // For bulk installations, use 'Location' as userType since we're registering for a specific location
+                $user->lead_user_type             = ($isBulk && $userType === 'Company') ? 'Location' : $userType;
                 $user->lead_company_id            = $companyId;
                 // Use selected location ID if available, otherwise use company ID
                 $user->lead_location_id           = $userLocationId;
