@@ -1593,10 +1593,10 @@ class ClientIntegrationController extends Controller
                     ]);
                 }
                 
-                // Redirect to GHL integration page for the first installed location
-                $redirectUrl = "https://app.mediasolution.io/v2/location/{$finalLocationId}/integration?selectedTab=installedApps";
-                
-                Log::info('✅ Bulk installation completed successfully - redirecting to integration page', [
+                // Redirect to app homepage after successful installation
+                $redirectUrl = "https://app.mediasolution.io/";
+
+                Log::info('✅ Bulk installation completed successfully - redirecting to app', [
                     'companyId' => $locationId,
                     'finalSelectedLocationId' => $finalSelectedLocationId ?? null,
                     'user_lead_location_id' => $user ? $user->lead_location_id : null,
