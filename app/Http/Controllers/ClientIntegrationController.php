@@ -861,15 +861,14 @@ class ClientIntegrationController extends Controller
                 
                 Log::info('🔄 Handling Company-level bulk installation - fetching installed locations', [
                     'companyId' => $locationId,
-                    'selectedLocationId' => $selectedLocationId ?? null,
                     'userType' => $userType,
                     'isBulk' => $isBulk,
-                    'note' => 'Will do BEFORE/AFTER comparison to find selected location, then create user with that location ID'
+                    'note' => 'Will process ONLY locations where isInstalled: true'
                 ]);
                 
                 // Use the installedLocations API to fetch locations where app is installed
                 // API Reference: https://marketplace.gohighlevel.com/docs/ghl/oauth/get-installed-locations
-                // This is the correct API for bulk installations - it returns only locations where app is installed
+                // SIMPLE LOGIC: Only process locations where isInstalled: true
                 try {
                     // Extract appId from client_id or token
                     // client_id format: "68323dc0642d285465c0b85a-mdxt9tp5"
@@ -887,65 +886,7 @@ class ClientIntegrationController extends Controller
                     
                     $installedLocationsUrl = "https://services.leadconnectorhq.com/oauth/installedLocations";
                     
-                    // ===== STEP 1: Call installedLocations API BEFORE processing (to get baseline) =====
-                    Log::info('🔍 [BEFORE] Fetching installed locations BEFORE processing', [
-                        'companyId' => $locationId,
-                        'appId' => $appId,
-                        'clientId' => $clientId,
-                        'url' => $installedLocationsUrl,
-                        'api_docs' => 'https://marketplace.gohighlevel.com/docs/ghl/oauth/get-installed-locations'
-                    ]);
-                    
-                    $locationsResponseBefore = Http::timeout(30)
-                        ->acceptJson()
-                        ->withToken($accessToken)
-                        ->withHeaders(['Version' => '2021-07-28'])
-                        ->get($installedLocationsUrl, [
-                            'companyId' => $locationId,  // REQUIRED
-                            'appId' => $appId,           // REQUIRED
-                            'limit' => 100               // Get up to 100 locations per page
-                            // Note: Not filtering by isInstalled to get all locations
-                        ]);
-                    
-                    // Extract location IDs from BEFORE state
-                    $locationIdsBefore = [];
-                    $beforeLocations = [];
-                    if ($locationsResponseBefore->successful()) {
-                        $beforeData = $locationsResponseBefore->json();
-                        $beforeLocations = $beforeData['locations'] ?? $beforeData['data'] ?? [];
-                        
-                        if (!is_array($beforeLocations)) {
-                            $beforeLocations = [];
-                        }
-                        
-                        foreach ($beforeLocations as $loc) {
-                            $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
-                            if ($locId) {
-                                $locationIdsBefore[] = $locId;
-                            }
-                        }
-                        
-                        Log::info('📋 [BEFORE] Installed locations BEFORE processing', [
-                            'companyId' => $locationId,
-                            'appId' => $appId,
-                            'locations_count' => count($beforeLocations),
-                            'location_ids' => $locationIdsBefore,
-                            'locations' => array_map(function($loc) {
-                                return [
-                                    'id' => $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null, 
-                                    'name' => $loc['name'] ?? $loc['locationName'] ?? null,
-                                    'isInstalled' => $loc['isInstalled'] ?? false
-                                ];
-                            }, $beforeLocations)
-                        ]);
-                    } else {
-                        Log::warning('⚠️ [BEFORE] Failed to fetch installed locations BEFORE processing', [
-                            'status' => $locationsResponseBefore->status(),
-                            'response' => $locationsResponseBefore->json()
-                        ]);
-                    }
-                    
-                    // ===== STEP 2: Now fetch installed locations for processing =====
+                    // Fetch installed locations
                     Log::info('🔍 Fetching installed locations using installedLocations API', [
                         'companyId' => $locationId,
                         'appId' => $appId,
@@ -1040,86 +981,34 @@ class ClientIntegrationController extends Controller
                         }
                         
                         $locations = $allLocations;
-                        Log::info('📊 Total installed locations fetched', [
+                        Log::info('📊 Total locations fetched', [
                             'companyId' => $locationId,
                             'total_locations' => count($locations)
                         ]);
                         
-                        // Register provider for each location
-                        $successCount = 0;
-                        $failCount = 0;
-                        
-                        // For bulk installations, we need to register provider for:
-                        // 1. The selected location (if user clicked a direct link) - ALWAYS register this first
-                        // 2. All locations where app is installed (isInstalled: true)
-                        // 3. If no specific location selected and all are false, register for all locations
-                        
+                        // SIMPLE LOGIC: Only process locations where isInstalled: true
+                        // These are the locations where the app is actually installed
                         $locationsToRegister = [];
-                        $selectedLocationFound = false;
+                        $firstInstalledLocationId = null;
                         
-                        // If a specific location was selected, prioritize it and ALWAYS register it
-                        if ($selectedLocationId) {
-                            $selectedLocation = null;
-                            foreach ($locations as $loc) {
-                                $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
-                                if ($locId === $selectedLocationId) {
-                                    $selectedLocation = $loc;
-                                    $selectedLocationFound = true;
-                                    break;
-                                }
-                            }
-                            
-                            if ($selectedLocation) {
-                                $locationsToRegister[] = $selectedLocation;
-                                Log::info('✅ Found selected location in API response - will register provider', [
-                                    'locationId' => $selectedLocationId,
-                                    'locationName' => $selectedLocation['name'] ?? 'N/A',
-                                    'isInstalled' => $selectedLocation['isInstalled'] ?? false
-                                ]);
-                            } else {
-                                // Location not in API response, but we MUST register it anyway
-                                // This is the location the user specifically selected
-                                $locationsToRegister[] = [
-                                    '_id' => $selectedLocationId,
-                                    'id' => $selectedLocationId,
-                                    'name' => 'Selected Location (Not in API response)',
-                                    'isInstalled' => false
-                                ];
-                                Log::info('⚠️ Selected location NOT in API response - will register provider anyway', [
-                                    'locationId' => $selectedLocationId,
-                                    'note' => 'This is the location the user clicked on, so we must register the provider for it'
-                                ]);
-                            }
-                        }
-                        
-                        // Also add all locations where app is installed
                         foreach ($locations as $location) {
                             $locId = $location['_id'] ?? $location['id'] ?? $location['locationId'] ?? null;
                             $isInstalled = $location['isInstalled'] ?? false;
                             
-                            // Skip if already added (selected location)
-                            if ($selectedLocationId && $locId === $selectedLocationId) {
-                                continue;
-                            }
-                            
-                            // Add if installed
-                            if ($isInstalled) {
+                            // ONLY add locations where isInstalled is true
+                            if ($isInstalled && $locId) {
                                 $locationsToRegister[] = $location;
+                                
+                                // Track the first installed location for user creation
+                                if ($firstInstalledLocationId === null) {
+                                    $firstInstalledLocationId = $locId;
+                                }
                             }
                         }
                         
-                        // If no locations to register yet, and no specific selection, register for all
-                        // This handles the case where bulk installation is new and locations aren't marked as installed yet
-                        if (empty($locationsToRegister) && !$selectedLocationId) {
-                            Log::info('ℹ️ No installed locations found and no specific selection - registering for all locations', [
-                                'total_locations' => count($locations)
-                            ]);
-                            $locationsToRegister = $locations;
-                        }
-                        
-                        Log::info('📝 Locations to register provider for', [
+                        Log::info('📝 Installed locations to register provider for (isInstalled: true only)', [
                             'count' => count($locationsToRegister),
-                            'selectedLocationId' => $selectedLocationId,
+                            'firstInstalledLocationId' => $firstInstalledLocationId,
                             'locations' => array_map(function($loc) {
                                 return [
                                     'id' => $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null,
@@ -1129,7 +1018,16 @@ class ClientIntegrationController extends Controller
                             }, $locationsToRegister)
                         ]);
                         
-                        // Register provider for each location
+                        // If no installed locations found, log warning and skip
+                        if (empty($locationsToRegister)) {
+                            Log::warning('⚠️ No locations with isInstalled: true found - skipping provider registration', [
+                                'companyId' => $locationId,
+                                'total_locations' => count($locations),
+                                'note' => 'App is not installed for any location yet'
+                            ]);
+                        }
+                        
+                        // Register provider for each installed location
                         $successCount = 0;
                         $failCount = 0;
                         
@@ -1278,352 +1176,23 @@ class ClientIntegrationController extends Controller
                         Log::info('📊 Bulk provider registration summary', [
                             'companyId' => $locationId,
                             'total_locations' => count($locations),
+                            'installed_locations' => count($locationsToRegister),
                             'successful' => $successCount,
                             'failed' => $failCount
                         ]);
                         
-                        // ===== STEP 3: Call installedLocations API AFTER processing (to find newly selected location) =====
-                        Log::info('🔍 [AFTER] Fetching installed locations AFTER processing', [
-                            'companyId' => $locationId,
-                            'appId' => $appId,
-                            'url' => $installedLocationsUrl
-                        ]);
-                        
-                        // Wait a moment for GHL to update the installation status
-                        sleep(1);
-                        
-                        $locationsResponseAfter = Http::timeout(30)
-                            ->acceptJson()
-                            ->withToken($accessToken)
-                            ->withHeaders(['Version' => '2021-07-28'])
-                            ->get($installedLocationsUrl, [
-                                'companyId' => $locationId,
-                                'appId' => $appId,
-                                'limit' => 100
-                                // Note: Not filtering by isInstalled to get all locations
-                            ]);
-                        
-                        // Extract location IDs from AFTER state
-                        $locationIdsAfter = [];
-                        $afterLocations = [];
-                        if ($locationsResponseAfter->successful()) {
-                            $afterData = $locationsResponseAfter->json();
-                            $afterLocations = $afterData['locations'] ?? $afterData['data'] ?? [];
-                            
-                            if (!is_array($afterLocations)) {
-                                $afterLocations = [];
-                            }
-                            
-                            foreach ($afterLocations as $loc) {
-                                $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
-                                if ($locId) {
-                                    $locationIdsAfter[] = $locId;
-                                }
-                            }
-                            
-                            Log::info('📋 [AFTER] Installed locations AFTER processing', [
-                                'companyId' => $locationId,
-                                'appId' => $appId,
-                                'locations_count' => count($afterLocations),
-                                'location_ids' => $locationIdsAfter,
-                                'locations' => array_map(function($loc) {
-                                    return [
-                                        'id' => $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null, 
-                                        'name' => $loc['name'] ?? $loc['locationName'] ?? null,
-                                        'isInstalled' => $loc['isInstalled'] ?? false
-                                    ];
-                                }, $afterLocations)
-                            ]);
-                        } else {
-                            Log::warning('⚠️ [AFTER] Failed to fetch installed locations AFTER processing', [
-                                'status' => $locationsResponseAfter->status(),
-                                'response' => $locationsResponseAfter->json()
-                            ]);
-                        }
-                        
-                        // ===== STEP 4: Compare BEFORE and AFTER to find newly selected location =====
-                        $newlySelectedLocationId = null;
-                        
-                        // Build maps of location ID => isInstalled status for both BEFORE and AFTER
-                        $beforeStatusMap = [];
-                        if (!empty($beforeLocations)) {
-                            foreach ($beforeLocations as $loc) {
-                                $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
-                                if ($locId) {
-                                    $beforeStatusMap[$locId] = $loc['isInstalled'] ?? false;
-                                }
-                            }
-                        }
-                        
-                        $afterStatusMap = [];
-                        if (!empty($afterLocations)) {
-                            foreach ($afterLocations as $loc) {
-                                $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
-                                if ($locId) {
-                                    $afterStatusMap[$locId] = $loc['isInstalled'] ?? false;
-                                }
-                            }
-                        }
-                        
-                        Log::info('🔍 [COMPARISON] Building status maps for comparison', [
-                            'before_status_map_count' => count($beforeStatusMap),
-                            'after_status_map_count' => count($afterStatusMap),
-                            'before_installed_count' => count(array_filter($beforeStatusMap)),
-                            'after_installed_count' => count(array_filter($afterStatusMap))
-                        ]);
-                        
-                        // KEY INSIGHT: When a location is installed, it gets REMOVED from the list
-                        // So the selected location is the one that appears in BEFORE but NOT in AFTER
-                        // This is the MOST reliable indicator - the missing location is the selected one!
-                        $removedLocationIds = array_diff($locationIdsBefore, $locationIdsAfter);
-                        
-                        // Also check for status changes (false -> true) as a secondary indicator
-                        $statusChangedLocations = [];
-                        foreach ($afterStatusMap as $locId => $isInstalledAfter) {
-                            $isInstalledBefore = $beforeStatusMap[$locId] ?? false;
-                            
-                            // Location changed from not installed to installed
-                            if (!$isInstalledBefore && $isInstalledAfter) {
-                                $statusChangedLocations[] = $locId;
-                            }
-                        }
-                        
-                        // Also find locations that are newly added (in AFTER but not in BEFORE)
-                        $newLocationIds = array_diff($locationIdsAfter, $locationIdsBefore);
-                        
-                        Log::info('🔍 [COMPARISON] Location comparison analysis', [
-                            'removed_location_ids' => array_values($removedLocationIds),
-                            'status_changed_locations' => $statusChangedLocations,
-                            'new_location_ids' => array_values($newLocationIds),
-                            'removed_count' => count($removedLocationIds),
-                            'status_changed_count' => count($statusChangedLocations),
-                            'new_locations_count' => count($newLocationIds),
-                            'note' => 'Removed locations = locations in BEFORE but NOT in AFTER (these are the selected ones!)'
-                        ]);
-                        
-                        // PRIORITY 1: Removed locations (in BEFORE but NOT in AFTER) - THIS IS THE SELECTED LOCATION!
-                        // When a location is installed, it gets removed from the list, so the missing one is selected
-                        if (!empty($removedLocationIds)) {
-                            // If we have a selectedLocationId hint and it's in removed locations, use it
-                            if ($selectedLocationId && in_array($selectedLocationId, $removedLocationIds)) {
-                                $newlySelectedLocationId = $selectedLocationId;
-                                Log::info('✅ [COMPARISON] Using selectedLocationId from REMOVED locations (most reliable)', [
-                                    'newlySelectedLocationId' => $newlySelectedLocationId,
-                                    'removed_location_ids' => array_values($removedLocationIds),
-                                    'note' => 'Location was in BEFORE but removed from AFTER - this is the selected location!'
-                                ]);
-                            } else {
-                                // Use the first removed location (most reliable - this is the selected one!)
-                                $newlySelectedLocationId = reset($removedLocationIds);
-                                Log::info('✅ [COMPARISON] Using first REMOVED location (most reliable - this is selected!)', [
-                                    'newlySelectedLocationId' => $newlySelectedLocationId,
-                                    'removed_location_ids' => array_values($removedLocationIds),
-                                    'note' => 'Location was in BEFORE but removed from AFTER - this is the selected location!'
-                                ]);
-                            }
-                        } elseif (!empty($statusChangedLocations)) {
-                            // PRIORITY 2: Status changed locations (false -> true) - secondary indicator
-                            // If we have a selectedLocationId hint and it's in status changed, use it
-                            if ($selectedLocationId && in_array($selectedLocationId, $statusChangedLocations)) {
-                                $newlySelectedLocationId = $selectedLocationId;
-                                Log::info('✅ [COMPARISON] Using selectedLocationId from status changed locations', [
-                                    'newlySelectedLocationId' => $newlySelectedLocationId,
-                                    'status_changed_locations' => $statusChangedLocations
-                                ]);
-                            } else {
-                                // Use the first status changed location
-                                $newlySelectedLocationId = reset($statusChangedLocations);
-                                Log::info('✅ [COMPARISON] Using first status changed location', [
-                                    'newlySelectedLocationId' => $newlySelectedLocationId,
-                                    'status_changed_locations' => $statusChangedLocations
-                                ]);
-                            }
-                        } elseif (!empty($newLocationIds)) {
-                            // PRIORITY 3: New locations (in AFTER but not in BEFORE)
-                            if ($selectedLocationId && in_array($selectedLocationId, $newLocationIds)) {
-                                $newlySelectedLocationId = $selectedLocationId;
-                            } else {
-                                $newlySelectedLocationId = reset($newLocationIds);
-                            }
-                            Log::info('✅ [COMPARISON] Using new location (not status change)', [
-                                'newlySelectedLocationId' => $newlySelectedLocationId,
-                                'new_location_ids' => array_values($newLocationIds)
-                            ]);
-                        }
-                        
-                        // If we found a location from comparison, update selectedLocationId
-                        if ($newlySelectedLocationId) {
-                            // Determine detection method
-                            $detectionMethod = 'unknown';
-                            if (!empty($removedLocationIds) && in_array($newlySelectedLocationId, $removedLocationIds)) {
-                                $detectionMethod = 'removed_from_list';
-                            } elseif (!empty($statusChangedLocations) && in_array($newlySelectedLocationId, $statusChangedLocations)) {
-                                $detectionMethod = 'status_change';
-                            } elseif (!empty($newLocationIds) && in_array($newlySelectedLocationId, $newLocationIds)) {
-                                $detectionMethod = 'new_location';
-                            }
-                            
-                            Log::info('✅ [COMPARISON] Found newly selected location by comparing BEFORE and AFTER', [
-                                'newlySelectedLocationId' => $newlySelectedLocationId,
-                                'removed_location_ids' => array_values($removedLocationIds),
-                                'status_changed_locations' => $statusChangedLocations,
-                                'new_location_ids' => array_values($newLocationIds),
-                                'selectedLocationId_from_extraction' => $selectedLocationId ?? null,
-                                'detection_method' => $detectionMethod,
-                                'is_removed_from_list' => in_array($newlySelectedLocationId, $removedLocationIds),
-                                'is_status_change' => in_array($newlySelectedLocationId, $statusChangedLocations),
-                                'note' => 'Removed locations are the most reliable - they were in BEFORE but removed from AFTER (selected location!)'
-                            ]);
-                            
-                            // Always update selectedLocationId with the newly found location (this is the most accurate)
-                            $oldSelectedLocationId = $selectedLocationId;
-                            $selectedLocationId = $newlySelectedLocationId;
-                            $extractionSource = 'before_after_comparison';
-                            Log::info('✅ [EXTRACTION] Updated selectedLocationId from BEFORE/AFTER comparison', [
-                                'old_selectedLocationId' => $oldSelectedLocationId,
-                                'new_selectedLocationId' => $selectedLocationId,
-                                'source' => $extractionSource,
-                                'detection_method' => $detectionMethod,
-                                'is_removed_from_list' => in_array($newlySelectedLocationId, $removedLocationIds)
-                            ]);
-                        } else {
-                            // No status changes or new locations found
-                            // Check if there are locations with isInstalled: true in AFTER that we registered providers for
-                            // These might be the selected location even if status didn't change
-                            $installedInAfter = [];
-                            foreach ($afterStatusMap as $locId => $isInstalled) {
-                                if ($isInstalled) {
-                                    $installedInAfter[] = $locId;
-                                }
-                            }
-                            
-                            // Check which of these installed locations we registered providers for
-                            $registeredLocationIds = [];
-                            foreach ($locationsToRegister as $regLoc) {
-                                $regLocId = $regLoc['_id'] ?? $regLoc['id'] ?? $regLoc['locationId'] ?? null;
-                                if ($regLocId) {
-                                    $registeredLocationIds[] = $regLocId;
-                                }
-                            }
-                            
-                            // Find installed locations that we registered providers for
-                            $installedAndRegistered = array_intersect($installedInAfter, $registeredLocationIds);
-                            
-                            if (!empty($installedAndRegistered)) {
-                                // If we have a selectedLocationId hint, use it if it's in the list
-                                if ($selectedLocationId && in_array($selectedLocationId, $installedAndRegistered)) {
-                                    $newlySelectedLocationId = $selectedLocationId;
-                                } else {
-                                    // Use the first installed and registered location
-                                    $newlySelectedLocationId = reset($installedAndRegistered);
-                                }
-                                
-                                Log::info('✅ [COMPARISON] Found selected location from installed and registered locations', [
-                                    'newlySelectedLocationId' => $newlySelectedLocationId,
-                                    'installed_and_registered' => array_values($installedAndRegistered),
-                                    'selectedLocationId_from_extraction' => $selectedLocationId ?? null
-                                ]);
-                                
-                                $oldSelectedLocationId = $selectedLocationId;
-                                $selectedLocationId = $newlySelectedLocationId;
-                                $extractionSource = 'installed_and_registered';
-                                Log::info('✅ [EXTRACTION] Updated selectedLocationId from installed and registered locations', [
-                                    'old_selectedLocationId' => $oldSelectedLocationId,
-                                    'new_selectedLocationId' => $selectedLocationId,
-                                    'source' => $extractionSource
-                                ]);
-                            } else {
-                                // No status changes or new locations found
-                                // Check locations with isInstalled: true in AFTER that are NOT in the main processing list
-                                // These are locations that were already installed but are the ones selected during this flow
-                                $mainProcessingLocationIds = [];
-                                foreach ($locations as $loc) {
-                                    $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
-                                    if ($locId) {
-                                        $mainProcessingLocationIds[] = $locId;
-                                    }
-                                }
-                                
-                                // Find installed locations in AFTER that are NOT in main processing list
-                                $installedButNotInMainProcessing = [];
-                                foreach ($afterStatusMap as $locId => $isInstalled) {
-                                    if ($isInstalled && !in_array($locId, $mainProcessingLocationIds)) {
-                                        $installedButNotInMainProcessing[] = $locId;
-                                    }
-                                }
-                                
-                                if (!empty($installedButNotInMainProcessing)) {
-                                    // These are locations that were already installed (so not in main processing)
-                                    // but are the ones selected during this installation flow
-                                    // PRIORITY: If any of these had a status change, use that one
-                                    $statusChangedInList = array_intersect($installedButNotInMainProcessing, $statusChangedLocations);
-                                    
-                                    if (!empty($statusChangedInList)) {
-                                        // Prioritize status changed locations
-                                        $newlySelectedLocationId = reset($statusChangedInList);
-                                        Log::info('✅ [COMPARISON] Found status changed location in installed but not in main processing', [
-                                            'newlySelectedLocationId' => $newlySelectedLocationId,
-                                            'status_changed_in_list' => array_values($statusChangedInList),
-                                            'installed_but_not_in_main_processing' => $installedButNotInMainProcessing
-                                        ]);
-                                    } elseif ($selectedLocationId && in_array($selectedLocationId, $installedButNotInMainProcessing)) {
-                                        $newlySelectedLocationId = $selectedLocationId;
-                                        Log::info('✅ [COMPARISON] Using selectedLocationId from installed but not in main processing', [
-                                            'newlySelectedLocationId' => $newlySelectedLocationId
-                                        ]);
-                                    } else {
-                                        $newlySelectedLocationId = reset($installedButNotInMainProcessing);
-                                        Log::info('✅ [COMPARISON] Using first location from installed but not in main processing', [
-                                            'newlySelectedLocationId' => $newlySelectedLocationId,
-                                            'installed_but_not_in_main_processing' => $installedButNotInMainProcessing
-                                        ]);
-                                    }
-                                    
-                                    Log::info('✅ [COMPARISON] Found selected location from installed locations not in main processing', [
-                                        'newlySelectedLocationId' => $newlySelectedLocationId,
-                                        'installed_but_not_in_main_processing' => $installedButNotInMainProcessing,
-                                        'main_processing_location_ids' => $mainProcessingLocationIds,
-                                        'selectedLocationId_from_extraction' => $selectedLocationId ?? null,
-                                        'status_changed_in_list' => !empty($statusChangedInList) ? array_values($statusChangedInList) : []
-                                    ]);
-                                    
-                                    $oldSelectedLocationId = $selectedLocationId;
-                                    $selectedLocationId = $newlySelectedLocationId;
-                                    $extractionSource = 'installed_not_in_main_processing';
-                                    Log::info('✅ [EXTRACTION] Updated selectedLocationId from installed locations not in main processing', [
-                                        'old_selectedLocationId' => $oldSelectedLocationId,
-                                        'new_selectedLocationId' => $selectedLocationId,
-                                        'source' => $extractionSource
-                                    ]);
-                                } else {
-                                    Log::info('ℹ️ [COMPARISON] No status changes, new locations, or installed locations not in main processing', [
-                                        'location_ids_before' => $locationIdsBefore,
-                                        'location_ids_after' => $locationIdsAfter,
-                                        'status_changed_locations' => $statusChangedLocations,
-                                        'new_location_ids' => array_values($newLocationIds),
-                                        'installed_in_after' => $installedInAfter,
-                                        'registered_location_ids' => $registeredLocationIds,
-                                        'main_processing_location_ids' => $mainProcessingLocationIds,
-                                        'installed_but_not_in_main_processing' => $installedButNotInMainProcessing,
-                                        'selectedLocationId_from_extraction' => $selectedLocationId ?? null
-                                    ]);
-                                }
-                            }
-                        }
-                        
-                        // ===== STEP 5: Create user with selected location ID from comparison (NOT company ID) =====
-                        // The selected location is the one that appears in AFTER but not in BEFORE
-                        $finalSelectedLocationId = $newlySelectedLocationId ?? $selectedLocationId;
+                        // ===== SIMPLE USER CREATION: Use first installed location =====
+                        // Use firstInstalledLocationId (the first location where isInstalled: true)
+                        $finalSelectedLocationId = $firstInstalledLocationId;
                         
                         if ($finalSelectedLocationId) {
-                            Log::info('✅ [BULK] Found selected location from comparison', [
-                                'finalSelectedLocationId' => $finalSelectedLocationId,
-                                'newlySelectedLocationId' => $newlySelectedLocationId ?? null,
-                                'selectedLocationId' => $selectedLocationId ?? null,
-                                'note' => 'This location ID will be used to create user (NOT company ID)'
+                            Log::info('✅ [BULK] Using first installed location for user creation', [
+                                'firstInstalledLocationId' => $firstInstalledLocationId,
+                                'installed_locations_count' => count($locationsToRegister),
+                                'note' => 'Simple logic: using first location where isInstalled: true'
                             ]);
                             
-                            // Create user with the selected location ID (not company ID)
+                            // Create user with the first installed location ID
                             $userLocationId = $finalSelectedLocationId;
                             
                             // Prefer to find by lead_location_id (unique per location)
@@ -1644,7 +1213,7 @@ class ClientIntegrationController extends Controller
                             }
 
                             if (!$user) {
-                                // No user? Create a new one with the selected location ID
+                                // No user? Create a new one with the first installed location ID
                                 $baseEmail = "location_{$userLocationId}@leadconnector.local";
                                 $placeholderEmail = $baseEmail;
                                 $counter = 1;
@@ -1655,13 +1224,12 @@ class ClientIntegrationController extends Controller
                                     $counter++;
                                 }
 
-                                Log::info('✅ [BULK] Creating new user with selected location ID from comparison', [
+                                Log::info('✅ [BULK] Creating new user with first installed location ID', [
                                     'userLocationId' => $userLocationId,
                                     'companyId' => $companyId,
-                                    'finalSelectedLocationId' => $finalSelectedLocationId,
                                     'generated_email' => $placeholderEmail,
                                     'email_attempts' => $counter,
-                                    'note' => 'User created with location ID from BEFORE/AFTER comparison, NOT company ID'
+                                    'note' => 'User created with first installed location ID (isInstalled: true)'
                                 ]);
 
                                 $user = new User();
@@ -1691,20 +1259,18 @@ class ClientIntegrationController extends Controller
 
                             $user->lead_scope                 = $scope;
                             $user->lead_refresh_token_id      = $refreshTokenId;
-                            // When a specific location is selected, userType should be "Location" (not "Company")
-                            // This matches the marketplace installation flow behavior
+                            // For bulk installations, userType should be "Location"
                             $user->lead_user_type             = 'Location';
                             $user->lead_company_id            = $companyId;
-                            // Use the selected location ID from comparison (NOT company ID)
+                            // Use the first installed location ID
                             $user->lead_location_id           = $userLocationId;
                             $user->lead_user_id               = $providerUserId;
                             $user->lead_is_bulk_installation  = $isBulk;
 
                             // Log the data before saving for debugging
-                            Log::info('About to save user with data (from comparison)', [
+                            Log::info('About to save user with data', [
                                 'user_id' => $user->id,
                                 'is_new_user' => !$user->exists,
-                                'user_attributes' => $user->getAttributes(),
                                 'locationId' => $userLocationId,
                                 'companyId' => $companyId,
                                 'access_token_length' => $accessToken ? strlen($accessToken) : 0,
@@ -1715,14 +1281,14 @@ class ClientIntegrationController extends Controller
                                 $user->save();
                                 // Refresh the user model to ensure we have the latest data
                                 $user->refresh();
-                                Log::info('✅ [BULK] User created/updated successfully with selected location ID from comparison', [
+                                Log::info('✅ [BULK] User created/updated successfully with first installed location ID', [
                                     'user_id' => $user->id,
                                     'locationId' => $user->lead_location_id,
                                     'companyId' => $companyId,
                                     'email' => $user->email,
                                     'is_bulk' => $isBulk,
                                     'user_type' => $user->lead_user_type,
-                                    'note' => 'User created with location ID from BEFORE/AFTER comparison'
+                                    'note' => 'User created with first installed location ID (isInstalled: true)'
                                 ]);
                             } catch (\Illuminate\Database\QueryException $e) {
                                 Log::error('Database constraint violation when saving user', [
@@ -1731,8 +1297,6 @@ class ClientIntegrationController extends Controller
                                     'sql_state' => $e->errorInfo[0] ?? 'unknown',
                                     'driver_code' => $e->errorInfo[1] ?? 'unknown',
                                     'error_message' => $e->errorInfo[2] ?? 'unknown',
-                                    'user_data' => $user->toArray(),
-                                    'user_attributes' => $user->getAttributes(),
                                     'locationId' => $userLocationId
                                 ]);
                                 
@@ -1744,12 +1308,7 @@ class ClientIntegrationController extends Controller
                                 Log::error('Failed to save user', [
                                     'error' => $e->getMessage(),
                                     'error_class' => get_class($e),
-                                    'error_trace' => $e->getTraceAsString(),
-                                    'user_data' => $user->toArray(),
-                                    'user_attributes' => $user->getAttributes(),
-                                    'user_dirty' => $user->getDirty(),
-                                    'locationId' => $userLocationId,
-                                    'validation_errors' => method_exists($user, 'getErrors') ? $user->getErrors() : 'No validation errors method'
+                                    'locationId' => $userLocationId
                                 ]);
                                 
                                 return response()->json([
@@ -1763,8 +1322,7 @@ class ClientIntegrationController extends Controller
                                 Log::error('❌ CRITICAL: User was not saved successfully', [
                                     'user_exists' => $user->exists,
                                     'user_id' => $user->id,
-                                    'locationId' => $userLocationId,
-                                    'user_attributes' => $user->getAttributes()
+                                    'locationId' => $userLocationId
                                 ]);
                                 
                                 return response()->json([
@@ -1773,219 +1331,9 @@ class ClientIntegrationController extends Controller
                                 ], 500);
                             }
                         } else {
-                            Log::warning('⚠️ [BULK] No selected location found from comparison - cannot create user', [
-                                'newlySelectedLocationId' => $newlySelectedLocationId ?? null,
-                                'selectedLocationId' => $selectedLocationId ?? null,
-                                'note' => 'Will fall back to company ID (not ideal)'
+                            Log::warning('⚠️ [BULK] No installed locations found - cannot create user', [
+                                'note' => 'No locations with isInstalled: true found'
                             ]);
-                            
-                            // Fallback: create user with company ID (not ideal, but better than nothing)
-                            $userLocationId = $locationId;
-                            $finalSelectedLocationId = $locationId; // Fallback to company ID
-                            // ... (similar user creation logic with company ID)
-                        }
-                        
-                        // ===== STEP 6: Register provider for the selected location (from comparison) =====
-                        if ($finalSelectedLocationId && $user) {
-                            // Check if provider was already registered during bulk registration
-                            $alreadyRegisteredInBulk = false;
-                            if (isset($locationsToRegister) && is_array($locationsToRegister)) {
-                                foreach ($locationsToRegister as $regLoc) {
-                                    $regLocId = $regLoc['_id'] ?? $regLoc['id'] ?? $regLoc['locationId'] ?? null;
-                                    if ($regLocId === $finalSelectedLocationId) {
-                                        $alreadyRegisteredInBulk = true;
-                                        Log::info('ℹ️ [BULK] Provider already registered for selected location during bulk registration', [
-                                            'locationId' => $finalSelectedLocationId,
-                                            'note' => 'Skipping duplicate registration'
-                                        ]);
-                                        break;
-                                    }
-                                }
-                            }
-                            
-                            // Only register if not already registered during bulk
-                            if (!$alreadyRegisteredInBulk) {
-                                // Find the location data from the AFTER response
-                                $selectedLocationData = null;
-                                foreach ($afterLocations as $loc) {
-                                    $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
-                                    if ($locId === $finalSelectedLocationId) {
-                                        $selectedLocationData = $loc;
-                                        break;
-                                    }
-                                }
-                                
-                                // For bulk installations, get a Location-scoped access token
-                                // This is required per GHL support - Company-scoped tokens cause the provider
-                                // to be registered at company level, not location level
-                                $selectedLocationTokenToUse = $accessToken;
-                                $selectedLocationTokenType = 'company';
-                                
-                                if ($isBulk && $userType === 'Company' && $companyId) {
-                                    Log::info('🔑 [BULK] Getting location-scoped token for selected location provider registration', [
-                                        'companyId' => $companyId,
-                                        'locationId' => $finalSelectedLocationId,
-                                        'reason' => 'Bulk installation requires location-scoped token for provider to appear in Integration tab'
-                                    ]);
-                                    
-                                    $selectedLocationToken = $this->getLocationAccessToken($accessToken, $companyId, $finalSelectedLocationId);
-                                    
-                                    if ($selectedLocationToken) {
-                                        $selectedLocationTokenToUse = $selectedLocationToken;
-                                        $selectedLocationTokenType = 'location';
-                                        Log::info('✅ [BULK] Using location-scoped token for selected location provider registration', [
-                                            'companyId' => $companyId,
-                                            'locationId' => $finalSelectedLocationId,
-                                            'token_type' => 'location-scoped'
-                                        ]);
-                                    } else {
-                                        Log::warning('⚠️ [BULK] Could not get location-scoped token for selected location, falling back to company token', [
-                                            'companyId' => $companyId,
-                                            'locationId' => $finalSelectedLocationId,
-                                            'note' => 'Provider may be registered at company level instead of location level'
-                                        ]);
-                                    }
-                                }
-                                
-                                // Register provider for the selected location (from comparison)
-                                $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
-                                            . '?locationId=' . urlencode($finalSelectedLocationId);
-                                
-                                $providerPayload = [
-                                    'name'        => 'Tap Payments',
-                                    'description' => 'Innovating payment acceptance & collection in MENA',
-                                    'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
-                                    'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
-                                    'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
-                                ];
-                                
-                                Log::info('=== [BULK] PROVIDER REGISTRATION for selected location from comparison ===', [
-                                    'url' => $providerUrl,
-                                    'locationId' => $finalSelectedLocationId,
-                                    'payload' => $providerPayload,
-                                    'has_access_token' => !empty($selectedLocationTokenToUse),
-                                    'token_type' => $selectedLocationTokenType,
-                                    'access_token_preview' => $selectedLocationTokenToUse ? substr($selectedLocationTokenToUse, 0, 20) . '...' : null,
-                                    'token_scopes_from_payload' => $tokenData['oauthMeta']['scopes'] ?? null,
-                                    'token_locationId' => $tokenData['primaryAuthClassId'] ?? $tokenData['authClassId'] ?? null,
-                                    'userType' => $userType,
-                                    'isBulk' => $isBulk,
-                                    'using_location_token' => $selectedLocationTokenType === 'location',
-                                    'headers' => [
-                                        'Version' => '2021-07-28',
-                                        'Authorization' => 'Bearer ' . ($selectedLocationTokenToUse ? substr($selectedLocationTokenToUse, 0, 20) . '...' : 'MISSING')
-                                    ],
-                                    'timeout' => 40
-                                ]);
-                                
-                                try {
-                                    $startTime = microtime(true);
-                                    $providerResp = Http::timeout(40)
-                                        ->acceptJson()
-                                        ->withToken($selectedLocationTokenToUse)
-                                        ->withHeaders(['Version' => '2021-07-28'])
-                                        ->post($providerUrl, $providerPayload);
-                                    $endTime = microtime(true);
-                                    $duration = round(($endTime - $startTime) * 1000, 2);
-                                    
-                                    Log::info('=== [BULK] PROVIDER REGISTRATION RESPONSE for selected location ===', [
-                                        'locationId' => $finalSelectedLocationId,
-                                        'status_code' => $providerResp->status(),
-                                        'successful' => $providerResp->successful(),
-                                        'failed' => $providerResp->failed(),
-                                        'client_error' => $providerResp->clientError(),
-                                        'server_error' => $providerResp->serverError(),
-                                        'duration_ms' => $duration,
-                                        'response_headers' => $providerResp->headers(),
-                                        'response_body_raw' => $providerResp->body(),
-                                        'response_body_json' => $providerResp->json(),
-                                        'response_body_string' => (string) $providerResp->body()
-                                    ]);
-                                    
-                                    if ($providerResp->successful()) {
-                                        $responseData = $providerResp->json();
-                                        $responseLocationId = $responseData['locationId'] ?? null;
-                                        
-                                        // Log warning if response locationId doesn't match requested locationId
-                                        if ($responseLocationId && $responseLocationId !== $finalSelectedLocationId && $responseLocationId === $companyId) {
-                                            Log::warning('⚠️ [BULK] Provider registration response returned company ID instead of location ID', [
-                                                'requested_locationId' => $finalSelectedLocationId,
-                                                'response_locationId' => $responseLocationId,
-                                                'companyId' => $companyId,
-                                                'note' => 'This might be expected GHL behavior - provider may still be registered for the requested location'
-                                            ]);
-                                        }
-                                        
-                                        // Verify the provider is actually registered by calling GET endpoint
-                                        // Use the same location-scoped token for verification
-                                        try {
-                                            $verifyUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
-                                                        . '?locationId=' . urlencode($finalSelectedLocationId);
-                                            
-                                            $verifyResponse = Http::timeout(10)
-                                                ->acceptJson()
-                                                ->withToken($selectedLocationTokenToUse)
-                                                ->withHeaders(['Version' => '2021-07-28'])
-                                                ->get($verifyUrl);
-                                            
-                                            if ($verifyResponse->successful()) {
-                                                $verifyData = $verifyResponse->json();
-                                                Log::info('✅ [BULK] Provider verification successful', [
-                                                    'locationId' => $finalSelectedLocationId,
-                                                    'provider_exists' => true,
-                                                    'provider_data' => $verifyData,
-                                                    'provider_id' => $verifyData['_id'] ?? $verifyData['id'] ?? null,
-                                                    'provider_name' => $verifyData['name'] ?? null,
-                                                    'token_type_used' => $selectedLocationTokenType
-                                                ]);
-                                            } else {
-                                                Log::warning('⚠️ [BULK] Provider verification failed - provider might not be registered', [
-                                                    'locationId' => $finalSelectedLocationId,
-                                                    'status' => $verifyResponse->status(),
-                                                    'response' => $verifyResponse->json()
-                                                ]);
-                                            }
-                                        } catch (\Exception $verifyException) {
-                                            Log::warning('⚠️ [BULK] Could not verify provider registration', [
-                                                'locationId' => $finalSelectedLocationId,
-                                                'error' => $verifyException->getMessage()
-                                            ]);
-                                        }
-                                        
-                                        Log::info('✅ [BULK] Provider registered for selected location (from BEFORE/AFTER comparison)', [
-                                            'locationId' => $finalSelectedLocationId,
-                                            'locationName' => $selectedLocationData['name'] ?? 'N/A',
-                                            'response_locationId' => $responseLocationId,
-                                            'response' => $responseData
-                                        ]);
-                                    } else {
-                                        $responseJson = $providerResp->json();
-                                        $errorMessage = $responseJson['message'] ?? $responseJson['error'] ?? 'Unknown error';
-                                        Log::error('❌ [BULK] PROVIDER REGISTRATION FAILED for selected location', [
-                                            'locationId' => $finalSelectedLocationId,
-                                            'status_code' => $providerResp->status(),
-                                            'status_text' => $providerResp->reason(),
-                                            'error_message' => $errorMessage,
-                                            'response_body' => $providerResp->body(),
-                                            'response_json' => $responseJson,
-                                            'response_headers' => $providerResp->headers(),
-                                            'userType' => $userType,
-                                            'isBulk' => $isBulk,
-                                            'token_scopes' => $tokenData ? ($tokenData['oauthMeta']['scopes'] ?? null) : null,
-                                            'token_has_custom_provider_write' => !empty($tokenData['oauthMeta']['scopes']) && in_array('payments/custom-provider.write', $tokenData['oauthMeta']['scopes'] ?? [])
-                                        ]);
-                                    }
-                                } catch (\Exception $e) {
-                                    Log::error('❌ [BULK] Exception registering provider for selected location', [
-                                        'locationId' => $finalSelectedLocationId,
-                                        'error' => $e->getMessage(),
-                                        'error_code' => $e->getCode(),
-                                        'error_file' => $e->getFile(),
-                                        'error_line' => $e->getLine(),
-                                        'trace' => $e->getTraceAsString()
-                                    ]);
-                                }
-                            }
                         }
                     } else {
                         Log::warning('⚠️ Could not fetch installed locations using installedLocations API', [
