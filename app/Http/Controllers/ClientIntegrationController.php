@@ -1146,7 +1146,7 @@ class ClientIntegrationController extends Controller
                             // This is required per GHL support - Company-scoped tokens cause the provider
                             // to be registered at company level, not location level
                             $tokenToUse = $accessToken;
-                            $tokenType = 'company';
+                            $providerTokenType = 'company';
                             
                             if ($isBulk && $userType === 'Company' && $companyId) {
                                 Log::info('🔑 [BULK] Getting location-scoped token for provider registration', [
@@ -1159,7 +1159,7 @@ class ClientIntegrationController extends Controller
                                 
                                 if ($locationToken) {
                                     $tokenToUse = $locationToken;
-                                    $tokenType = 'location';
+                                    $providerTokenType = 'location';
                                     Log::info('✅ [BULK] Using location-scoped token for provider registration', [
                                         'companyId' => $companyId,
                                         'locationId' => $actualLocationId,
@@ -1192,10 +1192,10 @@ class ClientIntegrationController extends Controller
                                     'url' => $providerUrl,
                                     'payload' => $providerPayload,
                                     'has_access_token' => !empty($tokenToUse),
-                                    'token_type' => $tokenType,
+                                    'token_type' => $providerTokenType,
                                     'token_preview' => $tokenToUse ? substr($tokenToUse, 0, 20) . '...' : null,
                                     'is_bulk' => $isBulk,
-                                    'using_location_token' => $tokenType === 'location'
+                                    'using_location_token' => $providerTokenType === 'location'
                                 ]);
                                 
                                 $startTime = microtime(true);
