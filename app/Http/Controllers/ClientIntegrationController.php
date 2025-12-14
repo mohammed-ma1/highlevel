@@ -1170,12 +1170,26 @@ class ClientIntegrationController extends Controller
                                         $locationUser->lead_is_bulk_installation = true;
                                         
                                         $locationUser->save();
+                                        $locationUser->refresh(); // Reload from database to verify
+                                        
+                                        // Verify the save by checking critical fields
+                                        $verifyUser = User::where('lead_location_id', $actualLocationId)->first();
                                         
                                         Log::info('✅ [BULK] User saved for location', [
                                             'locationId' => $actualLocationId,
                                             'locationName' => $location['name'] ?? 'N/A',
                                             'user_id' => $locationUser->id,
-                                            'email' => $locationUser->email
+                                            'email' => $locationUser->email,
+                                            'verified_in_db' => $verifyUser ? true : false,
+                                            'verified_user_id' => $verifyUser?->id,
+                                            'has_access_token' => !empty($verifyUser?->lead_access_token),
+                                            'has_refresh_token' => !empty($verifyUser?->lead_refresh_token),
+                                            'access_token_length' => strlen($verifyUser?->lead_access_token ?? ''),
+                                            'refresh_token_length' => strlen($verifyUser?->lead_refresh_token ?? ''),
+                                            'lead_location_id' => $verifyUser?->lead_location_id,
+                                            'lead_company_id' => $verifyUser?->lead_company_id,
+                                            'lead_user_id' => $verifyUser?->lead_user_id,
+                                            'lead_refresh_token_id' => $verifyUser?->lead_refresh_token_id
                                         ]);
                                     } catch (\Exception $userEx) {
                                         Log::error('❌ [BULK] Failed to save user for location', [
