@@ -1162,9 +1162,11 @@ class ClientIntegrationController extends Controller
                                         $locationUser->lead_expires_in = $expiresIn ?: null;
                                         $locationUser->lead_token_expires_at = $expiresIn ? now()->addSeconds($expiresIn) : null;
                                         $locationUser->lead_scope = $scope;
+                                        $locationUser->lead_refresh_token_id = $refreshTokenId;
                                         $locationUser->lead_user_type = 'Location';
                                         $locationUser->lead_company_id = $companyId;
                                         $locationUser->lead_location_id = $actualLocationId;
+                                        $locationUser->lead_user_id = $providerUserId;
                                         $locationUser->lead_is_bulk_installation = true;
                                         
                                         $locationUser->save();
