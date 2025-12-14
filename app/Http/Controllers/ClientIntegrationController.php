@@ -1691,44 +1691,54 @@ class ClientIntegrationController extends Controller
 
     public function connectOrDisconnect(Request $request)
     {
-        // Log the incoming request for debugging
-        Log::info('ConnectOrDisconnect method called', [
-            'action' => $request->input('action'),
-            'url' => $request->fullUrl(),
-            'method' => $request->method(),
-            'all_params' => $request->all()
-        ]);
+        try {
+            // Log the incoming request for debugging
+            Log::info('ConnectOrDisconnect method called', [
+                'action' => $request->input('action'),
+                'url' => $request->fullUrl(),
+                'method' => $request->method(),
+                'all_params' => $request->all()
+            ]);
+            
+            // 0) Which action?
+            $action = strtolower((string) $request->input('action'));
+            Log::info('🔵 [CONNECT-DISCONNECT] Action received', ['action' => $action]);
         
-        // 0) Which action?
-        $action = strtolower((string) $request->input('action'));
         if (!in_array($action, ['connect','disconnect'], true)) {
+            Log::error('❌ [CONNECT-DISCONNECT] Invalid action', ['action' => $action]);
             return response()->json(['message' => 'Invalid action'], 400);
         }
         $information  = $request->input('information');
+        Log::info('🔵 [CONNECT-DISCONNECT] Information URL', ['information' => $information]);
+        
          // Parse query string
         parse_str(parse_url($information, PHP_URL_QUERY), $query);
+        Log::info('🔵 [CONNECT-DISCONNECT] Parsed query', ['query_keys' => array_keys($query), 'has_state' => isset($query['state'])]);
 
         $locationId = null;
 
         // Extract `state` and decode it
         if (isset($query['state'])) {
             $decoded = base64_decode($query['state'], true);
+            Log::info('🔵 [CONNECT-DISCONNECT] State decoded', ['decoded' => $decoded]);
 
             if ($decoded !== false) {
                 $json = json_decode($decoded, true);
+                Log::info('🔵 [CONNECT-DISCONNECT] State JSON', ['json' => $json]);
                 if (is_array($json) && isset($json['id'])) {
                     $locationId = $json['id'];
+                    Log::info('✅ [CONNECT-DISCONNECT] LocationId extracted', ['locationId' => $locationId]);
                 }
             }
         }
         // todo git locationId
         if (!$locationId) {
-            Log::error('Could not extract locationId from information parameter', [
+            Log::error('❌ [CONNECT-DISCONNECT] Could not extract locationId from information parameter', [
                 'information' => $information,
                 'action' => $action,
                 'request_url' => $request->fullUrl()
             ]);
-            
+
             return response()->json([
                 'message' => 'Could not extract locationId from URL. Please ensure you are accessing this page from the correct integration flow.',
                 'error' => 'Invalid locationId'
@@ -1736,12 +1746,17 @@ class ClientIntegrationController extends Controller
         }
 
         // 2) Find the user who previously connected this location
+        Log::info('🔍 [CONNECT-DISCONNECT] Looking for user with locationId', ['locationId' => $locationId]);
         $user = User::where('lead_location_id', $locationId)->first();
+        
         if (!$user) {
-            Log::warning('No user found for locationId in connectOrDisconnect', [
+            // Also check all users in database for debugging
+            $allUsers = User::whereNotNull('lead_location_id')->get(['id', 'lead_location_id', 'email']);
+            Log::warning('❌ [CONNECT-DISCONNECT] No user found for locationId', [
                 'locationId' => $locationId,
                 'action' => $action,
-                'request_url' => $request->fullUrl()
+                'request_url' => $request->fullUrl(),
+                'all_users_with_location_id' => $allUsers->toArray()
             ]);
             
             return response()->json([
@@ -1750,6 +1765,14 @@ class ClientIntegrationController extends Controller
                 'solution' => 'Complete OAuth flow first via /connect endpoint'
             ], 404);
         }
+        
+        Log::info('✅ [CONNECT-DISCONNECT] User found', [
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'lead_location_id' => $user->lead_location_id,
+            'has_access_token' => !empty($user->lead_access_token),
+            'has_refresh_token' => !empty($user->lead_refresh_token)
+        ]);
 
         $accessToken = $user->lead_access_token;
         $refreshToken = $user->lead_refresh_token;
@@ -1781,15 +1804,26 @@ class ClientIntegrationController extends Controller
 
         // 4) Validate inputs if action=connect
         if ($action === 'connect') {
-            $request->validate([
-                'merchant_id'          => ['required', 'string'],
-                'apiKey'               => ['required', 'string'],
-                'tap_mode'             => ['required', 'in:test,live'],
-                'live_publishableKey'  => ['required_without:test_publishableKey', 'string'],
-                'live_secretKey'       => ['nullable', 'string'],
-                'test_publishableKey'  => ['required_without:live_publishableKey', 'string'],
-                'test_secretKey'       => ['nullable', 'string'],
-            ]);
+            Log::info('🔵 [CONNECT-DISCONNECT] Starting connect action validation');
+            
+            try {
+                $request->validate([
+                    'merchant_id'          => ['required', 'string'],
+                    'apiKey'               => ['required', 'string'],
+                    'tap_mode'             => ['required', 'in:test,live'],
+                    'live_publishableKey'  => ['required_without:test_publishableKey', 'string'],
+                    'live_secretKey'       => ['nullable', 'string'],
+                    'test_publishableKey'  => ['required_without:live_publishableKey', 'string'],
+                    'test_secretKey'       => ['nullable', 'string'],
+                ]);
+                Log::info('✅ [CONNECT-DISCONNECT] Validation passed');
+            } catch (\Illuminate\Validation\ValidationException $e) {
+                Log::error('❌ [CONNECT-DISCONNECT] Validation failed', [
+                    'errors' => $e->errors(),
+                    'input' => $request->except(['live_secretKey', 'test_secretKey'])
+                ]);
+                throw $e;
+            }
 
             // Save merchant ID
             $user->tap_merchant_id = $request->input('merchant_id');
@@ -1817,11 +1851,60 @@ class ClientIntegrationController extends Controller
             if ($request->has('test_secretKey')) {
                 $user->lead_test_secret_key = $request->input('test_secretKey');
             }
-            $user->save();
+            
+            try {
+                $user->save();
+                Log::info('✅ [CONNECT-DISCONNECT] User API keys saved', [
+                    'user_id' => $user->id,
+                    'locationId' => $locationId,
+                    'tap_merchant_id' => $user->tap_merchant_id,
+                    'tap_mode' => $user->tap_mode,
+                    'has_live_api_key' => !empty($user->lead_live_api_key),
+                    'has_test_api_key' => !empty($user->lead_test_api_key)
+                ]);
+            } catch (\Exception $e) {
+                Log::error('❌ [CONNECT-DISCONNECT] Failed to save user API keys', [
+                    'error' => $e->getMessage(),
+                    'user_id' => $user->id
+                ]);
+                throw $e;
+            }
         }
 
         $baseUrl = 'https://services.leadconnectorhq.com/payments/custom-provider';
         $qs      = '?locationId=' . urlencode($locationId);
+
+        // Get location-scoped token for the API call
+        // The stored token might be a company-level token, so we need to get a location-specific one
+        $companyId = $user->lead_company_id;
+        $tokenToUse = $accessToken;
+        $usingLocationToken = false;
+        
+        if ($companyId) {
+            Log::info('🔑 [CONNECT-DISCONNECT] Getting location-scoped token', [
+                'companyId' => $companyId,
+                'locationId' => $locationId
+            ]);
+            
+            $locationToken = $this->getLocationAccessToken($accessToken, $companyId, $locationId);
+            if ($locationToken) {
+                $tokenToUse = $locationToken;
+                $usingLocationToken = true;
+                Log::info('✅ [CONNECT-DISCONNECT] Using location-scoped token', [
+                    'token_type' => 'location-scoped',
+                    'token_preview' => substr($tokenToUse, 0, 30) . '...'
+                ]);
+            } else {
+                Log::warning('⚠️ [CONNECT-DISCONNECT] Could not get location token, using stored token', [
+                    'token_type' => 'stored (possibly company-level)',
+                    'token_preview' => substr($accessToken, 0, 30) . '...'
+                ]);
+            }
+        } else {
+            Log::info('🔵 [CONNECT-DISCONNECT] No companyId, using stored token', [
+                'token_preview' => substr($accessToken, 0, 30) . '...'
+            ]);
+        }
 
         if ($action === 'connect') {
             $connectUrl = $baseUrl . '/connect' . $qs;
@@ -1844,14 +1927,29 @@ class ClientIntegrationController extends Controller
                 ],
             ];
 
+            Log::info('📤 [CONNECT-DISCONNECT] Calling GHL /connect API', [
+                'url' => $connectUrl,
+                'payload' => $payload,
+                'has_access_token' => !empty($tokenToUse),
+                'token_type' => $usingLocationToken ? 'location-scoped' : 'stored',
+                'token_preview' => substr($tokenToUse, 0, 50) . '...'
+            ]);
+
             $resp = Http::timeout(25)
                 ->acceptJson()
                 ->withoutRedirecting()
-                ->withToken($accessToken)
+                ->withToken($tokenToUse)
                 ->withHeaders(['Version' => '2021-07-28'])
                 ->post($connectUrl, $payload);
 
+            Log::info('📥 [CONNECT-DISCONNECT] GHL /connect API response', [
+                'status' => $resp->status(),
+                'successful' => $resp->successful(),
+                'body' => $resp->json() ?: $resp->body()
+            ]);
+
             if ($resp->status() >= 300 && $resp->status() < 400) {
+                Log::error('❌ [CONNECT-DISCONNECT] GHL returned redirect', ['status' => $resp->status(), 'location' => $resp->header('Location')]);
                 return response()->json([
                     'message'  => 'LeadConnector /connect returned redirect (blocked)',
                     'status'   => $resp->status(),
@@ -1860,13 +1958,15 @@ class ClientIntegrationController extends Controller
                 ], 502);
             }
             if ($resp->failed()) {
-                Log::warning('LeadConnector connect error', ['status' => $resp->status(), 'body' => $resp->json()]);
+                Log::error('❌ [CONNECT-DISCONNECT] GHL connect failed', ['status' => $resp->status(), 'body' => $resp->json()]);
                 return response()->json([
                     'message' => 'LeadConnector connect failed',
                     'status'  => $resp->status(),
                     'error'   => $resp->json() ?: $resp->body(),
                 ], 502);
             }
+
+            Log::info('✅ [CONNECT-DISCONNECT] GHL connect successful', ['locationId' => $locationId]);
 
             // Return success message instead of redirecting
             return redirect()->back()->with([
@@ -1890,7 +1990,7 @@ class ClientIntegrationController extends Controller
         $resp = Http::timeout(20)
             ->acceptJson()
             ->withoutRedirecting()
-            ->withToken($accessToken)
+            ->withToken($tokenToUse)
             ->withHeaders(['Version' => '2021-07-28'])
             ->post($disconnectUrl, $payload);
 
@@ -1917,6 +2017,20 @@ class ClientIntegrationController extends Controller
             'disconnect_mode' => $disconnectMode,
             'data'         => $resp->json(),
         ]);
+        
+        } catch (\Exception $e) {
+            Log::error('❌ [CONNECT-DISCONNECT] Unexpected error', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile()
+            ]);
+            
+            return response()->json([
+                'message' => 'An unexpected error occurred',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
         /**
