@@ -1078,7 +1078,7 @@ class ClientIntegrationController extends Controller
                             $providerPayload = [
                                 'name'        => 'Tap Payments',
                                 'description' => 'Innovating payment acceptance & collection in MENA',
-                                'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
+                                'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
                                 'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
                                 'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
                             ];
@@ -1352,7 +1352,7 @@ class ClientIntegrationController extends Controller
               $providerPayload = [
             'name'        => 'Tap Payments',
             'description' => 'Innovating payment acceptance & collection in MENA',
-            'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
+            'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
             'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
             'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
             ];
@@ -1402,7 +1402,7 @@ class ClientIntegrationController extends Controller
                 $providerPayload = [
                     'name'        => 'Tap Payments',
                     'description' => 'Innovating payment acceptance & collection in MENA',
-                    'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
+                    'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
                     'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
                     'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
                 ];
@@ -1765,8 +1765,8 @@ class ClientIntegrationController extends Controller
             $payload = [
                 // include provider meta if your flow needs it (these are examples)
                 'name'        => 'Tap Integration',
-                'description' => 'Supports Visa and MasterCard payments via Tap Card SDK, with secure token generation for each transaction. KNET payments redirect customers to the KNET checkout page. The resulting token or KNET source ID is compatible with the Charge API. Note: PayPal is not supported.',
-                'paymentsUrl' => 'https://dashboard.mediasolution.io/tap',
+                'description' => 'Supports Visa, MasterCard, and KNET payments via Tap Create Charge API. Payments are processed directly through the Tap hosted payment page with full 3D Secure support. Note: PayPal is not supported.',
+                'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
                 'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
                 'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
 
