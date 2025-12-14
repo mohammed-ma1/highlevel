@@ -1133,6 +1133,54 @@ class ClientIntegrationController extends Controller
                                         'provider_name' => $responseData['name'] ?? null,
                                         'duration_ms' => $duration
                                     ]);
+                                    
+                                    // Create/update user for this location in database
+                                    try {
+                                        $locationUser = User::where('lead_location_id', $actualLocationId)->first();
+                                        
+                                        if (!$locationUser) {
+                                            // Create new user for this location
+                                            $baseEmail = "location_{$actualLocationId}@leadconnector.local";
+                                            $placeholderEmail = $baseEmail;
+                                            $counter = 1;
+                                            
+                                            while (User::where('email', $placeholderEmail)->exists()) {
+                                                $placeholderEmail = "location_{$actualLocationId}_{$counter}@leadconnector.local";
+                                                $counter++;
+                                            }
+                                            
+                                            $locationUser = new User();
+                                            $locationUser->name = $location['name'] ?? "Location {$actualLocationId}";
+                                            $locationUser->email = $placeholderEmail;
+                                            $locationUser->password = Hash::make(Str::random(40));
+                                        }
+                                        
+                                        // Update OAuth tokens and location info
+                                        $locationUser->lead_access_token = $accessToken;
+                                        $locationUser->lead_refresh_token = $refreshToken;
+                                        $locationUser->lead_token_type = $tokenType;
+                                        $locationUser->lead_expires_in = $expiresIn ?: null;
+                                        $locationUser->lead_token_expires_at = $expiresIn ? now()->addSeconds($expiresIn) : null;
+                                        $locationUser->lead_scope = $scope;
+                                        $locationUser->lead_user_type = 'Location';
+                                        $locationUser->lead_company_id = $companyId;
+                                        $locationUser->lead_location_id = $actualLocationId;
+                                        $locationUser->lead_is_bulk_installation = true;
+                                        
+                                        $locationUser->save();
+                                        
+                                        Log::info('✅ [BULK] User saved for location', [
+                                            'locationId' => $actualLocationId,
+                                            'locationName' => $location['name'] ?? 'N/A',
+                                            'user_id' => $locationUser->id,
+                                            'email' => $locationUser->email
+                                        ]);
+                                    } catch (\Exception $userEx) {
+                                        Log::error('❌ [BULK] Failed to save user for location', [
+                                            'locationId' => $actualLocationId,
+                                            'error' => $userEx->getMessage()
+                                        ]);
+                                    }
                                 } else {
                                     $failCount++;
                                     $responseData = $providerResp->json();
