@@ -76,12 +76,6 @@
     // Send message to GoHighLevel
     function sendMessageToGHL(message) {
       try {
-          hasOpener: !!(window.opener && window.opener !== window),
-          hasParent: !!(window.parent && window.parent !== window),
-          hasTop: !!(window.top && window.top !== window && window.top !== window.parent),
-          isPopup: !!(window.opener && window.opener !== window)
-        });
-        
         let messageSent = false;
         
         // PRIORITY 1: Try postMessage for popup scenarios (Safari workaround)
