@@ -1075,23 +1075,12 @@ class ClientIntegrationController extends Controller
                             $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                                         . '?locationId=' . urlencode($actualLocationId);
                             
-                            // Check if user exists with API keys for this location
-                            $existingUser = User::where('lead_location_id', $actualLocationId)->first();
-                            
                             $providerPayload = [
                                 'name'        => 'Tap Payments',
-                                'description' => 'Supports Visa, MasterCard, and KNET payments via Tap Create Charge API.',
+                                'description' => 'Innovating payment acceptance & collection in MENA',
                                 'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
                                 'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
                                 'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
-                                'live' => [
-                                    'apiKey'         => $existingUser->lead_live_api_key ?? $existingUser->lead_test_api_key ?? '',
-                                    'publishableKey' => $existingUser->lead_live_publishable_key ?? '',
-                                ],
-                                'test' => [
-                                    'apiKey'         => $existingUser->lead_test_api_key ?? $existingUser->lead_live_api_key ?? '',
-                                    'publishableKey' => $existingUser->lead_test_publishable_key ?? '',
-                                ],
                             ];
                             
                             try {
@@ -1144,6 +1133,65 @@ class ClientIntegrationController extends Controller
                                         'provider_name' => $responseData['name'] ?? null,
                                         'duration_ms' => $duration
                                     ]);
+                                    
+                                    // Check if user exists with API keys configured - if so, also call /connect
+                                    $existingUser = User::where('lead_location_id', $actualLocationId)->first();
+                                    if ($existingUser && $existingUser->tap_merchant_id && 
+                                        ($existingUser->lead_live_publishable_key || $existingUser->lead_test_publishable_key)) {
+                                        
+                                        Log::info('🔗 [BULK] User has API keys configured, calling /connect endpoint', [
+                                            'locationId' => $actualLocationId,
+                                            'user_id' => $existingUser->id,
+                                            'tap_mode' => $existingUser->tap_mode,
+                                            'has_live_key' => !empty($existingUser->lead_live_publishable_key),
+                                            'has_test_key' => !empty($existingUser->lead_test_publishable_key)
+                                        ]);
+                                        
+                                        try {
+                                            $connectUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/connect'
+                                                        . '?locationId=' . urlencode($actualLocationId);
+                                            
+                                            $connectPayload = [
+                                                'name'        => 'Tap Payments',
+                                                'description' => 'Supports Visa, MasterCard, and KNET payments via Tap Create Charge API.',
+                                                'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
+                                                'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
+                                                'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
+                                                'live' => [
+                                                    'apiKey'         => $existingUser->lead_live_api_key ?? $existingUser->lead_test_api_key,
+                                                    'publishableKey' => $existingUser->lead_live_publishable_key,
+                                                ],
+                                                'test' => [
+                                                    'apiKey'         => $existingUser->lead_test_api_key ?? $existingUser->lead_live_api_key,
+                                                    'publishableKey' => $existingUser->lead_test_publishable_key,
+                                                ],
+                                            ];
+                                            
+                                            $connectResp = Http::timeout(30)
+                                                ->acceptJson()
+                                                ->withToken($tokenToUse)
+                                                ->withHeaders(['Version' => '2021-07-28'])
+                                                ->post($connectUrl, $connectPayload);
+                                            
+                                            if ($connectResp->successful()) {
+                                                Log::info('✅ [BULK] Payment config connected for location', [
+                                                    'locationId' => $actualLocationId,
+                                                    'status_code' => $connectResp->status()
+                                                ]);
+                                            } else {
+                                                Log::warning('⚠️ [BULK] Failed to connect payment config', [
+                                                    'locationId' => $actualLocationId,
+                                                    'status_code' => $connectResp->status(),
+                                                    'response' => $connectResp->json()
+                                                ]);
+                                            }
+                                        } catch (\Exception $connectEx) {
+                                            Log::warning('⚠️ [BULK] Exception calling /connect endpoint', [
+                                                'locationId' => $actualLocationId,
+                                                'error' => $connectEx->getMessage()
+                                            ]);
+                                        }
+                                    }
                                 } else {
                                     $failCount++;
                                     $responseData = $providerResp->json();
@@ -1360,24 +1408,13 @@ class ClientIntegrationController extends Controller
             $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                         . '?locationId=' . urlencode($locationId);
                 
-                        // Check if user exists with API keys for this location
-                        $existingUser = User::where('lead_location_id', $locationId)->first();
-                        
-                        $providerPayload = [
-                            'name'        => 'Tap Payments',
-                            'description' => 'Supports Visa, MasterCard, and KNET payments via Tap Create Charge API.',
-                            'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
-                            'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
-                            'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
-                            'live' => [
-                                'apiKey'         => $existingUser->lead_live_api_key ?? $existingUser->lead_test_api_key ?? '',
-                                'publishableKey' => $existingUser->lead_live_publishable_key ?? '',
-                            ],
-                            'test' => [
-                                'apiKey'         => $existingUser->lead_test_api_key ?? $existingUser->lead_live_api_key ?? '',
-                                'publishableKey' => $existingUser->lead_test_publishable_key ?? '',
-                            ],
-                        ];
+              $providerPayload = [
+            'name'        => 'Tap Payments',
+            'description' => 'Innovating payment acceptance & collection in MENA',
+            'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
+            'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
+            'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
+            ];
 
                         try {
                             $providerResp = Http::timeout(30)
@@ -1390,6 +1427,58 @@ class ClientIntegrationController extends Controller
                                 Log::info('✅ Provider registered with company ID (fallback)', [
                                     'companyId' => $locationId
                                 ]);
+                                
+                                // Check if user exists with API keys - if so, call /connect
+                                $existingUser = User::where('lead_location_id', $locationId)->first();
+                                if ($existingUser && $existingUser->tap_merchant_id && 
+                                    ($existingUser->lead_live_publishable_key || $existingUser->lead_test_publishable_key)) {
+                                    
+                                    Log::info('🔗 [FALLBACK] User has API keys, calling /connect', [
+                                        'locationId' => $locationId
+                                    ]);
+                                    
+                                    try {
+                                        $connectUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/connect'
+                                                    . '?locationId=' . urlencode($locationId);
+                                        
+                                        $connectPayload = [
+                                            'name'        => 'Tap Payments',
+                                            'description' => 'Supports Visa, MasterCard, and KNET payments via Tap Create Charge API.',
+                                            'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
+                                            'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
+                                            'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
+                                            'live' => [
+                                                'apiKey'         => $existingUser->lead_live_api_key ?? $existingUser->lead_test_api_key,
+                                                'publishableKey' => $existingUser->lead_live_publishable_key,
+                                            ],
+                                            'test' => [
+                                                'apiKey'         => $existingUser->lead_test_api_key ?? $existingUser->lead_live_api_key,
+                                                'publishableKey' => $existingUser->lead_test_publishable_key,
+                                            ],
+                                        ];
+                                        
+                                        $connectResp = Http::timeout(30)
+                                            ->acceptJson()
+                                            ->withToken($accessToken)
+                                            ->withHeaders(['Version' => '2021-07-28'])
+                                            ->post($connectUrl, $connectPayload);
+                                        
+                                        if ($connectResp->successful()) {
+                                            Log::info('✅ [FALLBACK] Payment config connected', [
+                                                'locationId' => $locationId
+                                            ]);
+                                        } else {
+                                            Log::warning('⚠️ [FALLBACK] Failed to connect payment config', [
+                                                'locationId' => $locationId,
+                                                'response' => $connectResp->json()
+                                            ]);
+                                        }
+                                    } catch (\Exception $connectEx) {
+                                        Log::warning('⚠️ [FALLBACK] Exception calling /connect', [
+                                            'error' => $connectEx->getMessage()
+                                        ]);
+                                    }
+                                }
                             } else {
                                 Log::warning('⚠️ Fallback registration failed', [
                                     'companyId' => $locationId,
@@ -1421,23 +1510,12 @@ class ClientIntegrationController extends Controller
                 $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                             . '?locationId=' . urlencode($locationId);
                 
-                // Check if user exists with API keys for this location
-                $existingUser = User::where('lead_location_id', $locationId)->first();
-                
                 $providerPayload = [
                     'name'        => 'Tap Payments',
-                    'description' => 'Supports Visa, MasterCard, and KNET payments via Tap Create Charge API.',
+                    'description' => 'Innovating payment acceptance & collection in MENA',
                     'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
                     'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
                     'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
-                    'live' => [
-                        'apiKey'         => $existingUser->lead_live_api_key ?? $existingUser->lead_test_api_key ?? '',
-                        'publishableKey' => $existingUser->lead_live_publishable_key ?? '',
-                    ],
-                    'test' => [
-                        'apiKey'         => $existingUser->lead_test_api_key ?? $existingUser->lead_live_api_key ?? '',
-                        'publishableKey' => $existingUser->lead_test_publishable_key ?? '',
-                    ],
                 ];
 
                 // Log request details before making the call
@@ -1592,6 +1670,63 @@ class ClientIntegrationController extends Controller
                                 'response_body' => $responseData,
                                 'duration_ms' => $duration
                             ]);
+                        }
+                        
+                        // Check if user exists with API keys - if so, call /connect to complete payment config
+                        $existingUser = User::where('lead_location_id', $locationId)->first();
+                        if ($existingUser && $existingUser->tap_merchant_id && 
+                            ($existingUser->lead_live_publishable_key || $existingUser->lead_test_publishable_key)) {
+                            
+                            Log::info('🔗 [LOCATION] User has API keys configured, calling /connect endpoint', [
+                                'locationId' => $locationId,
+                                'user_id' => $existingUser->id,
+                                'tap_mode' => $existingUser->tap_mode
+                            ]);
+                            
+                            try {
+                                $connectUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/connect'
+                                            . '?locationId=' . urlencode($locationId);
+                                
+                                $connectPayload = [
+                                    'name'        => 'Tap Payments',
+                                    'description' => 'Supports Visa, MasterCard, and KNET payments via Tap Create Charge API.',
+                                    'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
+                                    'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
+                                    'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
+                                    'live' => [
+                                        'apiKey'         => $existingUser->lead_live_api_key ?? $existingUser->lead_test_api_key,
+                                        'publishableKey' => $existingUser->lead_live_publishable_key,
+                                    ],
+                                    'test' => [
+                                        'apiKey'         => $existingUser->lead_test_api_key ?? $existingUser->lead_live_api_key,
+                                        'publishableKey' => $existingUser->lead_test_publishable_key,
+                                    ],
+                                ];
+                                
+                                $connectResp = Http::timeout(30)
+                                    ->acceptJson()
+                                    ->withToken($accessToken)
+                                    ->withHeaders(['Version' => '2021-07-28'])
+                                    ->post($connectUrl, $connectPayload);
+                                
+                                if ($connectResp->successful()) {
+                                    Log::info('✅ [LOCATION] Payment config connected successfully', [
+                                        'locationId' => $locationId,
+                                        'status_code' => $connectResp->status()
+                                    ]);
+                                } else {
+                                    Log::warning('⚠️ [LOCATION] Failed to connect payment config', [
+                                        'locationId' => $locationId,
+                                        'status_code' => $connectResp->status(),
+                                        'response' => $connectResp->json()
+                                    ]);
+                                }
+                            } catch (\Exception $connectEx) {
+                                Log::warning('⚠️ [LOCATION] Exception calling /connect endpoint', [
+                                    'locationId' => $locationId,
+                                    'error' => $connectEx->getMessage()
+                                ]);
+                            }
                         }
             }
                 } catch (\Exception $e) {
