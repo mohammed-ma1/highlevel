@@ -393,6 +393,27 @@
 
     debugLog('INIT', '🚀 Payment page loaded, waiting for GHL data...');
 
+    // RAW message listener to capture ALL messages for debugging
+    window.addEventListener('message', function(event) {
+      // Log every single message received (for debugging)
+      const origin = event.origin || 'unknown';
+      const dataType = typeof event.data;
+      
+      // Skip our own messages
+      if (event.data && typeof event.data === 'object' && event.data.type === 'custom_provider_ready') {
+        return;
+      }
+      if (typeof event.data === 'string' && event.data.includes('custom_provider_ready')) {
+        return;
+      }
+      
+      console.log('%c[RAW MESSAGE]', 'color: #ff6b6b; font-weight: bold', {
+        origin: origin,
+        dataType: dataType,
+        data: event.data
+      });
+    });
+
     // Validate GHL message structure according to documentation
     function isValidGHLMessage(data) {
       // Handle string data
@@ -645,16 +666,25 @@
       
       debugLog('SEND', '📤 Sending ready event to GHL parent window...', readyEvent);
       
+      // GHL expects JSON string, not object
+      const readyEventString = JSON.stringify(readyEvent);
+      debugLog('SEND', '📦 Stringified message:', readyEventString);
+      
       try {
-        // Try to send to parent window
+        // Try to send to parent window - send BOTH object and string versions for compatibility
         if (window.parent && window.parent !== window) {
+          // Send as JSON string (GHL preference)
+          window.parent.postMessage(readyEventString, '*');
+          debugLog('SEND', '✅ Ready event sent as JSON string to parent window');
+          
+          // Also send as object for backwards compatibility
           window.parent.postMessage(readyEvent, '*');
-          debugLog('SEND', '✅ Ready event sent to parent window');
+          debugLog('SEND', '✅ Ready event also sent as object to parent window');
           
           // Also try with specific origin if we can detect it
           try {
             const parentOrigin = window.parent.location.origin;
-            window.parent.postMessage(readyEvent, parentOrigin);
+            window.parent.postMessage(readyEventString, parentOrigin);
             debugLog('SEND', '✅ Ready event also sent with specific origin:', parentOrigin);
           } catch (e) {
             debugLog('SEND', '⚠️ Cannot access parent origin (cross-origin), using *');
@@ -665,8 +695,9 @@
         
         // Also try to send to top window if different from parent
         if (window.top && window.top !== window && window.top !== window.parent) {
+          window.top.postMessage(readyEventString, '*');
           window.top.postMessage(readyEvent, '*');
-          debugLog('SEND', '✅ Ready event also sent to top window');
+          debugLog('SEND', '✅ Ready event also sent to top window (both formats)');
         }
         
         isReady = true;
@@ -809,18 +840,24 @@
         chargeId: chargeId // Payment gateway chargeId for given transaction
       };
       
+      debugLog('SEND', '📤 Sending success response to GHL:', successEvent);
       
       try {
+        const successEventString = JSON.stringify(successEvent);
         // Try to send to parent window
         if (window.parent && window.parent !== window) {
+          window.parent.postMessage(successEventString, '*');
           window.parent.postMessage(successEvent, '*');
         }
         
         // Also try to send to top window if different from parent
         if (window.top && window.top !== window && window.top !== window.parent) {
+          window.top.postMessage(successEventString, '*');
           window.top.postMessage(successEvent, '*');
         }
+        debugLog('SEND', '✅ Success response sent');
       } catch (error) {
+        debugLog('ERROR', '❌ Failed to send success response:', error);
       }
     }
 
@@ -831,18 +868,24 @@
         // No chargeId needed for setup success
       };
       
+      debugLog('SEND', '📤 Sending setup success response to GHL:', successEvent);
       
       try {
+        const successEventString = JSON.stringify(successEvent);
         // Try to send to parent window
         if (window.parent && window.parent !== window) {
+          window.parent.postMessage(successEventString, '*');
           window.parent.postMessage(successEvent, '*');
         }
         
         // Also try to send to top window if different from parent
         if (window.top && window.top !== window && window.top !== window.parent) {
+          window.top.postMessage(successEventString, '*');
           window.top.postMessage(successEvent, '*');
         }
+        debugLog('SEND', '✅ Setup success response sent');
       } catch (error) {
+        debugLog('ERROR', '❌ Failed to send setup success response:', error);
       }
     }
 
@@ -855,18 +898,22 @@
         }
       };
       
-      
       try {
+        const errorEventString = JSON.stringify(errorEvent);
         // Try to send to parent window
         if (window.parent && window.parent !== window) {
+          window.parent.postMessage(errorEventString, '*');
           window.parent.postMessage(errorEvent, '*');
         }
         
         // Also try to send to top window if different from parent
         if (window.top && window.top !== window && window.top !== window.parent) {
+          window.top.postMessage(errorEventString, '*');
           window.top.postMessage(errorEvent, '*');
         }
+        debugLog('SEND', '✅ Error response sent');
       } catch (error) {
+        debugLog('ERROR', '❌ Failed to send error response:', error);
       }
     }
 
@@ -876,18 +923,24 @@
         type: 'custom_element_close_response'
       };
       
+      debugLog('SEND', '📤 Sending close response to GHL:', closeEvent);
       
       try {
+        const closeEventString = JSON.stringify(closeEvent);
         // Try to send to parent window
         if (window.parent && window.parent !== window) {
+          window.parent.postMessage(closeEventString, '*');
           window.parent.postMessage(closeEvent, '*');
         }
         
         // Also try to send to top window if different from parent
         if (window.top && window.top !== window && window.top !== window.parent) {
+          window.top.postMessage(closeEventString, '*');
           window.top.postMessage(closeEvent, '*');
         }
+        debugLog('SEND', '✅ Close response sent');
       } catch (error) {
+        debugLog('ERROR', '❌ Failed to send close response:', error);
       }
     }
 
