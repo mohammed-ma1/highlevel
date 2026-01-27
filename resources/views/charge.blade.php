@@ -1097,7 +1097,7 @@
             
             <button id="proceed-payment-btn" class="proceed-payment-button">
               <span class="button-arrow">→</span>
-              <span class="button-text">الذهاب لصفحة الدفع</span>
+              <span class="button-text">اضغط هنا للذهاب لصفحة الدفع</span>
             </button>
             
             <div class="payment-methods-logos">
