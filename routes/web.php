@@ -6,13 +6,24 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ClientIntegrationController;
 use App\Http\Controllers\LeadConnectorPaymentController;
 use App\Http\Controllers\PaymentQueryController;
+use App\Http\Controllers\UPaymentsIntegrationController;
+use App\Http\Controllers\UPaymentsProviderController;
 
 Route::get('/connect', [ClientIntegrationController::class, 'connect'])
     ->name('client.connect');
 
+// UPayments OAuth redirect endpoint (separate marketplace app)
+Route::get('/uconnect', [UPaymentsIntegrationController::class, 'uconnect'])
+    ->name('upayments.connect');
+
 Route::get('/landing', function () {
     return view('welcome');
 })->name('welcome');
+
+// UPayments setup UI
+Route::get('/Ulanding', function () {
+    return view('upayments_landing');
+})->name('upayments.landing');
 
 // Test route - DISABLED in production for security
 // Route::get('/test', function () {
@@ -28,6 +39,10 @@ Route::get('/charge', function () {
     return view('charge');
 })->name('charge');
 
+Route::get('/ucharge', function () {
+    return view('upayments_charge');
+})->name('upayments.charge');
+
 // GoHighLevel payment verification endpoint
 Route::post('/payment/verify', [ClientIntegrationController::class, 'verifyPayment'])
     ->name('payment.verify');
@@ -37,6 +52,9 @@ Route::post('/webhook', [ClientIntegrationController::class, 'webhook'])
 
 Route::post('/provider/connect-or-disconnect', [ClientIntegrationController::class, 'connectOrDisconnect'])
     ->name('provider.connect_or_disconnect');
+
+Route::post('/uprovider/connect-or-disconnect', [UPaymentsProviderController::class, 'connectOrDisconnect'])
+    ->name('upayments.provider.connect_or_disconnect');
 
 // Payment query endpoint moved to API routes to avoid CSRF issues
 
@@ -90,6 +108,25 @@ Route::get('/payment/redirect', function (Request $request) {
     
     return view('payment.redirect');
 })->name('payment.redirect');
+
+// UPayments redirect landing (returnUrl/cancelUrl)
+Route::get('/upayment/redirect', function (Request $request) {
+    \Log::info('🔗 [UPAYMENTS Redirect] Redirect page accessed', [
+        'url' => $request->fullUrl(),
+        'method' => $request->method(),
+        'all_params' => $request->all(),
+        'query_params' => $request->query(),
+        'headers' => $request->headers->all(),
+        'referer' => $request->header('referer'),
+        'user_agent' => $request->header('user-agent'),
+        'track_id' => $request->input('track_id'),
+        'result' => $request->input('result'),
+        'location_id' => $request->input('locationId'),
+        'cancel' => $request->input('cancel'),
+    ]);
+
+    return view('payment.upayment_redirect');
+})->name('upayments.redirect');
 
 // Webhook route for Tap charge completion
 Route::post('/charge/webhook', function (Request $request) {

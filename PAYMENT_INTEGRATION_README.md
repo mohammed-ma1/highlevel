@@ -1,11 +1,17 @@
-# GoHighLevel + Tap Payment Integration
+# GoHighLevel Payments Integration (Tap + UPayments)
 
-This Laravel application provides a custom payment integration for GoHighLevel using Tap Payment Gateway. The integration follows the [GoHighLevel Custom Payment Integration documentation](https://help.gohighlevel.com/support/solutions/articles/155000002620-how-to-build-a-custom-payments-integration-on-the-platform).
+This Laravel application provides custom payment integrations for GoHighLevel:
+
+- **Tap** (existing integration, unchanged)
+- **UPayments** (new integration, hosted checkout link / Non-Whitelabel)
+
+The integration follows the [GoHighLevel Custom Payment Integration documentation](https://help.gohighlevel.com/support/solutions/articles/155000002620-how-to-build-a-custom-payments-integration-on-the-platform).
 
 ## Features
 
 - ✅ OAuth integration with GoHighLevel
 - ✅ Tap Card SDK integration for secure payments
+- ✅ UPayments hosted checkout (Non-Whitelabel) integration
 - ✅ Payment query endpoint for GoHighLevel
 - ✅ Webhook handling for payment events
 - ✅ Support for one-time payments and subscriptions
@@ -23,10 +29,17 @@ This Laravel application provides a custom payment integration for GoHighLevel u
 ### Key Endpoints
 
 - `GET /connect` - OAuth callback from GoHighLevel
+- `GET /uconnect` - OAuth callback for the UPayments marketplace app
 - `POST /payment/query` - Payment processing endpoint for GoHighLevel
+- `POST /api/upayment/query` - UPayments payment query endpoint for GoHighLevel
 - `POST /webhook` - Webhook handler for payment events
 - `GET /tap` - Payment form with Tap Card SDK
+- `GET /ucharge` - Payment UI for UPayments hosted checkout
 - `POST /provider/connect-or-disconnect` - Connect/disconnect payment provider
+- `POST /uprovider/connect-or-disconnect` - Connect/disconnect UPayments provider
+- `GET /upayment/redirect` - Return/cancel redirect page for UPayments hosted checkout
+- `GET /api/upayment/status` - Server-side status check using `track_id`
+- `POST /api/upayment/webhook` - UPayments `notificationUrl` webhook receiver
 
 ## Setup Instructions
 
@@ -43,6 +56,11 @@ This will add the following fields to the users table:
 - `lead_live_publishable_key` - Tap live publishable key
 - `lead_test_api_key` - Tap test API key
 - `lead_test_publishable_key` - Tap test publishable key
+
+And for UPayments:
+- `upayments_mode` - `test|live`
+- `upayments_test_token` - UPayments sandbox token (e.g. `jtest123`)
+- `upayments_live_token` - UPayments production token
 
 ### 2. GoHighLevel Marketplace App Configuration
 
@@ -62,9 +80,15 @@ products/prices.readonly
 
 #### URLs
 - **Redirect URL**: `https://yourdomain.com/connect`
+- **Redirect URL (UPayments app)**: `https://yourdomain.com/uconnect`
 - **Webhook URL**: `https://yourdomain.com/webhook`
 - **Query URL**: `https://yourdomain.com/payment/query`
 - **Payments URL**: `https://yourdomain.com/tap`
+
+For UPayments provider registration payload (these URLs are sent to GHL during connect):
+- **UPayments Landing URL**: `https://yourdomain.com/Ulanding`
+- **UPayments Payments URL**: `https://yourdomain.com/ucharge`
+- **UPayments Query URL**: `https://yourdomain.com/api/upayment/query`
 
 #### Payment Provider Type
 Select the appropriate types:
@@ -77,6 +101,16 @@ Select the appropriate types:
 1. Get your Tap API keys from the Tap Dashboard
 2. Configure test and live keys in your GoHighLevel app
 3. The keys will be securely stored in the database
+
+### 4. UPayments Configuration
+
+1. Create/install the **UPayments** marketplace app (separate OAuth client) and complete OAuth via `GET /uconnect`
+2. Open the setup UI at `GET /Ulanding` from the GHL integration flow
+3. Enter the UPayments **Test Token** and/or **Live Token**, select the mode, and click **Connect Provider**
+
+UPayments API reference:
+- Create charge: [UPayments “Make charge”](https://developers.upayments.com/reference/addcharge)
+- Get status: [UPayments “Get Payment Status”](https://developers.upayments.com/reference/checkpaymentstatus)
 
 ## Payment Flow
 
@@ -143,6 +177,25 @@ The webhook endpoint handles these events:
 - `subscription.updated`
 - `payment.captured`
 
+### UPayments Payment Query Endpoint (Verify)
+
+**URL**: `POST /api/upayment/query`
+
+**Behavior**:
+- Uses UPayments `track_id` as the `chargeId` (sent back to GHL via `GET /upayment/redirect`)
+- Verifies via UPayments status API (`GET .../get-payment-status/{track_id}`) and maps to GHL responses
+- Always returns HTTP 200
+
+**Example Request**:
+```json
+{
+  "type": "verify",
+  "locationId": "location_123",
+  "apiKey": "jtest123",
+  "chargeId": "019988a5066a999800a57eb83d309bafv2"
+}
+```
+
 ## Testing
 
 ### Test Payment Query
@@ -173,6 +226,11 @@ Visit `/tap` to test the payment form with Tap Card SDK.
 3. **Tap SDK Not Loading**
    - Verify your publishable key is correct
    - Check browser console for errors
+
+4. **UPayments Verify Fails**
+   - Ensure the provider connect used `queryUrl = /api/upayment/query`
+   - Ensure `upayments_mode` matches the token you provided
+   - Ensure `GET /upayment/redirect` is reachable (UPayments must redirect back)
 
 ### Logs
 
