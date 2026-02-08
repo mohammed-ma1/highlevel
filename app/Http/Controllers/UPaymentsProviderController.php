@@ -61,9 +61,9 @@ class UPaymentsProviderController extends Controller
             }
 
             // Ensure LeadConnector token exists / refresh if needed.
-            $accessToken = $user->lead_access_token;
-            $refreshToken = $user->lead_refresh_token;
-            $expiresAt = $user->lead_token_expires_at;
+            $accessToken = $user->upayments_lead_access_token;
+            $refreshToken = $user->upayments_lead_refresh_token;
+            $expiresAt = $user->upayments_lead_token_expires_at;
 
             if (!$accessToken || ($expiresAt && now()->gte($expiresAt))) {
                 if (!$refreshToken) {
@@ -79,13 +79,13 @@ class UPaymentsProviderController extends Controller
                     ], 502);
                 }
 
-                $user->lead_access_token = $new['access_token'];
-                $user->lead_refresh_token = $new['refresh_token'] ?? $refreshToken;
-                $user->lead_expires_in = $new['expires_in'] ?? null;
-                $user->lead_token_expires_at = isset($new['expires_in']) ? now()->addSeconds((int)$new['expires_in']) : null;
+                $user->upayments_lead_access_token = $new['access_token'];
+                $user->upayments_lead_refresh_token = $new['refresh_token'] ?? $refreshToken;
+                $user->upayments_lead_expires_in = $new['expires_in'] ?? null;
+                $user->upayments_lead_token_expires_at = isset($new['expires_in']) ? now()->addSeconds((int)$new['expires_in']) : null;
                 $user->save();
 
-                $accessToken = $user->lead_access_token;
+                $accessToken = $user->upayments_lead_access_token;
             }
 
             if ($action === 'connect') {
@@ -122,8 +122,8 @@ class UPaymentsProviderController extends Controller
                 $tokenToUse = $accessToken;
                 $usingLocationToken = false;
 
-                if (!empty($user->lead_company_id)) {
-                    $locationToken = $this->getLocationAccessToken($accessToken, $user->lead_company_id, $locationId);
+                if (!empty($user->upayments_lead_company_id)) {
+                    $locationToken = $this->getLocationAccessToken($accessToken, $user->upayments_lead_company_id, $locationId);
                     if ($locationToken) {
                         $tokenToUse = $locationToken;
                         $usingLocationToken = true;
@@ -139,7 +139,7 @@ class UPaymentsProviderController extends Controller
                     'paymentsUrl' => 'https://dashboard.mediasolution.io/ucharge',
                     'queryUrl' => 'https://dashboard.mediasolution.io/api/upayment/query',
                     // Reuse existing image slot; can be replaced with an official logo later.
-                    'imageUrl' => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
+                    'imageUrl' => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/6976c8cafbba5546628848b5/067d13b7-6dd8-4961-bb6d-bb885e3a3110.png',
                     'live' => [
                         'apiKey' => $liveToken ?: $testToken,
                         'publishableKey' => $liveToken ?: $testToken,
