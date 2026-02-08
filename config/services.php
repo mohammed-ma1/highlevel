@@ -44,8 +44,8 @@ return [
     // Separate OAuth app for UPayments integration
     'external_auth_upayments' => [
         'token_url' => env('UPAYMENTS_EXTERNAL_TOKEN_URL', 'https://services.leadconnectorhq.com/oauth/token'),
-        'client_id' => env('UPAYMENTS_EXTERNAL_CLIENT_ID', 'your-upayments-client-id'),
-        'client_secret' => env('UPAYMENTS_EXTERNAL_CLIENT_SECRET', 'your-upayments-client-secret'),
+        'client_id' => env('UPAYMENTS_EXTERNAL_CLIENT_ID', '6976c8cafbba5546628848b5-ml6en9hl'),
+        'client_secret' => env('UPAYMENTS_EXTERNAL_CLIENT_SECRET', 'fd54e5a8-aacb-43a8-9d55-8b4099be2116'),
         'redirect_uri' => env('UPAYMENTS_EXTERNAL_REDIRECT_URI', 'https://dashboard.mediasolution.io/uconnect'),
     ],
 
