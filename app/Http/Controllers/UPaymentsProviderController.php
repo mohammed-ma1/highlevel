@@ -141,7 +141,12 @@ class UPaymentsProviderController extends Controller
                 $tokenToUse = $accessToken;
                 $usingLocationToken = false;
 
-                if (!empty($user->upayments_lead_company_id)) {
+                // Only Company installs support exchanging for a location-scoped token.
+                // Location installs may have companyId present, but LeadConnector will reject locationToken calls.
+                if (
+                    ($user->upayments_lead_user_type ?? null) === 'Company'
+                    && !empty($user->upayments_lead_company_id)
+                ) {
                     $locationToken = $this->getLocationAccessToken($accessToken, $user->upayments_lead_company_id, $locationId);
                     if ($locationToken) {
                         $tokenToUse = $locationToken;
@@ -186,6 +191,12 @@ class UPaymentsProviderController extends Controller
                     ->withHeaders(['Version' => '2021-07-28'])
                     ->post($connectUrl, $payload);
 
+                Log::info('🟣 [UPAYMENTS] GHL /connect response', [
+                    'status' => $resp->status(),
+                    'successful' => $resp->successful(),
+                    'body' => $resp->json() ?: $resp->body(),
+                ]);
+
                 if ($resp->status() >= 300 && $resp->status() < 400) {
                     return response()->json([
                         'message' => 'LeadConnector /connect returned redirect (blocked)',
@@ -203,6 +214,110 @@ class UPaymentsProviderController extends Controller
                     return redirect()->back()->with([
                         'api_error' => json_encode($resp->json() ?: ['error' => $resp->body()]),
                     ])->withInput($request->only('information'));
+                }
+
+                // Verify that the payment config is now retrievable (GHL sometimes reports
+                // "Marketplace payment config not found" when config creation did not persist).
+                try {
+                    $verifyResp = Http::timeout(15)
+                        ->acceptJson()
+                        ->withoutRedirecting()
+                        ->withToken($tokenToUse)
+                        ->withHeaders(['Version' => '2021-07-28'])
+                        ->get($connectUrl);
+
+                    Log::info('🟣 [UPAYMENTS] GHL /connect (fetch config) response', [
+                        'status' => $verifyResp->status(),
+                        'successful' => $verifyResp->successful(),
+                        'body' => $verifyResp->json() ?: $verifyResp->body(),
+                    ]);
+
+                    if ($verifyResp->failed()) {
+                        $verifyJson = $verifyResp->json() ?? [];
+                        $verifyMessage = (string)($verifyJson['message'] ?? '');
+
+                        // Self-heal: if config is missing, (re)create the provider association and retry connect once.
+                        if (
+                            $verifyResp->status() === 400
+                            && stripos($verifyMessage, 'Marketplace payment config not found') !== false
+                        ) {
+                            Log::warning('🟣 [UPAYMENTS] Config missing after connect; re-registering provider and retrying', [
+                                'locationId' => $locationId,
+                                'message' => $verifyMessage,
+                            ]);
+
+                            $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
+                                . '?locationId=' . urlencode($locationId);
+                            $providerPayload = [
+                                'name' => 'UPayments',
+                                'description' => 'Hosted checkout (Non-Whitelabel) via UPayments',
+                                'paymentsUrl' => 'https://dashboard.mediasolution.io/ucharge',
+                                'queryUrl' => 'https://dashboard.mediasolution.io/api/upayment/query',
+                                'imageUrl' => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
+                            ];
+
+                            $providerResp = Http::timeout(25)
+                                ->acceptJson()
+                                ->withoutRedirecting()
+                                ->withToken($tokenToUse)
+                                ->withHeaders(['Version' => '2021-07-28'])
+                                ->post($providerUrl, $providerPayload);
+
+                            Log::info('🟣 [UPAYMENTS] Provider (re)registration response (self-heal)', [
+                                'status' => $providerResp->status(),
+                                'successful' => $providerResp->successful(),
+                                'body' => $providerResp->json() ?: $providerResp->body(),
+                            ]);
+
+                            $retryResp = Http::timeout(25)
+                                ->acceptJson()
+                                ->withoutRedirecting()
+                                ->withToken($tokenToUse)
+                                ->withHeaders(['Version' => '2021-07-28'])
+                                ->post($connectUrl, $payload);
+
+                            Log::info('🟣 [UPAYMENTS] GHL /connect retry response (self-heal)', [
+                                'status' => $retryResp->status(),
+                                'successful' => $retryResp->successful(),
+                                'body' => $retryResp->json() ?: $retryResp->body(),
+                            ]);
+
+                            if ($retryResp->failed()) {
+                                return redirect()->back()->with([
+                                    'api_error' => json_encode($retryResp->json() ?: ['error' => $retryResp->body()]),
+                                ])->withInput($request->only('information'));
+                            }
+
+                            $verifyResp2 = Http::timeout(15)
+                                ->acceptJson()
+                                ->withoutRedirecting()
+                                ->withToken($tokenToUse)
+                                ->withHeaders(['Version' => '2021-07-28'])
+                                ->get($connectUrl);
+
+                            Log::info('🟣 [UPAYMENTS] GHL /connect (fetch config) response after self-heal', [
+                                'status' => $verifyResp2->status(),
+                                'successful' => $verifyResp2->successful(),
+                                'body' => $verifyResp2->json() ?: $verifyResp2->body(),
+                            ]);
+
+                            if ($verifyResp2->failed()) {
+                                return redirect()->back()->with([
+                                    'api_error' => json_encode($verifyResp2->json() ?: ['error' => $verifyResp2->body()]),
+                                ])->withInput($request->only('information'));
+                            }
+
+                            // Config is now retrievable; continue with success redirect.
+                        } else {
+                        return redirect()->back()->with([
+                            'api_error' => json_encode($verifyResp->json() ?: ['error' => $verifyResp->body()]),
+                        ])->withInput($request->only('information'));
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('🟣 [UPAYMENTS] GHL config verification exception (continuing)', [
+                        'error' => $e->getMessage(),
+                    ]);
                 }
 
                 return redirect()->back()->with([

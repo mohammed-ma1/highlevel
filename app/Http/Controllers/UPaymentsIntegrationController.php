@@ -346,28 +346,6 @@ class UPaymentsIntegrationController extends Controller
             'successful' => $resp->successful(),
             'body' => $resp->json() ?: $resp->body(),
         ]);
-
-        // Optional verification (Tap does a similar sanity check when responses look suspicious)
-        if ($resp->successful()) {
-            try {
-                $verifyResp = Http::timeout(10)
-                    ->acceptJson()
-                    ->withToken($token)
-                    ->withHeaders(['Version' => '2021-07-28'])
-                    ->get($providerUrl);
-                Log::info('🟣 [UPAYMENTS] Provider verification response', [
-                    'locationId' => $locationId,
-                    'status' => $verifyResp->status(),
-                    'successful' => $verifyResp->successful(),
-                    'body' => $verifyResp->json() ?: $verifyResp->body(),
-                ]);
-            } catch (\Exception $e) {
-                Log::warning('🟣 [UPAYMENTS] Provider verification exception', [
-                    'locationId' => $locationId,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
     }
 
     private function getLocationAccessToken(string $companyAccessToken, string $companyId, string $locationId): ?string
