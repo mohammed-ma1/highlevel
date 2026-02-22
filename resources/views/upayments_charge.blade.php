@@ -197,6 +197,7 @@
             orderId: paymentData.orderId,
             transactionId: paymentData.transactionId,
             locationId: paymentData.locationId,
+            liveMode: !!paymentData.liveMode,
             contact: paymentData.contact || null,
             description: `Payment for ${paymentData.productDetails?.productId || 'order'}`,
             customerExtraData: ''

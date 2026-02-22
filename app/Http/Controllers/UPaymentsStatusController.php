@@ -30,7 +30,10 @@ class UPaymentsStatusController extends Controller
                 ], 404);
             }
 
-            $mode = $user->upayments_mode ?: 'test';
+            // Allow callers to override mode explicitly (useful when GHL indicates liveMode).
+            $mode = $request->has('liveMode')
+                ? ($request->boolean('liveMode') ? 'live' : 'test')
+                : ($user->upayments_mode ?: 'test');
             $token = $mode === 'live'
                 ? ($user->upayments_live_api_key ?? $user->upayments_live_token ?? null)
                 : ($user->upayments_test_token ?? null);
