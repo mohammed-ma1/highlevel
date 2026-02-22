@@ -161,12 +161,12 @@ class UPaymentsProviderController extends Controller
                 $testKeyForPayload = $testToken !== '' ? $testToken : $liveApiKey;
 
                 $payload = [
-                    'name' => 'UPayments Integration',
-                    'description' => 'Hosted checkout (Non-Whitelabel) via UPayments. Creates a payment link and redirects the customer to the secure UPayments checkout page.',
+                    // Must match the provider association name created during OAuth (`/payments/custom-provider/provider`).
+                    'name' => 'UPayments',
+                    'description' => 'Hosted checkout (Non-Whitelabel) via UPayments',
                     'paymentsUrl' => 'https://dashboard.mediasolution.io/ucharge',
                     'queryUrl' => 'https://dashboard.mediasolution.io/api/upayment/query',
-                    // Reuse existing image slot; can be replaced with an official logo later.
-                    'imageUrl' => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/6976c8cafbba5546628848b5/067d13b7-6dd8-4961-bb6d-bb885e3a3110.png',
+                    'imageUrl' => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
                     'live' => [
                         'apiKey' => $liveKeyForPayload,
                         'publishableKey' => $liveKeyForPayload,
@@ -238,8 +238,7 @@ class UPaymentsProviderController extends Controller
 
                         // Self-heal: if config is missing, (re)create the provider association and retry connect once.
                         if (
-                            $verifyResp->status() === 400
-                            && stripos($verifyMessage, 'Marketplace payment config not found') !== false
+                            stripos($verifyMessage, 'Marketplace payment config not found') !== false
                         ) {
                             Log::warning('🟣 [UPAYMENTS] Config missing after connect; re-registering provider and retrying', [
                                 'locationId' => $locationId,
