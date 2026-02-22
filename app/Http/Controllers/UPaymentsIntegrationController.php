@@ -70,7 +70,9 @@ class UPaymentsIntegrationController extends Controller
                 'oauth.readonly',
             ];
 
-            $scopeString = implode(' ', array_map('urlencode', $scopes));
+            // IMPORTANT: do not pre-urlencode scopes; http_build_query will encode correctly.
+            // Pre-encoding can lead to double-encoded scopes and missing permissions.
+            $scopeString = implode(' ', $scopes);
 
             $oauthUrl = 'https://marketplace.gohighlevel.com/oauth/chooselocation?' . http_build_query([
                 'response_type' => 'code',
@@ -224,6 +226,7 @@ class UPaymentsIntegrationController extends Controller
             'upayments_lead_company_id' => $user->upayments_lead_company_id,
             'upayments_lead_user_type' => $user->upayments_lead_user_type,
             'is_bulk_installation' => $user->upayments_lead_is_bulk_installation,
+            'granted_scope' => $user->upayments_lead_scope,
         ]);
 
         // === IMPORTANT (matches Tap connect behavior): Register provider so integration appears in GHL ===
