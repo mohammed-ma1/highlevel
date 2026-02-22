@@ -92,21 +92,35 @@ class UPaymentsProviderController extends Controller
                 $request->validate([
                     'upayments_mode' => ['required', 'in:test,live'],
                     'upayments_test_token' => ['nullable', 'string'],
+                    // Legacy field name kept for backward compatibility (treated as live API key).
                     'upayments_live_token' => ['nullable', 'string'],
+                    'upayments_live_merchant_id' => ['nullable', 'string'],
+                    'upayments_live_api_key' => ['nullable', 'string'],
                 ]);
 
                 $mode = $request->input('upayments_mode', 'test');
-                $testToken = (string)$request->input('upayments_test_token', '');
-                $liveToken = (string)$request->input('upayments_live_token', '');
+                $testToken = trim((string)$request->input('upayments_test_token', ''));
+                $legacyLiveToken = trim((string)$request->input('upayments_live_token', ''));
+                $liveMerchantId = trim((string)$request->input('upayments_live_merchant_id', ''));
+                $liveApiKey = trim((string)$request->input('upayments_live_api_key', ''));
+
+                if ($liveApiKey === '' && $legacyLiveToken !== '') {
+                    $liveApiKey = $legacyLiveToken;
+                }
 
                 if ($mode === 'test' && $testToken === '') {
                     return redirect()->back()->with([
                         'api_error' => 'Please provide UPayments Test Token.',
                     ])->withInput($request->only('information'));
                 }
-                if ($mode === 'live' && $liveToken === '') {
+                if ($mode === 'live' && $liveMerchantId === '') {
                     return redirect()->back()->with([
-                        'api_error' => 'Please provide UPayments Live Token.',
+                        'api_error' => 'Please provide UPayments Live Merchant ID.',
+                    ])->withInput($request->only('information'));
+                }
+                if ($mode === 'live' && $liveApiKey === '') {
+                    return redirect()->back()->with([
+                        'api_error' => 'Please provide UPayments Live API Key.',
                     ])->withInput($request->only('information'));
                 }
 
@@ -114,8 +128,13 @@ class UPaymentsProviderController extends Controller
                 if ($testToken !== '') {
                     $user->upayments_test_token = $testToken;
                 }
-                if ($liveToken !== '') {
-                    $user->upayments_live_token = $liveToken;
+                if ($liveMerchantId !== '') {
+                    $user->upayments_live_merchant_id = $liveMerchantId;
+                }
+                if ($liveApiKey !== '') {
+                    // Store in new field and legacy field so older lookups keep working.
+                    $user->upayments_live_api_key = $liveApiKey;
+                    $user->upayments_live_token = $liveApiKey;
                 }
                 $user->save();
 
@@ -133,6 +152,9 @@ class UPaymentsProviderController extends Controller
                 $baseUrl = 'https://services.leadconnectorhq.com/payments/custom-provider';
                 $connectUrl = $baseUrl . '/connect' . '?locationId=' . urlencode($locationId);
 
+                $liveKeyForPayload = $liveApiKey !== '' ? $liveApiKey : $testToken;
+                $testKeyForPayload = $testToken !== '' ? $testToken : $liveApiKey;
+
                 $payload = [
                     'name' => 'UPayments Integration',
                     'description' => 'Hosted checkout (Non-Whitelabel) via UPayments. Creates a payment link and redirects the customer to the secure UPayments checkout page.',
@@ -141,12 +163,12 @@ class UPaymentsProviderController extends Controller
                     // Reuse existing image slot; can be replaced with an official logo later.
                     'imageUrl' => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/6976c8cafbba5546628848b5/067d13b7-6dd8-4961-bb6d-bb885e3a3110.png',
                     'live' => [
-                        'apiKey' => $liveToken ?: $testToken,
-                        'publishableKey' => $liveToken ?: $testToken,
+                        'apiKey' => $liveKeyForPayload,
+                        'publishableKey' => $liveKeyForPayload,
                     ],
                     'test' => [
-                        'apiKey' => $testToken ?: $liveToken,
-                        'publishableKey' => $testToken ?: $liveToken,
+                        'apiKey' => $testKeyForPayload,
+                        'publishableKey' => $testKeyForPayload,
                     ],
                 ];
 

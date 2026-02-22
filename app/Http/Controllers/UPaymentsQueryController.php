@@ -42,7 +42,8 @@ class UPaymentsQueryController extends Controller
 
             if (!$user) {
                 $user = User::where('upayments_test_token', $apiKey)
-                    ->orWhere('upayments_live_token', $apiKey)
+                    ->orWhere('upayments_live_api_key', $apiKey)
+                    ->orWhere('upayments_live_token', $apiKey) // legacy
                     ->first();
             }
 
@@ -52,7 +53,9 @@ class UPaymentsQueryController extends Controller
 
             // Determine mode from apiKey (preferred), else from stored user mode.
             $mode = null;
-            if (!empty($user->upayments_live_token) && $apiKey === $user->upayments_live_token) {
+            if (!empty($user->upayments_live_api_key) && $apiKey === $user->upayments_live_api_key) {
+                $mode = 'live';
+            } elseif (!empty($user->upayments_live_token) && $apiKey === $user->upayments_live_token) {
                 $mode = 'live';
             } elseif (!empty($user->upayments_test_token) && $apiKey === $user->upayments_test_token) {
                 $mode = 'test';
@@ -60,7 +63,9 @@ class UPaymentsQueryController extends Controller
                 $mode = $user->upayments_mode ?: 'test';
             }
 
-            $expectedKey = $mode === 'live' ? ($user->upayments_live_token ?? '') : ($user->upayments_test_token ?? '');
+            $expectedKey = $mode === 'live'
+                ? (($user->upayments_live_api_key ?? '') !== '' ? ($user->upayments_live_api_key ?? '') : ($user->upayments_live_token ?? ''))
+                : ($user->upayments_test_token ?? '');
             if ($expectedKey === '' || $apiKey !== $expectedKey) {
                 Log::warning('🟣 [UPAYMENTS] API key validation failed', [
                     'user_id' => $user->id,
@@ -98,13 +103,15 @@ class UPaymentsQueryController extends Controller
             return response()->json(['failed' => true], 200);
         }
 
-        $token = $mode === 'live' ? ($user->upayments_live_token ?? null) : ($user->upayments_test_token ?? null);
+        $token = $mode === 'live'
+            ? ($user->upayments_live_api_key ?? $user->upayments_live_token ?? null)
+            : ($user->upayments_test_token ?? null);
         if (empty($token)) {
             return response()->json(['failed' => true], 200);
         }
 
         $baseUrl = $mode === 'live'
-            ? config('services.upayments.live_base_url', 'https://api.upayments.com/api/v1/')
+            ? config('services.upayments.live_base_url', 'https://apiv2api.upayments.com/api/v1/')
             : config('services.upayments.test_base_url', 'https://sandboxapi.upayments.com/api/v1/');
         $baseUrl = rtrim($baseUrl, '/') . '/';
         $endpoint = $baseUrl . 'get-payment-status/' . urlencode($trackId);

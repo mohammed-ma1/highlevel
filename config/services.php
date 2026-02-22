@@ -51,7 +51,7 @@ return [
 
     'upayments' => [
         'test_base_url' => env('UPAYMENTS_TEST_BASE_URL', 'https://sandboxapi.upayments.com/api/v1/'),
-        'live_base_url' => env('UPAYMENTS_LIVE_BASE_URL', 'https://api.upayments.com/api/v1/'),
+        'live_base_url' => env('UPAYMENTS_LIVE_BASE_URL', 'https://apiv2api.upayments.com/api/v1/'),
     ],
 
 ];

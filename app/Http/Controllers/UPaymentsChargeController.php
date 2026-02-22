@@ -38,7 +38,16 @@ class UPaymentsChargeController extends Controller
             }
 
             $mode = $user->upayments_mode ?: 'test';
-            $token = $mode === 'live' ? ($user->upayments_live_token ?? null) : ($user->upayments_test_token ?? null);
+            $token = $mode === 'live'
+                ? ($user->upayments_live_api_key ?? $user->upayments_live_token ?? null)
+                : ($user->upayments_test_token ?? null);
+
+            if ($mode === 'live' && empty($user->upayments_live_merchant_id)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'UPayments Merchant ID not configured for live mode',
+                ], 400);
+            }
 
             if (empty($token)) {
                 return response()->json([
@@ -48,7 +57,7 @@ class UPaymentsChargeController extends Controller
             }
 
             $baseUrl = $mode === 'live'
-                ? config('services.upayments.live_base_url', 'https://api.upayments.com/api/v1/')
+                ? config('services.upayments.live_base_url', 'https://apiv2api.upayments.com/api/v1/')
                 : config('services.upayments.test_base_url', 'https://sandboxapi.upayments.com/api/v1/');
 
             $baseUrl = rtrim($baseUrl, '/') . '/';
@@ -117,6 +126,7 @@ class UPaymentsChargeController extends Controller
                 'currency' => $currency,
                 'orderId' => $finalOrderId,
                 'transactionId' => $finalTransactionId,
+                'has_live_merchant_id' => !empty($user->upayments_live_merchant_id),
                 'token_prefix' => substr((string)$token, 0, 8) . '...',
             ]);
 

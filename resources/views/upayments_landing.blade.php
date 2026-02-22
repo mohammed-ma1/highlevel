@@ -188,7 +188,22 @@
 
                             <div class="section">
                                 <h2 class="section-title">API Configuration</h2>
-                                <p class="help-text">Enter your UPayments API tokens. These are only used when connecting your provider.</p>
+                                <p class="help-text">Enter your UPayments credentials. These are only used when connecting your provider.</p>
+
+                                <div class="help-text" style="margin-top: 0.75rem;">
+                                    <strong>Live mode (Production)</strong>
+                                    <div style="margin-top: 0.35rem;">
+                                        Once your test transactions are well tested and your application is ready to start collecting payments, switch to Live mode and use your Production credentials:
+                                        <ul style="margin: 0.35rem 0 0 1.1rem; padding: 0;">
+                                            <li><strong>Merchant ID</strong> and <strong>API Key</strong> (Bearer Token) from your UPay Dashboard (Merchant API Detail).</li>
+                                            <li><strong>Production API</strong>: <code>https://apiv2api.upayments.com/api/v1/</code></li>
+                                            <li>Example: <code>https://sandboxapi.upayments.com/api/v1/charge</code> becomes <code>https://apiv2api.upayments.com/api/v1/charge</code></li>
+                                        </ul>
+                                        <div style="margin-top: 0.35rem;">
+                                            Need help? Contact <code>support@upayments.com</code> or <code>+965 1809888</code>.
+                                        </div>
+                                    </div>
+                                </div>
 
                                 <div class="form-grid">
                                     <div class="form-group">
@@ -203,11 +218,22 @@
                                     </div>
 
                                     <div class="form-group">
-                                        <label class="form-label">Live Token</label>
+                                        <label class="form-label">Live Merchant ID</label>
                                         <input
-                                            name="upayments_live_token"
+                                            name="upayments_live_merchant_id"
+                                            type="text"
+                                            placeholder="Your merchant id"
+                                            class="form-input"
+                                            autocomplete="off"
+                                        />
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="form-label">Live API Key (Bearer Token)</label>
+                                        <input
+                                            name="upayments_live_api_key"
                                             type="password"
-                                            placeholder="Your live token"
+                                            placeholder="Your production API key"
                                             class="form-input"
                                             autocomplete="off"
                                         />
@@ -244,6 +270,23 @@
                         informationField.value = window.location.href;
                     }
                 }
+
+                // Basic UX: toggle required fields based on selected mode.
+                const form = document.getElementById('upaymentsForm');
+                const modeInputs = Array.from(form.querySelectorAll('input[name="upayments_mode"]'));
+                const testTokenInput = form.querySelector('input[name="upayments_test_token"]');
+                const liveMerchantInput = form.querySelector('input[name="upayments_live_merchant_id"]');
+                const liveApiKeyInput = form.querySelector('input[name="upayments_live_api_key"]');
+
+                function syncRequired() {
+                    const selected = (modeInputs.find(i => i.checked) || {}).value || 'test';
+                    if (testTokenInput) testTokenInput.required = selected === 'test';
+                    if (liveMerchantInput) liveMerchantInput.required = selected === 'live';
+                    if (liveApiKeyInput) liveApiKeyInput.required = selected === 'live';
+                }
+
+                modeInputs.forEach(i => i.addEventListener('change', syncRequired));
+                syncRequired();
             });
         </script>
     </body>

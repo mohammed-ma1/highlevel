@@ -31,11 +31,15 @@ class UPaymentsStatusController extends Controller
             }
 
             $mode = $user->upayments_mode ?: 'test';
-            $token = $mode === 'live' ? ($user->upayments_live_token ?? null) : ($user->upayments_test_token ?? null);
+            $token = $mode === 'live'
+                ? ($user->upayments_live_api_key ?? $user->upayments_live_token ?? null)
+                : ($user->upayments_test_token ?? null);
 
             // If mode token is missing, try the other one as fallback.
             if (empty($token)) {
-                $token = $mode === 'live' ? ($user->upayments_test_token ?? null) : ($user->upayments_live_token ?? null);
+                $token = $mode === 'live'
+                    ? ($user->upayments_test_token ?? null)
+                    : ($user->upayments_live_api_key ?? $user->upayments_live_token ?? null);
             }
 
             if (empty($token)) {
@@ -46,7 +50,7 @@ class UPaymentsStatusController extends Controller
             }
 
             $baseUrl = $mode === 'live'
-                ? config('services.upayments.live_base_url', 'https://api.upayments.com/api/v1/')
+                ? config('services.upayments.live_base_url', 'https://apiv2api.upayments.com/api/v1/')
                 : config('services.upayments.test_base_url', 'https://sandboxapi.upayments.com/api/v1/');
             $baseUrl = rtrim($baseUrl, '/') . '/';
 
