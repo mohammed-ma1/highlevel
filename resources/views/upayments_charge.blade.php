@@ -114,6 +114,40 @@
       return isMac && hasSafari && noChrome;
     }
 
+    function showProceedPaymentPopup(url) {
+      const isSafari = detectSafari();
+      const btn = document.getElementById('proceed-btn');
+      if (!btn) return;
+
+      // Non-Safari: open immediately in a new tab.
+      if (!isSafari) {
+        const newTab = window.open(url, '_blank');
+        if (!newTab) {
+          window.location.href = url;
+        }
+        return;
+      }
+
+      // Safari: require an explicit user gesture.
+      btn.style.display = 'inline-flex';
+      btn.disabled = false;
+      btn.onclick = function () {
+        const features = 'width=900,height=700,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no';
+        paymentPopup = window.open(url, 'upayments_payment', features);
+        if (!paymentPopup) {
+          window.location.href = url;
+          return;
+        }
+        const checkClosed = setInterval(() => {
+          if (paymentPopup.closed) {
+            clearInterval(checkClosed);
+            sendMessageToGHL({ type: 'custom_element_close_response' });
+          }
+        }, 1000);
+        window.paymentPopupCheckInterval = checkClosed;
+      };
+    }
+
     function sendMessageToGHL(message) {
       // Same multi-channel approach as Tap redirect (opener/parent/top + localStorage fallback)
       let sent = false;
@@ -212,32 +246,8 @@
 
         checkoutUrl = result.link;
 
-        // Default behavior: open checkout in new tab. Safari often requires explicit user gesture, so show button + popup.
-        const shouldUsePopup = detectSafari();
-        if (shouldUsePopup) {
-          const btn = document.getElementById('proceed-btn');
-          btn.style.display = 'inline-flex';
-          btn.onclick = function() {
-            const features = 'width=900,height=700,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no';
-            paymentPopup = window.open(checkoutUrl, 'upayments_payment', features);
-            if (!paymentPopup) {
-              window.location.href = checkoutUrl;
-              return;
-            }
-            const checkClosed = setInterval(() => {
-              if (paymentPopup.closed) {
-                clearInterval(checkClosed);
-                sendMessageToGHL({ type: 'custom_element_close_response' });
-              }
-            }, 1000);
-            window.paymentPopupCheckInterval = checkClosed;
-          };
-        } else {
-          const newTab = window.open(checkoutUrl, '_blank');
-          if (!newTab) {
-            window.location.href = checkoutUrl;
-          }
-        }
+        // Same flow as Tap: Safari requires a user gesture; others open immediately.
+        showProceedPaymentPopup(checkoutUrl);
       } catch (e) {
         showError(e.message || 'Unable to create checkout link');
         sendMessageToGHL({
