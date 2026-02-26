@@ -17,7 +17,7 @@ class UPaymentsChargeController extends Controller
     {
         try {
             $amount = (float) $request->input('amount');
-            $currency = (string) $request->input('currency', 'KWD');
+            $currency = strtoupper(trim((string) $request->input('currency', 'KWD')));
             $orderId = (string) ($request->input('orderId') ?? '');
             $transactionId = (string) ($request->input('transactionId') ?? '');
             $locationId = (string) ($request->input('locationId') ?? '');
@@ -26,6 +26,15 @@ class UPaymentsChargeController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => 'Missing required fields: amount, currency, locationId',
+                ], 400);
+            }
+
+            // UPayments expects a 3-letter ISO currency (e.g. KWD). GHL sometimes sends lowercase.
+            if (!preg_match('/^[A-Z]{3}$/', $currency)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid currency. Expected 3-letter ISO code (e.g. KWD).',
+                    'currency' => $currency,
                 ], 400);
             }
 

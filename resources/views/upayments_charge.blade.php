@@ -185,6 +185,7 @@
 
     async function createUPaymentsCharge() {
       try {
+        const normalizedCurrency = (paymentData.currency || 'KWD').toString().trim().toUpperCase();
         const resp = await fetch('/api/charge/create-upayment', {
           method: 'POST',
           headers: {
@@ -193,7 +194,7 @@
           },
           body: JSON.stringify({
             amount: paymentData.amount,
-            currency: paymentData.currency,
+            currency: normalizedCurrency,
             orderId: paymentData.orderId,
             transactionId: paymentData.transactionId,
             locationId: paymentData.locationId,
@@ -255,6 +256,7 @@
 
       if (parsed.type === 'payment_initiate_props') {
         ghlAcknowledged = true;
+        try { console.log('[UPayments] payment_initiate_props', parsed); } catch (e) {}
       }
 
       if (!isValidGHLMessage(parsed)) return;
