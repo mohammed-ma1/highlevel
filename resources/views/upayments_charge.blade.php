@@ -119,23 +119,11 @@
       const btn = document.getElementById('proceed-btn');
       if (!btn) return;
 
-      // Non-Safari: open immediately in a new tab.
-      if (!isSafari) {
-        const newTab = window.open(url, '_blank');
-        if (!newTab) {
-          window.location.href = url;
-        }
-        return;
-      }
-
-      // Safari: require an explicit user gesture.
-      btn.style.display = 'inline-flex';
-      btn.disabled = false;
-      btn.onclick = function () {
+      function openFromUserGesture() {
         const features = 'width=900,height=700,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no';
         paymentPopup = window.open(url, 'upayments_payment', features);
         if (!paymentPopup) {
-          window.location.href = url;
+          showError('Popup blocked. Please allow popups for this site, then click "Go to payment" again.');
           return;
         }
         const checkClosed = setInterval(() => {
@@ -145,7 +133,22 @@
           }
         }, 1000);
         window.paymentPopupCheckInterval = checkClosed;
-      };
+      }
+
+      // Safari always requires an explicit user gesture.
+      btn.style.display = 'inline-flex';
+      btn.disabled = false;
+      btn.onclick = openFromUserGesture;
+
+      // Non-Safari: try auto-open first. If popup is blocked (common in Chrome inside iframe),
+      // keep the button visible so the user can click to open (no iframe navigation fallback).
+      if (!isSafari) {
+        const newTab = window.open(url, '_blank');
+        if (newTab) {
+          return;
+        }
+        showError('Your browser blocked the popup. Click "Go to payment" to continue.');
+      }
     }
 
     function sendMessageToGHL(message) {
