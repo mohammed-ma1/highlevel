@@ -46,11 +46,12 @@ class UPaymentsChargeController extends Controller
                 ], 404);
             }
 
-            // Prefer live/test selection from GHL payload when available.
-            // GHL sends `liveMode` as boolean when initiating payment.
-            $mode = $request->has('liveMode')
+            // Use the mode the merchant chose during provider connection as the
+            // source of truth.  GHL may send liveMode=false even when the provider
+            // was connected in live mode, so the stored preference takes priority.
+            $mode = $user->upayments_mode ?: ($request->has('liveMode')
                 ? ($request->boolean('liveMode') ? 'live' : 'test')
-                : ($user->upayments_mode ?: 'test');
+                : 'test');
             $token = $mode === 'live'
                 ? ($user->upayments_live_api_key ?? $user->upayments_live_token ?? null)
                 : ($user->upayments_test_token ?? null);
@@ -133,6 +134,7 @@ class UPaymentsChargeController extends Controller
 
             Log::info('🟣 [UPAYMENTS] Creating charge', [
                 'mode' => $mode,
+                'stored_upayments_mode' => $user->upayments_mode,
                 'request_liveMode' => $request->has('liveMode') ? (bool)$request->boolean('liveMode') : null,
                 'endpoint' => $endpoint,
                 'locationId' => $locationId,
