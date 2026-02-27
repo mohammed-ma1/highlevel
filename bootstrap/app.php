@@ -12,11 +12,8 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // CORS is handled by Laravel's built-in CORS middleware
-        // No additional CORS middleware needed for same-origin requests
-        
-        // CSRF middleware is enabled by default in Laravel 11
-        // We'll use the custom VerifyCsrfToken middleware to handle exemptions
+        $middleware->trustProxies(at: '*');
+
         $middleware->web(replace: [
             \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class => \App\Http\Middleware\VerifyCsrfToken::class,
         ]);

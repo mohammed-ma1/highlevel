@@ -92,12 +92,16 @@ class UPaymentsChargeController extends Controller
             $finalOrderId = $orderId !== '' ? $orderId : ('ord_' . Str::uuid()->toString());
             $finalTransactionId = $transactionId !== '' ? $transactionId : ('txn_' . Str::uuid()->toString());
 
-            $returnUrl = rtrim(config('app.url'), '/') . '/upayment/redirect'
+            // Derive the public base URL from the incoming request so we don't
+            // depend on APP_URL being set correctly on every environment.
+            $appBaseUrl = rtrim($request->getSchemeAndHttpHost(), '/');
+
+            $returnUrl = $appBaseUrl . '/upayment/redirect'
                 . '?locationId=' . urlencode($locationId)
                 . '&transactionId=' . urlencode($finalTransactionId)
                 . '&orderId=' . urlencode($finalOrderId);
             $cancelUrl = $returnUrl . '&cancel=true';
-            $notificationUrl = rtrim(config('app.url'), '/') . '/api/upayment/webhook';
+            $notificationUrl = $appBaseUrl . '/api/upayment/webhook';
 
             // Build Non-Whitelabel request model (hosted checkout).
             $payload = [
@@ -137,6 +141,8 @@ class UPaymentsChargeController extends Controller
                 'stored_upayments_mode' => $user->upayments_mode,
                 'request_liveMode' => $request->has('liveMode') ? (bool)$request->boolean('liveMode') : null,
                 'endpoint' => $endpoint,
+                'returnUrl' => $returnUrl,
+                'notificationUrl' => $notificationUrl,
                 'locationId' => $locationId,
                 'amount' => $amount,
                 'currency' => $currency,
