@@ -147,7 +147,7 @@
         if (newTab) {
           return;
         }
-        showError('Your browser blocked the popup. Click "Go to payment" to continue.');
+       // showError('Your browser blocked the popup. Click "Go to payment" to continue.');
       }
     }
 
