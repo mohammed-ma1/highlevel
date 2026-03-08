@@ -201,17 +201,186 @@ class UPaymentsChargeController extends Controller
 
     /**
      * Webhook receiver for UPayments notificationUrl.
-     * Saves nothing yet; just logs for debugging and returns HTTP 200.
+     * Processes payment result and forwards payment.captured event to GHL.
      */
     public function webhook(Request $request)
     {
+        $allData = $request->all();
+
         Log::info('🟣 [UPAYMENTS] Webhook received', [
             'url' => $request->fullUrl(),
             'method' => $request->method(),
-            'all_data' => $request->all(),
+            'all_data' => $allData,
             'headers' => $request->headers->all(),
             'raw_body' => $request->getContent(),
         ]);
+
+        try {
+            // UPayments nests data under data.transaction.*
+            // e.g. { "data": { "transaction": { "track_id": "...", "result": "CAPTURED", ... } } }
+            $trackId = (string) data_get($allData, 'data.transaction.track_id',
+                data_get($allData, 'track_id',
+                    data_get($allData, 'trackId',
+                        data_get($allData, 'data.trackId', '')
+                    )
+                )
+            );
+
+            $result = strtoupper((string) data_get($allData, 'data.transaction.result',
+                data_get($allData, 'result',
+                    data_get($allData, 'data.result',
+                        data_get($allData, 'data.transaction.status',
+                            data_get($allData, 'payment_status',
+                                data_get($allData, 'data.payment_status', '')
+                            )
+                        )
+                    )
+                )
+            ));
+
+            // "reference" in UPayments is where we stored the GHL transactionId during charge creation
+            $orderRef = (string) data_get($allData, 'data.transaction.reference',
+                data_get($allData, 'order.reference',
+                    data_get($allData, 'data.order.reference',
+                        data_get($allData, 'reference', '')
+                    )
+                )
+            );
+
+            $orderId = (string) data_get($allData, 'data.transaction.order_id',
+                data_get($allData, 'order.id',
+                    data_get($allData, 'data.order.id',
+                        data_get($allData, 'order_id', '')
+                    )
+                )
+            );
+
+            $amount = (float) data_get($allData, 'data.transaction.total_price',
+                data_get($allData, 'data.transaction.total_paid_non_kwd',
+                    data_get($allData, 'order.amount',
+                        data_get($allData, 'data.order.amount',
+                            data_get($allData, 'amount',
+                                data_get($allData, 'data.amount', 0)
+                            )
+                        )
+                    )
+                )
+            );
+
+            // orderRef is the GHL transactionId we stored during charge creation.
+            $transactionId = $orderRef !== '' ? $orderRef : $orderId;
+
+            Log::info('🟣 [UPAYMENTS] Webhook parsed', [
+                'trackId' => $trackId,
+                'result' => $result,
+                'transactionId' => $transactionId,
+                'orderId' => $orderId,
+                'amount' => $amount,
+            ]);
+
+            if ($trackId === '' || $transactionId === '') {
+                Log::warning('🟣 [UPAYMENTS] Webhook missing trackId or transactionId, skipping GHL notification');
+                return response()->json(['status' => true]);
+            }
+
+            // Map UPayments result to GHL status
+            $ghlStatus = 'pending';
+            $failedResults = ['FAILED', 'FAIL', 'CANCELLED', 'CANCELED', 'DECLINED', 'ERROR', 'REVERSED', 'NOT CAPTURED', 'NOT_CAPTURED'];
+            $successResults = ['CAPTURED', 'SUCCESS', 'SUCCEEDED', 'PAID', 'APPROVED', 'COMPLETED', 'AUTHORIZED', 'DONE'];
+
+            if (in_array($result, $failedResults, true) || str_contains($result, 'NOT CAPTURE') || str_contains($result, 'NOT_CAPTURE')) {
+                $ghlStatus = 'failed';
+            } elseif (in_array($result, $successResults, true)) {
+                $ghlStatus = 'succeeded';
+            } elseif (str_contains($result, 'CANCEL') || str_contains($result, 'FAIL') || str_contains($result, 'DECLIN') || str_contains($result, 'NOT ')) {
+                $ghlStatus = 'failed';
+            } elseif (str_contains($result, 'CAPTURE') || str_contains($result, 'SUCCESS') || str_contains($result, 'PAID') || str_contains($result, 'DONE')) {
+                $ghlStatus = 'succeeded';
+            }
+
+            if ($ghlStatus === 'pending') {
+                Log::info('🟣 [UPAYMENTS] Webhook: payment still pending, not sending GHL event yet', [
+                    'result' => $result,
+                ]);
+                return response()->json(['status' => true]);
+            }
+
+            // Find the user by looking up locationId via the charge metadata.
+            // The webhook doesn't include locationId directly, so we search by order references.
+            $user = null;
+            $mode = 'test';
+
+            // Try to extract customerExtraData or other location hints
+            $customerExtra = (string) data_get($allData, 'data.transaction.customer_extra_data',
+                data_get($allData, 'customerExtraData',
+                    data_get($allData, 'data.customerExtraData', '')
+                )
+            );
+
+            // Search for user across all locations (the transactionId should be unique)
+            $users = User::whereNotNull('upayments_mode')->get();
+            foreach ($users as $candidate) {
+                $candidateMode = $candidate->upayments_mode ?: 'test';
+                $candidateToken = $candidateMode === 'live'
+                    ? ($candidate->upayments_live_api_key ?? $candidate->upayments_live_token ?? null)
+                    : ($candidate->upayments_test_token ?? null);
+
+                if (empty($candidateToken)) {
+                    continue;
+                }
+
+                $baseUrl = $candidateMode === 'live'
+                    ? config('services.upayments.live_base_url', 'https://apiv2api.upayments.com/api/v1/')
+                    : config('services.upayments.test_base_url', 'https://sandboxapi.upayments.com/api/v1/');
+                $baseUrl = rtrim($baseUrl, '/') . '/';
+                $statusEndpoint = $baseUrl . 'get-payment-status/' . urlencode($trackId);
+
+                try {
+                    $resp = Http::timeout(10)
+                        ->acceptJson()
+                        ->withToken($candidateToken)
+                        ->get($statusEndpoint);
+
+                    if ($resp->successful()) {
+                        $user = $candidate;
+                        $mode = $candidateMode;
+                        break;
+                    }
+                } catch (\Exception $e) {
+                    continue;
+                }
+            }
+
+            if (!$user) {
+                Log::warning('🟣 [UPAYMENTS] Webhook: could not find matching user for trackId', [
+                    'trackId' => $trackId,
+                ]);
+                return response()->json(['status' => true]);
+            }
+
+            Log::info('🟣 [UPAYMENTS] Webhook: sending payment.captured to GHL', [
+                'trackId' => $trackId,
+                'transactionId' => $transactionId,
+                'ghlStatus' => $ghlStatus,
+                'locationId' => $user->lead_location_id,
+                'mode' => $mode,
+            ]);
+
+            $webhookService = new \App\Services\WebhookService();
+            $webhookService->sendUPaymentsPaymentWebhook(
+                $user,
+                $trackId,
+                $transactionId,
+                $ghlStatus,
+                $amount,
+                $mode
+            );
+        } catch (\Exception $e) {
+            Log::error('🟣 [UPAYMENTS] Webhook processing error', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+        }
 
         return response()->json(['status' => true]);
     }

@@ -108,12 +108,16 @@ class UPaymentsStatusController extends Controller
 
     private function extractResult(array $json): string
     {
+        // UPayments nests the payment data under data.transaction
+        // e.g. { "status": true, "data": { "transaction": { "result": "CAPTURED", "status": "done", ... } } }
         $candidates = [
+            data_get($json, 'data.transaction.result'),
+            data_get($json, 'data.transaction.status'),
+            data_get($json, 'data.transaction.payment_status'),
             data_get($json, 'data.result'),
             data_get($json, 'data.payment_status'),
             data_get($json, 'data.paymentStatus'),
             data_get($json, 'result'),
-            data_get($json, 'status'),
             data_get($json, 'data.status'),
         ];
 
@@ -130,26 +134,30 @@ class UPaymentsStatusController extends Controller
     {
         $result = strtoupper($result);
 
-        $successStates = ['CAPTURED', 'SUCCESS', 'SUCCEEDED', 'PAID', 'APPROVED', 'COMPLETED', 'AUTHORIZED'];
-        $failedStates = ['FAILED', 'FAIL', 'CANCELLED', 'CANCELED', 'DECLINED', 'ERROR', 'REVERSED'];
+        // UPayments returns result="CAPTURED" for success, status="done" as secondary
+        $successStates = ['CAPTURED', 'SUCCESS', 'SUCCEEDED', 'PAID', 'APPROVED', 'COMPLETED', 'AUTHORIZED', 'DONE'];
+        $failedStates = ['FAILED', 'FAIL', 'CANCELLED', 'CANCELED', 'DECLINED', 'ERROR', 'REVERSED', 'NOT CAPTURED', 'NOT_CAPTURED'];
         $pendingStates = ['PENDING', 'INITIATED', 'PROCESSING'];
 
-        if (in_array($result, $successStates, true)) {
-            return ['state' => 'succeeded', 'is_successful' => true, 'is_failed' => false];
-        }
         if (in_array($result, $failedStates, true)) {
             return ['state' => 'failed', 'is_successful' => false, 'is_failed' => true];
+        }
+        if (in_array($result, $successStates, true)) {
+            return ['state' => 'succeeded', 'is_successful' => true, 'is_failed' => false];
         }
         if (in_array($result, $pendingStates, true)) {
             return ['state' => 'pending', 'is_successful' => false, 'is_failed' => false];
         }
 
-        // Heuristic fallback
-        if (str_contains($result, 'CAPTURE') || str_contains($result, 'SUCCESS') || str_contains($result, 'PAID')) {
-            return ['state' => 'succeeded', 'is_successful' => true, 'is_failed' => false];
-        }
-        if (str_contains($result, 'CANCEL') || str_contains($result, 'FAIL') || str_contains($result, 'DECLIN')) {
+        // Heuristic fallback — check negation patterns before positive ones
+        if (str_contains($result, 'NOT CAPTURE') || str_contains($result, 'NOT_CAPTURE')) {
             return ['state' => 'failed', 'is_successful' => false, 'is_failed' => true];
+        }
+        if (str_contains($result, 'CANCEL') || str_contains($result, 'FAIL') || str_contains($result, 'DECLIN') || str_contains($result, 'NOT ')) {
+            return ['state' => 'failed', 'is_successful' => false, 'is_failed' => true];
+        }
+        if (str_contains($result, 'CAPTURE') || str_contains($result, 'SUCCESS') || str_contains($result, 'PAID') || str_contains($result, 'DONE')) {
+            return ['state' => 'succeeded', 'is_successful' => true, 'is_failed' => false];
         }
 
         return ['state' => 'pending', 'is_successful' => false, 'is_failed' => false];

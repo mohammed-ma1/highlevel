@@ -137,6 +137,39 @@ class UPaymentsQueryController extends Controller
             $result = $this->extractResult($json);
             $mapped = $this->mapResultToState($result);
 
+            Log::info('🟣 [UPAYMENTS] Verify result', [
+                'trackId' => $trackId,
+                'transactionId' => $transactionId,
+                'result' => $result,
+                'state' => $mapped['state'],
+                'mode' => $mode,
+                'locationId' => $user->lead_location_id,
+            ]);
+
+            $isFinalState = in_array($mapped['state'], ['succeeded', 'failed'], true);
+            if ($isFinalState) {
+                // UPayments returns amount under data.transaction.total_price (string like "20.000")
+                $amount = (float) data_get($json, 'data.transaction.total_price',
+                    data_get($json, 'data.transaction.total_paid_non_kwd',
+                        data_get($json, 'data.order.amount',
+                            data_get($json, 'data.amount',
+                                data_get($json, 'amount', 0)
+                            )
+                        )
+                    )
+                );
+
+                $webhookService = new \App\Services\WebhookService();
+                $webhookService->sendUPaymentsPaymentWebhook(
+                    $user,
+                    $trackId,
+                    $transactionId,
+                    $mapped['state'],
+                    $amount,
+                    $mode
+                );
+            }
+
             if ($mapped['state'] === 'succeeded') {
                 return response()->json(['success' => true], 200);
             }
@@ -157,12 +190,16 @@ class UPaymentsQueryController extends Controller
 
     private function extractResult(array $json): string
     {
+        // UPayments nests the payment data under data.transaction
+        // e.g. { "status": true, "data": { "transaction": { "result": "CAPTURED", "status": "done", ... } } }
         $candidates = [
+            data_get($json, 'data.transaction.result'),
+            data_get($json, 'data.transaction.status'),
+            data_get($json, 'data.transaction.payment_status'),
             data_get($json, 'data.result'),
             data_get($json, 'data.payment_status'),
             data_get($json, 'data.paymentStatus'),
             data_get($json, 'result'),
-            data_get($json, 'status'),
             data_get($json, 'data.status'),
         ];
 
@@ -179,25 +216,30 @@ class UPaymentsQueryController extends Controller
     {
         $result = strtoupper($result);
 
-        $successStates = ['CAPTURED', 'SUCCESS', 'SUCCEEDED', 'PAID', 'APPROVED', 'COMPLETED', 'AUTHORIZED'];
-        $failedStates = ['FAILED', 'FAIL', 'CANCELLED', 'CANCELED', 'DECLINED', 'ERROR', 'REVERSED'];
+        // UPayments returns result="CAPTURED" for success, status="done" as secondary
+        $successStates = ['CAPTURED', 'SUCCESS', 'SUCCEEDED', 'PAID', 'APPROVED', 'COMPLETED', 'AUTHORIZED', 'DONE'];
+        $failedStates = ['FAILED', 'FAIL', 'CANCELLED', 'CANCELED', 'DECLINED', 'ERROR', 'REVERSED', 'NOT CAPTURED', 'NOT_CAPTURED'];
         $pendingStates = ['PENDING', 'INITIATED', 'PROCESSING'];
 
-        if (in_array($result, $successStates, true)) {
-            return ['state' => 'succeeded'];
-        }
         if (in_array($result, $failedStates, true)) {
             return ['state' => 'failed'];
+        }
+        if (in_array($result, $successStates, true)) {
+            return ['state' => 'succeeded'];
         }
         if (in_array($result, $pendingStates, true)) {
             return ['state' => 'pending'];
         }
 
-        if (str_contains($result, 'CAPTURE') || str_contains($result, 'SUCCESS') || str_contains($result, 'PAID')) {
-            return ['state' => 'succeeded'];
-        }
-        if (str_contains($result, 'CANCEL') || str_contains($result, 'FAIL') || str_contains($result, 'DECLIN')) {
+        // Heuristic fallback — check negation patterns before positive ones
+        if (str_contains($result, 'NOT CAPTURE') || str_contains($result, 'NOT_CAPTURE')) {
             return ['state' => 'failed'];
+        }
+        if (str_contains($result, 'CANCEL') || str_contains($result, 'FAIL') || str_contains($result, 'DECLIN') || str_contains($result, 'NOT ')) {
+            return ['state' => 'failed'];
+        }
+        if (str_contains($result, 'CAPTURE') || str_contains($result, 'SUCCESS') || str_contains($result, 'PAID') || str_contains($result, 'DONE')) {
+            return ['state' => 'succeeded'];
         }
 
         return ['state' => 'pending'];

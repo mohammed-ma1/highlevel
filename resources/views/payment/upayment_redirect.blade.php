@@ -86,8 +86,9 @@
     function mapResultToState(result) {
       const r = (result || '').toUpperCase();
       if (!r) return 'unknown';
-      if (r.includes('CAPTURE') || r.includes('SUCCESS') || r.includes('PAID')) return 'succeeded';
-      if (r.includes('FAIL') || r.includes('DECLIN') || r.includes('CANCEL') || r.includes('ERROR')) return 'failed';
+      if (r.includes('NOT CAPTURE') || r.includes('NOT_CAPTURE')) return 'failed';
+      if (r.includes('CAPTURE') || r.includes('SUCCESS') || r.includes('PAID') || r === 'DONE') return 'succeeded';
+      if (r.includes('FAIL') || r.includes('DECLIN') || r.includes('CANCEL') || r.includes('ERROR') || r.includes('NOT ')) return 'failed';
       if (r.includes('PENDING') || r.includes('INIT') || r.includes('PROCESS')) return 'pending';
       return 'unknown';
     }
@@ -147,9 +148,10 @@
         }
       }
 
-      // Last resort: if we have trackId but can't verify, assume success so GHL can verify via query endpoint later.
+      // If we have trackId but couldn't verify, treat as error — GHL will re-verify
+      // via the queryUrl independently. Never assume success without confirmation.
       if (trackId) {
-        sendSuccessToGHL(trackId);
+        sendErrorToGHL('Payment status could not be verified. Please check your order status.');
         return;
       }
 

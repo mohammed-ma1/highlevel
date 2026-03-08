@@ -176,11 +176,11 @@
 
                                 <div class="mode-selector">
                                     <div class="mode-option">
-                                        <input type="radio" id="mode_test" name="upayments_mode" value="test" {{ old('upayments_mode', 'test') === 'test' ? 'checked' : '' }}>
+                                        <input type="radio" id="mode_test" name="upayments_mode" value="test" {{ old('upayments_mode', $masked['mode'] ?? 'test') === 'test' ? 'checked' : '' }}>
                                         <label for="mode_test">🧪 Test Mode</label>
                                     </div>
                                     <div class="mode-option">
-                                        <input type="radio" id="mode_live" name="upayments_mode" value="live" {{ old('upayments_mode') === 'live' ? 'checked' : '' }}>
+                                        <input type="radio" id="mode_live" name="upayments_mode" value="live" {{ old('upayments_mode', $masked['mode'] ?? 'test') === 'live' ? 'checked' : '' }}>
                                         <label for="mode_live">🚀 Live Mode</label>
                                     </div>
                                 </div>
@@ -207,33 +207,33 @@
 
                                 <div class="form-grid">
                                     <div class="form-group">
-                                        <label class="form-label">Test Token</label>
+                                        <label class="form-label">Test Mode: Non-whitelabeled API Key</label>
                                         <input
                                             name="upayments_test_token"
                                             type="password"
-                                            placeholder="e.g. jtest123"
+                                            placeholder="{{  '**********' }}"
                                             class="form-input"
                                             autocomplete="off"
                                         />
                                     </div>
 
                                     <div class="form-group">
-                                        <label class="form-label">Live Merchant ID</label>
+                                        <label class="form-label">Live Mode: Merchant ID</label>
                                         <input
                                             name="upayments_live_merchant_id"
                                             type="text"
-                                            placeholder="Your merchant id"
+                                            placeholder="{{  '**********' }}"
                                             class="form-input"
                                             autocomplete="off"
                                         />
                                     </div>
 
                                     <div class="form-group">
-                                        <label class="form-label">Live API Key (Bearer Token)</label>
+                                        <label class="form-label">Live Mode: API Key</label>
                                         <input
                                             name="upayments_live_api_key"
                                             type="password"
-                                            placeholder="Your production API key"
+                                            placeholder="{{  '**********' }}"
                                             class="form-input"
                                             autocomplete="off"
                                         />

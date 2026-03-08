@@ -277,5 +277,143 @@ class WebhookService
             return false;
         }
     }
+
+    /**
+     * Send payment.captured webhook to LeadConnector for UPayments transactions.
+     * Uses upayments-specific user fields instead of Tap fields.
+     */
+    public function sendUPaymentsPaymentWebhook(
+        User $user,
+        string $trackId,
+        string $transactionId,
+        string $ghlStatus,
+        float $amount,
+        string $mode
+    ): bool {
+        try {
+            $locationId = $user->lead_location_id;
+            $apiKey = $mode === 'live'
+                ? ($user->upayments_live_api_key ?? $user->upayments_live_token ?? '')
+                : ($user->upayments_test_token ?? '');
+
+            if (empty($apiKey)) {
+                Log::error('🟣 [UPAYMENTS] Webhook: API key missing for mode', [
+                    'trackId' => $trackId,
+                    'transactionId' => $transactionId,
+                    'locationId' => $locationId,
+                    'mode' => $mode,
+                ]);
+                return false;
+            }
+
+            $webhookCacheKey = 'upayments_webhook_sent_' . $trackId . '_' . $transactionId;
+            if (cache()->get($webhookCacheKey)) {
+                Log::info('🟣 [UPAYMENTS] Webhook already sent recently, skipping duplicate', [
+                    'trackId' => $trackId,
+                    'transactionId' => $transactionId,
+                ]);
+                return true;
+            }
+
+            $amountInHundreds = (int) round($amount * 100);
+            $chargedAtSeconds = (int) now()->timestamp;
+
+            $chargeSnapshot = [
+                'status' => $ghlStatus,
+                'amount' => $amountInHundreds,
+                'chargeId' => $trackId,
+                'chargedAt' => $chargedAtSeconds,
+            ];
+
+            $payload = [
+                'event' => 'payment.captured',
+                'chargeId' => $trackId,
+                'ghlTransactionId' => $transactionId,
+                'chargeSnapshot' => $chargeSnapshot,
+                'locationId' => $locationId,
+                'apiKey' => $apiKey,
+            ];
+
+            Log::info('🟣 [UPAYMENTS] Sending payment.captured webhook to LeadConnector', [
+                'trackId' => $trackId,
+                'transactionId' => $transactionId,
+                'locationId' => $locationId,
+                'mode' => $mode,
+                'ghlStatus' => $ghlStatus,
+                'amount' => $amount,
+                'amountInHundreds' => $amountInHundreds,
+                'payload' => $payload,
+            ]);
+
+            $webhookUrl = 'https://backend.leadconnectorhq.com/payments/custom-provider/webhook';
+
+            $maxRetries = 3;
+            $retryDelay = 2;
+            $webhookSuccess = false;
+
+            for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                try {
+                    $response = Http::timeout(30)
+                        ->retry(1, 1000)
+                        ->acceptJson()
+                        ->post($webhookUrl, $payload);
+
+                    if ($response->successful()) {
+                        Log::info('🟣 [UPAYMENTS] Webhook sent successfully', [
+                            'trackId' => $trackId,
+                            'transactionId' => $transactionId,
+                            'attempt' => $attempt,
+                            'response_status' => $response->status(),
+                            'response_body' => $response->json(),
+                        ]);
+                        $webhookSuccess = true;
+                        cache()->put($webhookCacheKey, now()->toIso8601String(), 300);
+                        break;
+                    }
+
+                    Log::warning('🟣 [UPAYMENTS] Webhook attempt failed', [
+                        'attempt' => $attempt,
+                        'status_code' => $response->status(),
+                        'response' => $response->json() ?? $response->body(),
+                    ]);
+
+                    if ($response->status() >= 400 && $response->status() < 500) {
+                        break;
+                    }
+
+                    if ($attempt < $maxRetries) {
+                        sleep($retryDelay);
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('🟣 [UPAYMENTS] Webhook attempt exception', [
+                        'attempt' => $attempt,
+                        'error' => $e->getMessage(),
+                    ]);
+                    if ($attempt < $maxRetries) {
+                        sleep($retryDelay);
+                    }
+                }
+            }
+
+            if (!$webhookSuccess) {
+                Log::error('🟣 [UPAYMENTS] Webhook failed after all retries', [
+                    'trackId' => $trackId,
+                    'transactionId' => $transactionId,
+                    'locationId' => $locationId,
+                    'mode' => $mode,
+                    'payload' => $payload,
+                ]);
+            }
+
+            return $webhookSuccess;
+        } catch (\Exception $e) {
+            Log::error('🟣 [UPAYMENTS] Webhook exception', [
+                'trackId' => $trackId,
+                'transactionId' => $transactionId,
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
+    }
 }
 

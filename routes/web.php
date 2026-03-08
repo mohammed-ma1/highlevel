@@ -21,8 +21,41 @@ Route::get('/landing', function () {
 })->name('welcome');
 
 // UPayments setup UI
-Route::get('/Ulanding', function () {
-    return view('upayments_landing');
+Route::get('/Ulanding', function (Request $request) {
+    $masked = [
+        'test_token' => null,
+        'live_merchant_id' => null,
+        'live_api_key' => null,
+        'mode' => null,
+    ];
+
+    $information = $request->input('information', '');
+    if ($information) {
+        parse_str(parse_url($information, PHP_URL_QUERY) ?? '', $query);
+        $locationId = null;
+        if (isset($query['state'])) {
+            $decoded = base64_decode($query['state'], true);
+            if ($decoded !== false) {
+                $json = json_decode($decoded, true);
+                if (is_array($json) && isset($json['id'])) {
+                    $locationId = $json['id'];
+                }
+            }
+        }
+
+        if ($locationId) {
+            $user = \App\Models\User::where('lead_location_id', $locationId)->first();
+            if ($user) {
+                $mask = fn(?string $val) => $val ? str_repeat('*', min(strlen($val), 8)) : null;
+                $masked['test_token'] = $mask($user->upayments_test_token);
+                $masked['live_merchant_id'] = $mask($user->upayments_live_merchant_id);
+                $masked['live_api_key'] = $mask($user->upayments_live_api_key);
+                $masked['mode'] = $user->upayments_mode;
+            }
+        }
+    }
+
+    return view('upayments_landing', ['masked' => $masked]);
 })->name('upayments.landing');
 
 // Test route - DISABLED in production for security
