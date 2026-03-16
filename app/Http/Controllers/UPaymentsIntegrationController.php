@@ -272,7 +272,7 @@ class UPaymentsIntegrationController extends Controller
             'description' => 'Hosted checkout (Non-Whitelabel) via UPayments',
             'paymentsUrl' => 'https://dashboard.mediasolution.io/ucharge',
             'queryUrl' => 'https://dashboard.mediasolution.io/api/upayment/query',
-            'imageUrl' => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
+            'imageUrl' => 'https://upayments.com/en/wp-content/uploads/sites/4/2021/01/UPayments-Logo.svg',
         ];
 
         // Bulk/company install: register provider for all installed locations
