@@ -166,7 +166,7 @@ class UPaymentsProviderController extends Controller
                     'description' => 'Hosted checkout (Non-Whitelabel) via UPayments',
                     'paymentsUrl' => 'https://dashboard.mediasolution.io/ucharge',
                     'queryUrl' => 'https://dashboard.mediasolution.io/api/upayment/query',
-                    'imageUrl' => 'https://upayments.com/en/wp-content/uploads/sites/4/2021/01/UPayments-Logo.svg',
+                    'imageUrl' => 'https://my.upayments.com/_next/image?url=%2Fimages%2FupaymentsLogo.png&w=3840&q=75',
                     'live' => [
                         'apiKey' => $liveKeyForPayload,
                         'publishableKey' => $liveKeyForPayload,
@@ -252,7 +252,7 @@ class UPaymentsProviderController extends Controller
                                 'description' => 'Hosted checkout (Non-Whitelabel) via UPayments',
                                 'paymentsUrl' => 'https://dashboard.mediasolution.io/ucharge',
                                 'queryUrl' => 'https://dashboard.mediasolution.io/api/upayment/query',
-                                'imageUrl' => 'https://upayments.com/en/wp-content/uploads/sites/4/2021/01/UPayments-Logo.svg',
+                                'imageUrl' => 'https://my.upayments.com/_next/image?url=%2Fimages%2FupaymentsLogo.png&w=3840&q=75',
                             ];
 
                             $providerResp = Http::timeout(25)
