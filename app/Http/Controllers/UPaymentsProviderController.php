@@ -166,7 +166,7 @@ class UPaymentsProviderController extends Controller
                     'description' => 'Hosted checkout (Non-Whitelabel) via UPayments',
                     'paymentsUrl' => 'https://dashboard.mediasolution.io/ucharge',
                     'queryUrl' => 'https://dashboard.mediasolution.io/api/upayment/query',
-                    'imageUrl' => 'https://my.upayments.com/_next/image?url=%2Fimages%2FupaymentsLogo.png&w=3840&q=75',
+                    'imageUrl' => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
                     'live' => [
                         'apiKey' => $liveKeyForPayload,
                         'publishableKey' => $liveKeyForPayload,
@@ -252,7 +252,7 @@ class UPaymentsProviderController extends Controller
                                 'description' => 'Hosted checkout (Non-Whitelabel) via UPayments',
                                 'paymentsUrl' => 'https://dashboard.mediasolution.io/ucharge',
                                 'queryUrl' => 'https://dashboard.mediasolution.io/api/upayment/query',
-                                'imageUrl' => 'https://my.upayments.com/_next/image?url=%2Fimages%2FupaymentsLogo.png&w=3840&q=75',
+                                'imageUrl' => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
                             ];
 
                             $providerResp = Http::timeout(25)

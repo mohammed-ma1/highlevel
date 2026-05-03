@@ -229,10 +229,10 @@ class UPaymentsIntegrationController extends Controller
             'granted_scope' => $user->upayments_lead_scope,
         ]);
 
-        // === IMPORTANT (matches Tap connect behavior): Register provider so integration appears in GHL ===
-        // For bulk/company installs, register provider for each installed location using location-scoped token.
+        // === IMPORTANT: Register provider so integration appears in GHL Payments > Integrations ===
+        $providerRegistered = false;
         try {
-            $this->registerCustomProvider(
+            $providerRegistered = $this->registerCustomProvider(
                 $accessToken,
                 $companyId,
                 $userType,
@@ -242,8 +242,17 @@ class UPaymentsIntegrationController extends Controller
                 $companyAuthClassId
             );
         } catch (\Exception $e) {
-            Log::warning('🟣 [UPAYMENTS] Provider registration threw exception (continuing)', [
+            Log::error('🟣 [UPAYMENTS] Provider registration threw exception', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+        }
+
+        if (!$providerRegistered) {
+            Log::error('🟣 [UPAYMENTS] Provider registration FAILED — app will NOT appear in Payments > Integrations', [
+                'locationId' => $finalLocationId,
+                'userType' => $userType,
+                'isBulk' => $isBulkInstallation,
             ]);
         }
 
@@ -260,11 +269,11 @@ class UPaymentsIntegrationController extends Controller
         string $locationId,
         string $clientId,
         ?string $companyAuthClassId = null
-    ): void
+    ): bool
     {
         if (empty($accessToken)) {
-            Log::warning('🟣 [UPAYMENTS] Skipping provider registration: missing access token');
-            return;
+            Log::error('🟣 [UPAYMENTS] Skipping provider registration: missing access token');
+            return false;
         }
 
         $providerPayload = [
@@ -272,7 +281,7 @@ class UPaymentsIntegrationController extends Controller
             'description' => 'Hosted checkout (Non-Whitelabel) via UPayments',
             'paymentsUrl' => 'https://dashboard.mediasolution.io/ucharge',
             'queryUrl' => 'https://dashboard.mediasolution.io/api/upayment/query',
-            'imageUrl' => 'https://my.upayments.com/_next/image?url=%2Fimages%2FupaymentsLogo.png&w=3840&q=75',
+            'imageUrl' => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
         ];
 
         // Bulk/company install: register provider for all installed locations
@@ -291,12 +300,11 @@ class UPaymentsIntegrationController extends Controller
                 ]);
 
             if (!$resp->successful()) {
-                Log::warning('🟣 [UPAYMENTS] installedLocations fetch failed; falling back to single location provider registration', [
+                Log::warning('🟣 [UPAYMENTS] installedLocations fetch failed; falling back to single location', [
                     'status' => $resp->status(),
                     'body' => $resp->json() ?: $resp->body(),
                 ]);
-                $this->registerProviderForLocation($accessToken, $locationId, $providerPayload);
-                return;
+                return $this->registerProviderForLocation($accessToken, $locationId, $providerPayload);
             }
 
             $locationsData = $resp->json() ?? [];
@@ -314,6 +322,7 @@ class UPaymentsIntegrationController extends Controller
                 }
             }
 
+            $anySuccess = false;
             foreach ($locationsToRegister as $actualLocationId) {
                 $tokenToUse = $accessToken;
                 if ($companyId) {
@@ -322,33 +331,123 @@ class UPaymentsIntegrationController extends Controller
                         $tokenToUse = $locationToken;
                     }
                 }
-                $this->registerProviderForLocation($tokenToUse, $actualLocationId, $providerPayload);
+                if ($this->registerProviderForLocation($tokenToUse, $actualLocationId, $providerPayload)) {
+                    $anySuccess = true;
+                }
             }
 
-            return;
+            return $anySuccess;
         }
 
         // Location-level install: register provider for this location
-        $this->registerProviderForLocation($accessToken, $locationId, $providerPayload);
+        return $this->registerProviderForLocation($accessToken, $locationId, $providerPayload);
     }
 
-    private function registerProviderForLocation(string $token, string $locationId, array $payload): void
+    private function registerProviderForLocation(string $token, string $locationId, array $payload): bool
     {
         $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
             . '?locationId=' . urlencode($locationId);
 
-        $resp = Http::timeout(40)
-            ->acceptJson()
-            ->withToken($token)
-            ->withHeaders(['Version' => '2021-07-28'])
-            ->post($providerUrl, $payload);
+        // Attempt registration with up to 2 tries
+        for ($attempt = 1; $attempt <= 2; $attempt++) {
+            Log::info('🟣 [UPAYMENTS] Provider registration attempt', [
+                'locationId' => $locationId,
+                'attempt' => $attempt,
+                'url' => $providerUrl,
+                'payload' => $payload,
+            ]);
 
-        Log::info('🟣 [UPAYMENTS] Provider registration response', [
-            'locationId' => $locationId,
-            'status' => $resp->status(),
-            'successful' => $resp->successful(),
-            'body' => $resp->json() ?: $resp->body(),
-        ]);
+            $resp = Http::timeout(40)
+                ->acceptJson()
+                ->withoutRedirecting()
+                ->withToken($token)
+                ->withHeaders(['Version' => '2021-07-28'])
+                ->post($providerUrl, $payload);
+
+            Log::info('🟣 [UPAYMENTS] Provider registration response', [
+                'locationId' => $locationId,
+                'attempt' => $attempt,
+                'status' => $resp->status(),
+                'successful' => $resp->successful(),
+                'body' => $resp->json() ?: $resp->body(),
+            ]);
+
+            if ($resp->successful()) {
+                // Verify the registration by fetching the config
+                $verified = $this->verifyProviderRegistration($token, $locationId);
+                if ($verified) {
+                    Log::info('🟣 [UPAYMENTS] Provider registration VERIFIED', [
+                        'locationId' => $locationId,
+                    ]);
+                    return true;
+                }
+
+                Log::warning('🟣 [UPAYMENTS] Provider POST succeeded but GET verification failed', [
+                    'locationId' => $locationId,
+                    'attempt' => $attempt,
+                ]);
+                // Fall through to retry
+            } else {
+                Log::error('🟣 [UPAYMENTS] Provider registration FAILED', [
+                    'locationId' => $locationId,
+                    'attempt' => $attempt,
+                    'status' => $resp->status(),
+                    'body' => $resp->json() ?: $resp->body(),
+                ]);
+            }
+
+            if ($attempt < 2) {
+                sleep(2);
+            }
+        }
+
+        return false;
+    }
+
+    private function verifyProviderRegistration(string $token, string $locationId): bool
+    {
+        try {
+            sleep(1);
+
+            $connectUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/connect'
+                . '?locationId=' . urlencode($locationId);
+
+            $resp = Http::timeout(15)
+                ->acceptJson()
+                ->withoutRedirecting()
+                ->withToken($token)
+                ->withHeaders(['Version' => '2021-07-28'])
+                ->get($connectUrl);
+
+            Log::info('🟣 [UPAYMENTS] Provider verification (GET /connect)', [
+                'locationId' => $locationId,
+                'status' => $resp->status(),
+                'successful' => $resp->successful(),
+                'body' => $resp->json() ?: $resp->body(),
+            ]);
+
+            // Even a 422 "not connected yet" means the provider exists
+            if ($resp->successful()) {
+                return true;
+            }
+
+            $json = $resp->json() ?? [];
+            $message = (string)($json['message'] ?? '');
+
+            // "Marketplace payment config not found" means provider doesn't exist
+            if (stripos($message, 'not found') !== false) {
+                return false;
+            }
+
+            // Any other error (e.g. "not connected") means the provider IS registered
+            return $resp->status() !== 404;
+        } catch (\Exception $e) {
+            Log::warning('🟣 [UPAYMENTS] Provider verification exception', [
+                'locationId' => $locationId,
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
     }
 
     private function getLocationAccessToken(string $companyAccessToken, string $companyId, string $locationId): ?string
