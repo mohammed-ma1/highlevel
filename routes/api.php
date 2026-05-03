@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ClientIntegrationController;
 use App\Http\Controllers\UPaymentsChargeController;
+use App\Http\Controllers\UPaymentsMarketplaceWebhookController;
 use App\Http\Controllers\UPaymentsStatusController;
 use App\Http\Controllers\UPaymentsQueryController;
 
@@ -27,6 +28,10 @@ Route::get('/upayment/status', [UPaymentsStatusController::class, 'status'])
 
 Route::post('/upayment/query', [UPaymentsQueryController::class, 'handleQuery'])
     ->name('api.upayment.query');
+
+// GHL Marketplace app install/uninstall webhook
+Route::post('/upayment/marketplace-webhook', [UPaymentsMarketplaceWebhookController::class, 'handle'])
+    ->name('api.upayment.marketplace.webhook');
 
 // Get last charge status for popup payment flow
 Route::get('/charge/last-status', [ClientIntegrationController::class, 'getLastChargeStatus'])
