@@ -52,6 +52,11 @@ return [
     'upayments' => [
         'test_base_url' => env('UPAYMENTS_TEST_BASE_URL', 'https://sandboxapi.upayments.com/api/v1/'),
         'live_base_url' => env('UPAYMENTS_LIVE_BASE_URL', 'https://apiv2api.upayments.com/api/v1/'),
+        'provider_name' => env('UPAYMENTS_PROVIDER_NAME', 'UPayments'),
+        'provider_description' => env('UPAYMENTS_PROVIDER_DESCRIPTION', 'Hosted checkout (Non-Whitelabel) via UPayments'),
+        'provider_payments_url' => env('UPAYMENTS_PROVIDER_PAYMENTS_URL', 'https://dashboard.mediasolution.io/ucharge'),
+        'provider_query_url' => env('UPAYMENTS_PROVIDER_QUERY_URL', 'https://dashboard.mediasolution.io/api/upayment/query'),
+        'provider_image_url' => env('UPAYMENTS_PROVIDER_IMAGE_URL', 'https://my.upayments.com/images/upaymentsLogo.png'),
     ],
 
 ];

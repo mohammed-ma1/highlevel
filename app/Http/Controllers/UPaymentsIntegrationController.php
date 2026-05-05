@@ -27,6 +27,17 @@ class UPaymentsIntegrationController extends Controller
             'query_keys' => array_keys($request->query->all()),
         ]);
 
+        if ($this->usesTapOAuthClient()) {
+            Log::error('🟣 [UPAYMENTS] Refusing to run with Tap OAuth client config', [
+                'upayments_client_id' => config('services.external_auth_upayments.client_id'),
+                'tap_client_id' => config('services.external_auth.client_id'),
+            ]);
+
+            return response()->json([
+                'message' => 'UPayments OAuth must use a dedicated marketplace app client. Refusing to use Tap Payments config.',
+            ], 500);
+        }
+
         if (!$request->has('code')) {
             // Try to capture location selection from referer before OAuth.
             $selectedLocationId = null;
@@ -276,13 +287,7 @@ class UPaymentsIntegrationController extends Controller
             return false;
         }
 
-        $providerPayload = [
-            'name' => 'UPayments',
-            'description' => 'Hosted checkout (Non-Whitelabel) via UPayments',
-            'paymentsUrl' => 'https://dashboard.mediasolution.io/ucharge',
-            'queryUrl' => 'https://dashboard.mediasolution.io/api/upayment/query',
-            'imageUrl' => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
-        ];
+        $providerPayload = $this->upaymentsProviderPayload();
 
         // Bulk/company install: register provider for all installed locations
         if ($userType === 'Company' && $isBulk) {
@@ -527,6 +532,25 @@ class UPaymentsIntegrationController extends Controller
         }
 
         return null;
+    }
+
+    private function upaymentsProviderPayload(): array
+    {
+        return [
+            'name' => config('services.upayments.provider_name', 'UPayments'),
+            'description' => config('services.upayments.provider_description', 'Hosted checkout (Non-Whitelabel) via UPayments'),
+            'paymentsUrl' => config('services.upayments.provider_payments_url', 'https://dashboard.mediasolution.io/ucharge'),
+            'queryUrl' => config('services.upayments.provider_query_url', 'https://dashboard.mediasolution.io/api/upayment/query'),
+            'imageUrl' => config('services.upayments.provider_image_url', 'https://my.upayments.com/images/upaymentsLogo.png'),
+        ];
+    }
+
+    private function usesTapOAuthClient(): bool
+    {
+        $upaymentsClientId = (string)config('services.external_auth_upayments.client_id', '');
+        $tapClientId = (string)config('services.external_auth.client_id', '');
+
+        return $upaymentsClientId !== '' && $tapClientId !== '' && $upaymentsClientId === $tapClientId;
     }
 }
 

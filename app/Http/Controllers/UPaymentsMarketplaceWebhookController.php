@@ -23,6 +23,28 @@ class UPaymentsMarketplaceWebhookController extends Controller
             'webhookId' => $payload['webhookId'] ?? null,
         ]);
 
+        if ($this->usesTapOAuthClient()) {
+            Log::error('🟣 [UPAYMENTS WEBHOOK] Refusing to process with Tap OAuth client config', [
+                'upayments_client_id' => config('services.external_auth_upayments.client_id'),
+                'tap_client_id' => config('services.external_auth.client_id'),
+            ]);
+
+            return response()->json([
+                'status' => 'ignored',
+                'message' => 'UPayments webhook requires a dedicated marketplace app client.',
+            ], 500);
+        }
+
+        if (!$this->isUPaymentsAppEvent($payload)) {
+            Log::warning('🟣 [UPAYMENTS WEBHOOK] Ignoring non-UPayments marketplace event', [
+                'received_app_id' => $payload['appId'] ?? $payload['app_id'] ?? null,
+                'expected_app_id' => $this->configuredUPaymentsAppId(),
+                'type' => $type,
+            ]);
+
+            return response()->json(['status' => 'ignored', 'message' => 'Not a UPayments marketplace event']);
+        }
+
         return match ($type) {
             'INSTALL' => $this->handleInstall($payload),
             'UNINSTALL' => $this->handleUninstall($payload),
@@ -137,13 +159,7 @@ class UPaymentsMarketplaceWebhookController extends Controller
         $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
             . '?locationId=' . urlencode($locationId);
 
-        $providerPayload = [
-            'name' => 'UPayments',
-            'description' => 'Hosted checkout (Non-Whitelabel) via UPayments',
-            'paymentsUrl' => 'https://dashboard.mediasolution.io/ucharge',
-            'queryUrl' => 'https://dashboard.mediasolution.io/api/upayment/query',
-            'imageUrl' => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
-        ];
+        $providerPayload = $this->upaymentsProviderPayload();
 
         try {
             $resp = Http::timeout(40)
@@ -204,5 +220,44 @@ class UPaymentsMarketplaceWebhookController extends Controller
             ]);
 
         return $resp->successful() ? ($resp->json() ?? []) : [];
+    }
+
+    private function upaymentsProviderPayload(): array
+    {
+        return [
+            'name' => config('services.upayments.provider_name', 'UPayments'),
+            'description' => config('services.upayments.provider_description', 'Hosted checkout (Non-Whitelabel) via UPayments'),
+            'paymentsUrl' => config('services.upayments.provider_payments_url', 'https://dashboard.mediasolution.io/ucharge'),
+            'queryUrl' => config('services.upayments.provider_query_url', 'https://dashboard.mediasolution.io/api/upayment/query'),
+            'imageUrl' => config('services.upayments.provider_image_url', 'https://my.upayments.com/images/upaymentsLogo.png'),
+        ];
+    }
+
+    private function isUPaymentsAppEvent(array $payload): bool
+    {
+        $receivedAppId = (string)($payload['appId'] ?? $payload['app_id'] ?? '');
+        $expectedAppId = $this->configuredUPaymentsAppId();
+
+        if ($receivedAppId === '' || $expectedAppId === '') {
+            return false;
+        }
+
+        return $receivedAppId === $expectedAppId
+            || str_starts_with($receivedAppId, $expectedAppId . '-');
+    }
+
+    private function configuredUPaymentsAppId(): string
+    {
+        $clientId = (string)config('services.external_auth_upayments.client_id', '');
+
+        return explode('-', $clientId)[0] ?? $clientId;
+    }
+
+    private function usesTapOAuthClient(): bool
+    {
+        $upaymentsClientId = (string)config('services.external_auth_upayments.client_id', '');
+        $tapClientId = (string)config('services.external_auth.client_id', '');
+
+        return $upaymentsClientId !== '' && $tapClientId !== '' && $upaymentsClientId === $tapClientId;
     }
 }
