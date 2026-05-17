@@ -85,7 +85,11 @@ class UPaymentsIntegrationController extends Controller
             // Pre-encoding can lead to double-encoded scopes and missing permissions.
             $scopeString = implode(' ', $scopes);
 
-            $oauthUrl = 'https://marketplace.gohighlevel.com/oauth/chooselocation?' . http_build_query([
+            $authorizeUrl = config(
+                'services.external_auth_upayments.authorize_url',
+                'https://marketplace.leadconnectorhq.com/oauth/chooselocation'
+            );
+            $oauthUrl = $authorizeUrl . '?' . http_build_query([
                 'response_type' => 'code',
                 'redirect_uri' => $redirectUri,
                 'client_id' => $clientId,
@@ -161,8 +165,8 @@ class UPaymentsIntegrationController extends Controller
         // If the API didn't return a locationId, try our session/cookie fallback.
         $selectedLocationId = session('selected_location_id') ?? $request->cookie('selected_location_id');
 
-        // IMPORTANT: For bulk/company installs, GHL commonly returns a companyId in `locationId`.
-        // Tap's integration handles this by fetching installed locations and picking a real locationId.
+        // For bulk/company installs, the OAuth response can return a companyId in `locationId`.
+        // Pick an installed location so the merchant stays in this whitelabeled flow.
         $finalLocationId = null;
         $companyAuthClassId = null;
         if ($userType === 'Company' && $isBulkInstallation) {
@@ -240,7 +244,7 @@ class UPaymentsIntegrationController extends Controller
             'granted_scope' => $user->upayments_lead_scope,
         ]);
 
-        // === IMPORTANT: Register provider so integration appears in GHL Payments > Integrations ===
+        // Register provider so the integration appears in the payments integrations list.
         $providerRegistered = false;
         try {
             $providerRegistered = $this->registerCustomProvider(
@@ -260,16 +264,14 @@ class UPaymentsIntegrationController extends Controller
         }
 
         if (!$providerRegistered) {
-            Log::error('🟣 [UPAYMENTS] Provider registration FAILED — app will NOT appear in Payments > Integrations', [
+            Log::error('🟣 [UPAYMENTS] Provider registration FAILED - app will not appear in Payments > Integrations', [
                 'locationId' => $finalLocationId,
                 'userType' => $userType,
                 'isBulk' => $isBulkInstallation,
             ]);
         }
 
-        // Redirect to GHL location integrations page (same destination pattern as Tap flow).
-        $redirectUrl = "https://app.gohighlevel.com/v2/location/{$finalLocationId}/payments/integrations";
-        return redirect($redirectUrl);
+        return redirect($this->upaymentsSetupUrl($finalLocationId));
     }
 
     private function registerCustomProvider(
@@ -543,6 +545,20 @@ class UPaymentsIntegrationController extends Controller
             'queryUrl' => config('services.upayments.provider_query_url', 'https://dashboard.mediasolution.io/api/upayment/query'),
             'imageUrl' => config('services.upayments.provider_image_url', 'https://my.upayments.com/images/upaymentsLogo.png'),
         ];
+    }
+
+    private function upaymentsSetupUrl(string $locationId): string
+    {
+        $setupUrl = config('services.upayments.provider_setup_url', 'https://dashboard.mediasolution.io/Ulanding');
+        $state = base64_encode(json_encode(['id' => $locationId]));
+        $informationUrl = $setupUrl . (str_contains($setupUrl, '?') ? '&' : '?') . http_build_query([
+            'state' => $state,
+        ]);
+
+        return $setupUrl . (str_contains($setupUrl, '?') ? '&' : '?') . http_build_query([
+            'installed' => 1,
+            'information' => $informationUrl,
+        ]);
     }
 
     private function usesTapOAuthClient(): bool

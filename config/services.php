@@ -43,6 +43,7 @@ return [
 
     // Separate OAuth app for UPayments integration
     'external_auth_upayments' => [
+        'authorize_url' => env('UPAYMENTS_EXTERNAL_AUTHORIZE_URL', 'https://marketplace.leadconnectorhq.com/oauth/chooselocation'),
         'token_url' => env('UPAYMENTS_EXTERNAL_TOKEN_URL', 'https://services.leadconnectorhq.com/oauth/token'),
         'client_id' => env('UPAYMENTS_EXTERNAL_CLIENT_ID', '6976c8cafbba5546628848b5-ml6en9hl'),
         'client_secret' => env('UPAYMENTS_EXTERNAL_CLIENT_SECRET', 'fd54e5a8-aacb-43a8-9d55-8b4099be2116'),
@@ -54,6 +55,7 @@ return [
         'live_base_url' => env('UPAYMENTS_LIVE_BASE_URL', 'https://apiv2api.upayments.com/api/v1/'),
         'provider_name' => env('UPAYMENTS_PROVIDER_NAME', 'UPayments'),
         'provider_description' => env('UPAYMENTS_PROVIDER_DESCRIPTION', 'Hosted checkout (Non-Whitelabel) via UPayments'),
+        'provider_setup_url' => env('UPAYMENTS_PROVIDER_SETUP_URL', 'https://dashboard.mediasolution.io/Ulanding'),
         'provider_payments_url' => env('UPAYMENTS_PROVIDER_PAYMENTS_URL', 'https://dashboard.mediasolution.io/ucharge'),
         'provider_query_url' => env('UPAYMENTS_PROVIDER_QUERY_URL', 'https://dashboard.mediasolution.io/api/upayment/query'),
         'provider_image_url' => env('UPAYMENTS_PROVIDER_IMAGE_URL', 'https://my.upayments.com/images/upaymentsLogo.png'),

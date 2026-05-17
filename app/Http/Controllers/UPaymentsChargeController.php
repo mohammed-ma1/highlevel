@@ -29,7 +29,7 @@ class UPaymentsChargeController extends Controller
                 ], 400);
             }
 
-            // UPayments expects a 3-letter ISO currency (e.g. KWD). GHL sometimes sends lowercase.
+            // UPayments expects a 3-letter ISO currency (e.g. KWD). The platform can send lowercase.
             if (!preg_match('/^[A-Z]{3}$/', $currency)) {
                 return response()->json([
                     'success' => false,
@@ -47,7 +47,7 @@ class UPaymentsChargeController extends Controller
             }
 
             // Use the mode the merchant chose during provider connection as the
-            // source of truth.  GHL may send liveMode=false even when the provider
+            // source of truth. The platform may send liveMode=false even when the provider
             // was connected in live mode, so the stored preference takes priority.
             $mode = $user->upayments_mode ?: ($request->has('liveMode')
                 ? ($request->boolean('liveMode') ? 'live' : 'test')
@@ -108,7 +108,7 @@ class UPaymentsChargeController extends Controller
                 'products' => $request->input('products') ?: [
                     [
                         'name' => 'Order ' . $finalOrderId,
-                        'description' => (string) ($request->input('description') ?? 'Payment via GoHighLevel Integration'),
+                        'description' => (string) ($request->input('description') ?? 'Payment via UPayments'),
                         'price' => $amount,
                         'quantity' => 1,
                     ],
@@ -201,7 +201,7 @@ class UPaymentsChargeController extends Controller
 
     /**
      * Webhook receiver for UPayments notificationUrl.
-     * Processes payment result and forwards payment.captured event to GHL.
+     * Processes payment result and forwards payment.captured event to the platform.
      */
     public function webhook(Request $request)
     {
@@ -238,7 +238,7 @@ class UPaymentsChargeController extends Controller
                 )
             ));
 
-            // "reference" in UPayments is where we stored the GHL transactionId during charge creation
+            // "reference" in UPayments is where we stored the platform transactionId during charge creation
             $orderRef = (string) data_get($allData, 'data.transaction.reference',
                 data_get($allData, 'order.reference',
                     data_get($allData, 'data.order.reference',
@@ -267,7 +267,7 @@ class UPaymentsChargeController extends Controller
                 )
             );
 
-            // orderRef is the GHL transactionId we stored during charge creation.
+            // orderRef is the platform transactionId we stored during charge creation.
             $transactionId = $orderRef !== '' ? $orderRef : $orderId;
 
             Log::info('🟣 [UPAYMENTS] Webhook parsed', [
@@ -279,27 +279,27 @@ class UPaymentsChargeController extends Controller
             ]);
 
             if ($trackId === '' || $transactionId === '') {
-                Log::warning('🟣 [UPAYMENTS] Webhook missing trackId or transactionId, skipping GHL notification');
+                Log::warning('🟣 [UPAYMENTS] Webhook missing trackId or transactionId, skipping platform notification');
                 return response()->json(['status' => true]);
             }
 
-            // Map UPayments result to GHL status
-            $ghlStatus = 'pending';
+            // Map UPayments result to the platform status.
+            $platformStatus = 'pending';
             $failedResults = ['FAILED', 'FAIL', 'CANCELLED', 'CANCELED', 'DECLINED', 'ERROR', 'REVERSED', 'NOT CAPTURED', 'NOT_CAPTURED'];
             $successResults = ['CAPTURED', 'SUCCESS', 'SUCCEEDED', 'PAID', 'APPROVED', 'COMPLETED', 'AUTHORIZED', 'DONE'];
 
             if (in_array($result, $failedResults, true) || str_contains($result, 'NOT CAPTURE') || str_contains($result, 'NOT_CAPTURE')) {
-                $ghlStatus = 'failed';
+                $platformStatus = 'failed';
             } elseif (in_array($result, $successResults, true)) {
-                $ghlStatus = 'succeeded';
+                $platformStatus = 'succeeded';
             } elseif (str_contains($result, 'CANCEL') || str_contains($result, 'FAIL') || str_contains($result, 'DECLIN') || str_contains($result, 'NOT ')) {
-                $ghlStatus = 'failed';
+                $platformStatus = 'failed';
             } elseif (str_contains($result, 'CAPTURE') || str_contains($result, 'SUCCESS') || str_contains($result, 'PAID') || str_contains($result, 'DONE')) {
-                $ghlStatus = 'succeeded';
+                $platformStatus = 'succeeded';
             }
 
-            if ($ghlStatus === 'pending') {
-                Log::info('🟣 [UPAYMENTS] Webhook: payment still pending, not sending GHL event yet', [
+            if ($platformStatus === 'pending') {
+                Log::info('🟣 [UPAYMENTS] Webhook: payment still pending, not sending platform event yet', [
                     'result' => $result,
                 ]);
                 return response()->json(['status' => true]);
@@ -358,10 +358,10 @@ class UPaymentsChargeController extends Controller
                 return response()->json(['status' => true]);
             }
 
-            Log::info('🟣 [UPAYMENTS] Webhook: sending payment.captured to GHL', [
+            Log::info('🟣 [UPAYMENTS] Webhook: sending payment.captured to platform', [
                 'trackId' => $trackId,
                 'transactionId' => $transactionId,
-                'ghlStatus' => $ghlStatus,
+                'platformStatus' => $platformStatus,
                 'locationId' => $user->lead_location_id,
                 'mode' => $mode,
             ]);
@@ -371,7 +371,7 @@ class UPaymentsChargeController extends Controller
                 $user,
                 $trackId,
                 $transactionId,
-                $ghlStatus,
+                $platformStatus,
                 $amount,
                 $mode
             );

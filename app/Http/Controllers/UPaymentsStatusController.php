@@ -30,7 +30,7 @@ class UPaymentsStatusController extends Controller
                 ], 404);
             }
 
-            // Allow callers to override mode explicitly (useful when GHL indicates liveMode).
+            // Allow callers to override mode explicitly when the platform indicates liveMode.
             $mode = $request->has('liveMode')
                 ? ($request->boolean('liveMode') ? 'live' : 'test')
                 : ($user->upayments_mode ?: 'test');

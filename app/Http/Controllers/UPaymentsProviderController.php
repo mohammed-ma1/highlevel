@@ -60,7 +60,7 @@ class UPaymentsProviderController extends Controller
                     'information' => $information,
                 ]);
                 return response()->json([
-                    'message' => 'Could not extract locationId from URL. Please open this page from the correct GHL integration flow.',
+                    'message' => 'Could not extract locationId from URL. Please open this page from the correct integration flow.',
                 ], 400);
             }
 
@@ -71,7 +71,7 @@ class UPaymentsProviderController extends Controller
                 ], 404);
             }
 
-            // Ensure LeadConnector token exists / refresh if needed.
+            // Ensure the stored platform token exists / refresh if needed.
             $accessToken = $user->upayments_lead_access_token;
             $refreshToken = $user->upayments_lead_refresh_token;
             $expiresAt = $user->upayments_lead_token_expires_at;
@@ -83,7 +83,7 @@ class UPaymentsProviderController extends Controller
                     ], 401);
                 }
 
-                $new = $this->refreshLeadConnectorToken($refreshToken);
+                $new = $this->refreshPlatformToken($refreshToken);
                 if (!($new['access_token'] ?? null)) {
                     return response()->json([
                         'message' => 'Token refresh failed',
@@ -153,7 +153,7 @@ class UPaymentsProviderController extends Controller
                 $usingLocationToken = false;
 
                 // Only Company installs support exchanging for a location-scoped token.
-                // Location installs may have companyId present, but LeadConnector will reject locationToken calls.
+                // Location installs may have companyId present, but location-token exchange is only valid for Company installs.
                 if (
                     ($user->upayments_lead_user_type ?? null) === 'Company'
                     && !empty($user->upayments_lead_company_id)
@@ -182,7 +182,7 @@ class UPaymentsProviderController extends Controller
                     ],
                 ]);
 
-                Log::info('🟣 [UPAYMENTS] Calling GHL /connect API', [
+                Log::info('🟣 [UPAYMENTS] Calling provider /connect API', [
                     'url' => $connectUrl,
                     'token_type' => $usingLocationToken ? 'location-scoped' : 'stored',
                     'locationId' => $locationId,
@@ -196,7 +196,7 @@ class UPaymentsProviderController extends Controller
                     ->withHeaders(['Version' => '2021-07-28'])
                     ->post($connectUrl, $payload);
 
-                Log::info('🟣 [UPAYMENTS] GHL /connect response', [
+                Log::info('🟣 [UPAYMENTS] Provider /connect response', [
                     'status' => $resp->status(),
                     'successful' => $resp->successful(),
                     'body' => $resp->json() ?: $resp->body(),
@@ -204,7 +204,7 @@ class UPaymentsProviderController extends Controller
 
                 if ($resp->status() >= 300 && $resp->status() < 400) {
                     return response()->json([
-                        'message' => 'LeadConnector /connect returned redirect (blocked)',
+                        'message' => 'Provider /connect returned redirect (blocked)',
                         'status' => $resp->status(),
                         'location' => $resp->header('Location'),
                         'body' => $resp->body(),
@@ -212,7 +212,7 @@ class UPaymentsProviderController extends Controller
                 }
 
                 if ($resp->failed()) {
-                    Log::error('🟣 [UPAYMENTS] GHL connect failed', [
+                    Log::error('🟣 [UPAYMENTS] Provider connect failed', [
                         'status' => $resp->status(),
                         'body' => $resp->json() ?: $resp->body(),
                     ]);
@@ -221,7 +221,7 @@ class UPaymentsProviderController extends Controller
                     ])->withInput($request->only('information'));
                 }
 
-                // Verify that the payment config is now retrievable (GHL sometimes reports
+                // Verify that the payment config is now retrievable. The platform sometimes reports
                 // "Marketplace payment config not found" when config creation did not persist).
                 try {
                     $verifyResp = Http::timeout(15)
@@ -231,7 +231,7 @@ class UPaymentsProviderController extends Controller
                         ->withHeaders(['Version' => '2021-07-28'])
                         ->get($connectUrl);
 
-                    Log::info('🟣 [UPAYMENTS] GHL /connect (fetch config) response', [
+                    Log::info('🟣 [UPAYMENTS] Provider /connect (fetch config) response', [
                         'status' => $verifyResp->status(),
                         'successful' => $verifyResp->successful(),
                         'body' => $verifyResp->json() ?: $verifyResp->body(),
@@ -274,7 +274,7 @@ class UPaymentsProviderController extends Controller
                                 ->withHeaders(['Version' => '2021-07-28'])
                                 ->post($connectUrl, $payload);
 
-                            Log::info('🟣 [UPAYMENTS] GHL /connect retry response (self-heal)', [
+                            Log::info('🟣 [UPAYMENTS] Provider /connect retry response (self-heal)', [
                                 'status' => $retryResp->status(),
                                 'successful' => $retryResp->successful(),
                                 'body' => $retryResp->json() ?: $retryResp->body(),
@@ -293,7 +293,7 @@ class UPaymentsProviderController extends Controller
                                 ->withHeaders(['Version' => '2021-07-28'])
                                 ->get($connectUrl);
 
-                            Log::info('🟣 [UPAYMENTS] GHL /connect (fetch config) response after self-heal', [
+                            Log::info('🟣 [UPAYMENTS] Provider /connect (fetch config) response after self-heal', [
                                 'status' => $verifyResp2->status(),
                                 'successful' => $verifyResp2->successful(),
                                 'body' => $verifyResp2->json() ?: $verifyResp2->body(),
@@ -313,7 +313,7 @@ class UPaymentsProviderController extends Controller
                         }
                     }
                 } catch (\Exception $e) {
-                    Log::warning('🟣 [UPAYMENTS] GHL config verification exception (continuing)', [
+                    Log::warning('🟣 [UPAYMENTS] Provider config verification exception (continuing)', [
                         'error' => $e->getMessage(),
                     ]);
                 }
@@ -342,7 +342,7 @@ class UPaymentsProviderController extends Controller
 
             if ($resp->status() >= 300 && $resp->status() < 400) {
                 return response()->json([
-                    'message' => 'LeadConnector /disconnect returned redirect (blocked)',
+                    'message' => 'Provider /disconnect returned redirect (blocked)',
                     'status' => $resp->status(),
                     'location' => $resp->header('Location'),
                     'body' => $resp->body(),
@@ -351,7 +351,7 @@ class UPaymentsProviderController extends Controller
 
             if ($resp->failed()) {
                 return response()->json([
-                    'message' => 'LeadConnector disconnect failed',
+                    'message' => 'Provider disconnect failed',
                     'status' => $resp->status(),
                     'error' => $resp->json() ?: $resp->body(),
                 ], 502);
@@ -379,7 +379,7 @@ class UPaymentsProviderController extends Controller
         }
     }
 
-    private function refreshLeadConnectorToken(string $refreshToken): array
+    private function refreshPlatformToken(string $refreshToken): array
     {
         $tokenUrl = config('services.external_auth_upayments.token_url', 'https://services.leadconnectorhq.com/oauth/token');
 

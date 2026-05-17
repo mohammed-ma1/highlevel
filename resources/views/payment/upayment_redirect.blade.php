@@ -28,7 +28,7 @@
       };
     }
 
-    function sendMessageToGHL(message) {
+    function sendMessageToPlatform(message) {
       try {
         let sent = false;
 
@@ -56,7 +56,7 @@
 
         if (!sent || window.parent === window) {
           try {
-            const storageKey = 'ghl_payment_message_' + Date.now();
+            const storageKey = 'upayments_payment_message_' + Date.now();
             localStorage.setItem(storageKey, JSON.stringify({
               message,
               timestamp: Date.now(),
@@ -68,19 +68,19 @@
       } catch (e) {}
     }
 
-    function sendSuccessToGHL(chargeId) {
-      sendMessageToGHL({ type: 'custom_element_success_response', chargeId });
+    function sendSuccessToPlatform(chargeId) {
+      sendMessageToPlatform({ type: 'custom_element_success_response', chargeId });
     }
 
-    function sendErrorToGHL(errorMessage) {
-      sendMessageToGHL({
+    function sendErrorToPlatform(errorMessage) {
+      sendMessageToPlatform({
         type: 'custom_element_error_response',
         error: { description: errorMessage }
       });
     }
 
-    function sendCloseToGHL() {
-      sendMessageToGHL({ type: 'custom_element_close_response' });
+    function sendCloseToPlatform() {
+      sendMessageToPlatform({ type: 'custom_element_close_response' });
     }
 
     function mapResultToState(result) {
@@ -110,7 +110,7 @@
 
       // Explicit cancel flag or missing track_id → treat as close/error.
       if (params.cancel === 'true') {
-        sendCloseToGHL();
+        sendCloseToPlatform();
         return;
       }
 
@@ -120,11 +120,11 @@
       // Fast-path based on result param (if present).
       const stateFromResult = mapResultToState(result);
       if (trackId && stateFromResult === 'succeeded') {
-        sendSuccessToGHL(trackId);
+        sendSuccessToPlatform(trackId);
         return;
       }
       if (stateFromResult === 'failed') {
-        sendErrorToGHL('Payment failed');
+        sendErrorToPlatform('Payment failed');
         return;
       }
 
@@ -133,14 +133,14 @@
         try {
           const status = await fetchStatus(trackId, params.locationId);
           if (status.success && status.state === 'succeeded') {
-            sendSuccessToGHL(trackId);
+            sendSuccessToPlatform(trackId);
           } else if (status.success && status.state === 'failed') {
-            sendErrorToGHL('Payment failed');
+            sendErrorToPlatform('Payment failed');
           } else if (status.success && status.state === 'pending') {
-            // Pending: do nothing aggressive; treat as close so GHL can continue polling/verify.
-            sendCloseToGHL();
+            // Pending: do nothing aggressive; treat as close so the platform can continue polling/verify.
+            sendCloseToPlatform();
           } else {
-            sendErrorToGHL(status.message || 'Unable to verify payment status');
+            sendErrorToPlatform(status.message || 'Unable to verify payment status');
           }
           return;
         } catch (e) {
@@ -148,14 +148,14 @@
         }
       }
 
-      // If we have trackId but couldn't verify, treat as error — GHL will re-verify
+      // If we have trackId but couldn't verify, treat as error so the platform can re-verify
       // via the queryUrl independently. Never assume success without confirmation.
       if (trackId) {
-        sendErrorToGHL('Payment status could not be verified. Please check your order status.');
+        sendErrorToPlatform('Payment status could not be verified. Please check your order status.');
         return;
       }
 
-      sendErrorToGHL('No payment information found in the redirect URL.');
+      sendErrorToPlatform('No payment information found in the redirect URL.');
     }
 
     document.addEventListener('DOMContentLoaded', function() {

@@ -1,7 +1,7 @@
 {{-- 
   resources/views/upayments_charge.blade.php
   
-  GoHighLevel Payment UI for UPayments (hosted checkout link)
+  Payment UI for UPayments (hosted checkout link)
 --}}
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
@@ -91,7 +91,7 @@
     let paymentData = null;
     let checkoutUrl = null;
     let paymentPopup = null;
-    let ghlAcknowledged = false;
+    let platformAcknowledged = false;
     let readyRetry = null;
     let readyCount = 0;
     const MAX_READY_RETRY = 20;
@@ -129,7 +129,7 @@
         const checkClosed = setInterval(() => {
           if (paymentPopup.closed) {
             clearInterval(checkClosed);
-            sendMessageToGHL({ type: 'custom_element_close_response' });
+            sendMessageToPlatform({ type: 'custom_element_close_response' });
           }
         }, 1000);
         window.paymentPopupCheckInterval = checkClosed;
@@ -151,7 +151,7 @@
       }
     }
 
-    function sendMessageToGHL(message) {
+    function sendMessageToPlatform(message) {
       // Same multi-channel approach as Tap redirect (opener/parent/top + localStorage fallback)
       let sent = false;
       try {
@@ -175,7 +175,7 @@
 
       if (!sent || window.parent === window) {
         try {
-          const key = 'ghl_payment_message_' + Date.now();
+          const key = 'upayments_payment_message_' + Date.now();
           localStorage.setItem(key, JSON.stringify({ message, timestamp: Date.now(), source: 'payment_redirect' }));
           setTimeout(() => { try { localStorage.removeItem(key); } catch(e) {} }, 1000);
         } catch (e) {}
@@ -183,7 +183,7 @@
     }
 
     function sendReadyEvent(force = false) {
-      if (ghlAcknowledged && !force) return;
+      if (platformAcknowledged && !force) return;
       const readyEvent = {
         type: 'custom_provider_ready',
         loaded: true,
@@ -202,9 +202,9 @@
       } catch (e) {}
 
       readyCount++;
-      if (!ghlAcknowledged && readyCount < MAX_READY_RETRY && !readyRetry) {
+      if (!platformAcknowledged && readyCount < MAX_READY_RETRY && !readyRetry) {
         readyRetry = setInterval(() => {
-          if (!ghlAcknowledged && readyCount < MAX_READY_RETRY) {
+          if (!platformAcknowledged && readyCount < MAX_READY_RETRY) {
             sendReadyEvent(true);
           } else {
             clearInterval(readyRetry);
@@ -214,7 +214,7 @@
       }
     }
 
-    function isValidGHLMessage(data) {
+    function isValidPlatformMessage(data) {
       if (!data || typeof data !== 'object') return false;
       if (data.type !== 'payment_initiate_props') return false;
       return !!(data.amount && data.currency && data.orderId && data.transactionId && data.locationId);
@@ -253,7 +253,7 @@
         showProceedPaymentPopup(checkoutUrl);
       } catch (e) {
         showError(e.message || 'Unable to create checkout link');
-        sendMessageToGHL({
+        sendMessageToPlatform({
           type: 'custom_element_error_response',
           error: { description: e.message || 'Payment initialization failed' }
         });
@@ -268,16 +268,16 @@
       if (!parsed) return;
 
       if (parsed.type === 'payment_initiate_props') {
-        ghlAcknowledged = true;
+        platformAcknowledged = true;
         try { console.log('[UPayments] payment_initiate_props', parsed); } catch (e) {}
       }
 
-      if (!isValidGHLMessage(parsed)) return;
+      if (!isValidPlatformMessage(parsed)) return;
       paymentData = parsed;
       createUPaymentsCharge();
     });
 
-    // If we receive close/success/error from a redirect page in popup/new tab, relay to GHL and close popup.
+    // If we receive close/success/error from a redirect page in popup/new tab, relay it and close popup.
     window.addEventListener('message', function(event) {
       let parsed = event.data;
       if (typeof parsed === 'string') {
@@ -295,16 +295,16 @@
         }
       }
 
-      sendMessageToGHL(parsed);
+      sendMessageToPlatform(parsed);
     });
 
     // localStorage relay (new-tab scenario)
     window.addEventListener('storage', function(event) {
       try {
-        if (event.key && event.key.startsWith('ghl_payment_message_') && event.newValue) {
+        if (event.key && event.key.startsWith('upayments_payment_message_') && event.newValue) {
           const data = JSON.parse(event.newValue);
           if (data.source === 'payment_redirect' && data.message) {
-            sendMessageToGHL(data.message);
+            sendMessageToPlatform(data.message);
           }
         }
       } catch (e) {}

@@ -10,9 +10,9 @@ use Illuminate\Support\Facades\Log;
 class UPaymentsQueryController extends Controller
 {
     /**
-     * GoHighLevel payment query endpoint for UPayments.
+     * Payment query endpoint for UPayments.
      *
-     * Per HighLevel requirements, always return HTTP 200 and use:
+     * Per platform requirements, always return HTTP 200 and use:
      * - { "success": true } for success
      * - { "failed": true } for failure
      * - { "success": false } for pending/unknown
@@ -129,7 +129,7 @@ class UPaymentsQueryController extends Controller
                     'trackId' => $trackId,
                     'mode' => $mode,
                 ]);
-                // Pending/unknown in GHL terms
+                // Pending/unknown in platform terms
                 return response()->json(['success' => false], 200);
             }
 
