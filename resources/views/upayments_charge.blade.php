@@ -4,12 +4,12 @@
   Payment UI for UPayments (hosted checkout link)
 --}}
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token() }}">
-  <title>{{ config('app.name', 'Laravel') }} — Secure Payment</title>
+  <title>{{ config('app.name', 'Laravel') }} — دفع آمن</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
     body { margin: 0; padding: 0; background: transparent; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
@@ -77,11 +77,11 @@
     <div class="payment-body" id="payment-body">
       <div class="popup-payment-content">
         <div class="payment-loading-spinner"></div>
-        <div style="font-weight: 700; font-size: 18px; color: #0f172a;">Preparing your checkout…</div>
+        <div style="font-weight: 700; font-size: 18px; color: #0f172a;">جاري تجهيز عملية الدفع…</div>
         <div class="error-box" id="error-box"></div>
         <button class="proceed-payment-button" id="proceed-btn" type="button" style="display:none;">
-          <span>Go to payment</span>
-          <span aria-hidden="true">→</span>
+          <span>الانتقال إلى الدفع</span>
+          <span aria-hidden="true">←</span>
         </button>
       </div>
     </div>
@@ -123,7 +123,7 @@
         const features = 'width=900,height=700,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no';
         paymentPopup = window.open(url, 'upayments_payment', features);
         if (!paymentPopup) {
-          showError('Popup blocked. Please allow popups for this site, then click "Go to payment" again.');
+          showError('تم حظر النافذة المنبثقة. يُرجى السماح بالنوافذ المنبثقة لهذا الموقع ثم الضغط على "الانتقال إلى الدفع" مرة أخرى.');
           return;
         }
         const checkClosed = setInterval(() => {
@@ -252,10 +252,10 @@
         // Same flow as Tap: Safari requires a user gesture; others open immediately.
         showProceedPaymentPopup(checkoutUrl);
       } catch (e) {
-        showError(e.message || 'Unable to create checkout link');
+        showError(e.message || 'تعذّر إنشاء رابط الدفع');
         sendMessageToPlatform({
           type: 'custom_element_error_response',
-          error: { description: e.message || 'Payment initialization failed' }
+          error: { description: e.message || 'فشل في بدء عملية الدفع' }
         });
       }
     }
