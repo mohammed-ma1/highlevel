@@ -2445,6 +2445,22 @@ class ClientIntegrationController extends Controller
                     'request_id' => $requestId,
                     'data' => $requestData
                 ]);
+
+                // GHL Marketplace lifecycle events (INSTALL / UNINSTALL) may arrive on
+                // this same webhook URL. They use a `type` field (not `event`) and have
+                // no `apiKey`, so detect and delegate them to the marketplace handler
+                // instead of failing the payment-event validation below.
+                $marketplaceType = $request->input('type');
+                if (in_array($marketplaceType, ['INSTALL', 'UNINSTALL'], true)) {
+                    Log::info('🔁 [WEBHOOK] Delegating marketplace lifecycle event to MarketplaceWebhookController', [
+                        'request_id' => $requestId,
+                        'type' => $marketplaceType,
+                        'locationId' => $request->input('locationId'),
+                        'companyId' => $request->input('companyId'),
+                    ]);
+
+                    return app(\App\Http\Controllers\MarketplaceWebhookController::class)->handle($request);
+                }
                 
                 $event = $request->input('event');
                 $locationId = $request->input('locationId');
