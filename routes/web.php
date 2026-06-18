@@ -16,7 +16,27 @@ Route::get('/connect', [ClientIntegrationController::class, 'connect'])
 Route::get('/uconnect', [UPaymentsIntegrationController::class, 'uconnect'])
     ->name('upayments.connect');
 
-Route::get('/landing', function () {
+Route::get('/landing', function (Request $request) {
+    // Capture the GHL-selected locationId from the OAuth `state` param so the
+    // /connect callback can register the provider for the exact location the user
+    // chose, even when installedLocations still reports isInstalled:false (a GHL
+    // bulk-install race). The state is base64-encoded JSON, e.g.
+    // {"type":"location","id":"<locationId>",...}
+    $state = $request->input('state');
+    if ($state) {
+        $decoded = base64_decode($state, true);
+        if ($decoded !== false) {
+            $json = json_decode($decoded, true);
+            if (is_array($json) && ($json['type'] ?? null) === 'location' && !empty($json['id'])) {
+                session(['selected_location_id' => $json['id']]);
+                \Cookie::queue('selected_location_id', $json['id'], 10);
+                \Log::info('📍 [LANDING] Stored selected locationId from OAuth state', [
+                    'locationId' => $json['id'],
+                ]);
+            }
+        }
+    }
+
     return view('welcome');
 })->name('welcome');
 
