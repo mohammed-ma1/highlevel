@@ -985,64 +985,48 @@ class ClientIntegrationController extends Controller
                             'total_locations' => count($locations)
                         ]);
                         
-                        // SIMPLE LOGIC: Only process locations where isInstalled: true
-                        // These are the locations where the app is actually installed
                         $locationsToRegister = [];
                         $firstInstalledLocationId = null;
-                        
-                        foreach ($locations as $location) {
-                            $locId = $location['_id'] ?? $location['id'] ?? $location['locationId'] ?? null;
-                            $isInstalled = $location['isInstalled'] ?? false;
-                            
-                            // ONLY add locations where isInstalled is true
-                            if ($isInstalled && $locId) {
-                                $locationsToRegister[] = $location;
-                                
-                                // Track the first installed location for user creation
-                                if ($firstInstalledLocationId === null) {
-                                    $firstInstalledLocationId = $locId;
-                                }
-                            }
-                        }
-                        
-                        // GHL bulk-install race: when a user installs on a specific
-                        // sub-account, oauth/installedLocations can still report that
-                        // location as isInstalled:false at the moment of the OAuth
-                        // callback. If we know which location the user selected (from
-                        // the OAuth `state`, captured on /landing), force-register the
-                        // provider for it so it appears in Payments > Integrations.
+
                         if ($selectedLocationId) {
-                            $alreadyQueued = false;
-                            foreach ($locationsToRegister as $queued) {
-                                $queuedId = $queued['_id'] ?? $queued['id'] ?? $queued['locationId'] ?? null;
-                                if ($queuedId === $selectedLocationId) {
-                                    $alreadyQueued = true;
+                            // TARGETED INSTALL: the user selected a specific sub-account in
+                            // the "Select Sub-Account" modal (OAuth state captured on
+                            // /landing). Register the provider for ONLY that location, even
+                            // if oauth/installedLocations still reports it as
+                            // isInstalled:false (GHL marks it installed a moment later).
+                            $selectedEntry = null;
+                            foreach ($locations as $loc) {
+                                $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
+                                if ($locId === $selectedLocationId) {
+                                    $selectedEntry = $loc;
                                     break;
                                 }
                             }
-                            
-                            if (!$alreadyQueued) {
-                                $selectedEntry = null;
-                                foreach ($locations as $loc) {
-                                    $locId = $loc['_id'] ?? $loc['id'] ?? $loc['locationId'] ?? null;
-                                    if ($locId === $selectedLocationId) {
-                                        $selectedEntry = $loc;
-                                        break;
+                            if (!$selectedEntry) {
+                                $selectedEntry = ['_id' => $selectedLocationId, 'name' => 'Location ' . $selectedLocationId];
+                            }
+
+                            $locationsToRegister[] = $selectedEntry;
+                            $firstInstalledLocationId = $selectedLocationId;
+
+                            Log::info('🎯 [BULK] Targeted install - registering provider ONLY for the user-selected location', [
+                                'selectedLocationId' => $selectedLocationId,
+                                'note' => 'Selected via the Select Sub-Account modal; ignoring isInstalled flag for this location'
+                            ]);
+                        } else {
+                            // GENERAL INSTALL (e.g. "select all"/agency): register for every
+                            // location GHL reports as isInstalled: true.
+                            foreach ($locations as $location) {
+                                $locId = $location['_id'] ?? $location['id'] ?? $location['locationId'] ?? null;
+                                $isInstalled = $location['isInstalled'] ?? false;
+
+                                if ($isInstalled && $locId) {
+                                    $locationsToRegister[] = $location;
+
+                                    if ($firstInstalledLocationId === null) {
+                                        $firstInstalledLocationId = $locId;
                                     }
                                 }
-                                if (!$selectedEntry) {
-                                    $selectedEntry = ['_id' => $selectedLocationId, 'name' => 'Location ' . $selectedLocationId];
-                                }
-                                
-                                $locationsToRegister[] = $selectedEntry;
-                                if ($firstInstalledLocationId === null) {
-                                    $firstInstalledLocationId = $selectedLocationId;
-                                }
-                                
-                                Log::info('➕ [BULK] Forcing registration for user-selected location not yet marked isInstalled', [
-                                    'selectedLocationId' => $selectedLocationId,
-                                    'note' => 'Covers GHL race where installedLocations still reports isInstalled:false'
-                                ]);
                             }
                         }
                         
