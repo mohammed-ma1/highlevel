@@ -1449,42 +1449,131 @@ class ClientIntegrationController extends Controller
                             'note' => 'Falling back to direct registration with company ID'
                         ]);
                         
-                        // Fallback: Try to register with company ID directly
-                        // This might work for some GHL configurations
-            $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
-                        . '?locationId=' . urlencode($locationId);
-                
-              $providerPayload = [
-            'name'        => 'Tap Payments',
-            'description' => 'Innovating payment acceptance & collection in MENA',
-            'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
-            'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
-            'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
-            ];
+                        // Fallback: installedLocations failed (e.g. a transient 502).
+                        // If we know the location the user selected (from the OAuth
+                        // `state` captured on /landing), register the provider for THAT
+                        // location using a location-scoped token. Registering against the
+                        // company id with a company-scoped token returns 403 Forbidden.
+                        $fallbackLocationId = $selectedLocationId ?: null;
 
-                        try {
-                            $providerResp = Http::timeout(30)
-                                ->acceptJson()
-                                ->withToken($accessToken)
-                                ->withHeaders(['Version' => '2021-07-28'])
-                                ->post($providerUrl, $providerPayload);
-                            
-                            if ($providerResp->successful()) {
-                                Log::info('✅ Provider registered with company ID (fallback)', [
-                                    'companyId' => $locationId
-                                ]);
-                            } else {
-                                Log::warning('⚠️ Fallback registration failed', [
-                                    'companyId' => $locationId,
-                                    'status' => $providerResp->status(),
-                                    'response' => $providerResp->json()
+                        $providerPayload = [
+                            'name'        => 'Tap Payments',
+                            'description' => 'Innovating payment acceptance & collection in MENA',
+                            'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
+                            'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
+                            'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
+                        ];
+
+                        if ($fallbackLocationId) {
+                            // Prefer a location-scoped token for the selected location.
+                            $fallbackToken = $accessToken;
+                            if ($companyId) {
+                                $locationToken = $this->getLocationAccessToken($accessToken, $companyId, $fallbackLocationId);
+                                if ($locationToken) {
+                                    $fallbackToken = $locationToken;
+                                }
+                            }
+
+                            $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
+                                        . '?locationId=' . urlencode($fallbackLocationId);
+
+                            Log::info('🛟 [FALLBACK] Registering provider for user-selected location (installedLocations unavailable)', [
+                                'selectedLocationId' => $fallbackLocationId,
+                                'companyId' => $companyId,
+                                'installedLocations_status' => $locationsResponse->status(),
+                            ]);
+
+                            try {
+                                $providerResp = Http::timeout(40)
+                                    ->acceptJson()
+                                    ->withToken($fallbackToken)
+                                    ->withHeaders(['Version' => '2021-07-28'])
+                                    ->post($providerUrl, $providerPayload);
+
+                                if ($providerResp->successful()) {
+                                    Log::info('✅ [FALLBACK] Provider registered for user-selected location', [
+                                        'locationId' => $fallbackLocationId,
+                                        'status' => $providerResp->status(),
+                                    ]);
+
+                                    // Ensure a user row exists for this location so the
+                                    // setup page and webhooks can resolve it later.
+                                    try {
+                                        $fallbackUser = User::where('lead_location_id', $fallbackLocationId)->first();
+                                        if (!$fallbackUser) {
+                                            $placeholderEmail = "location_{$fallbackLocationId}@leadconnector.local";
+                                            $counter = 1;
+                                            while (User::where('email', $placeholderEmail)->exists()) {
+                                                $placeholderEmail = "location_{$fallbackLocationId}_{$counter}@leadconnector.local";
+                                                $counter++;
+                                            }
+                                            $fallbackUser = new User();
+                                            $fallbackUser->name = "Location {$fallbackLocationId}";
+                                            $fallbackUser->email = $placeholderEmail;
+                                            $fallbackUser->password = Hash::make(Str::random(40));
+                                        }
+                                        $fallbackUser->lead_access_token = $accessToken;
+                                        $fallbackUser->lead_refresh_token = $refreshToken;
+                                        $fallbackUser->lead_token_type = $tokenType;
+                                        $fallbackUser->lead_expires_in = $expiresIn ?: null;
+                                        $fallbackUser->lead_token_expires_at = $expiresIn ? now()->addSeconds($expiresIn) : null;
+                                        $fallbackUser->lead_scope = $scope;
+                                        $fallbackUser->lead_refresh_token_id = $refreshTokenId;
+                                        $fallbackUser->lead_user_type = 'Location';
+                                        $fallbackUser->lead_company_id = $companyId;
+                                        $fallbackUser->lead_location_id = $fallbackLocationId;
+                                        $fallbackUser->lead_user_id = $providerUserId;
+                                        $fallbackUser->lead_is_bulk_installation = true;
+                                        $fallbackUser->save();
+                                    } catch (\Exception $userEx) {
+                                        Log::error('❌ [FALLBACK] Failed to save user for selected location', [
+                                            'locationId' => $fallbackLocationId,
+                                            'error' => $userEx->getMessage(),
+                                        ]);
+                                    }
+                                } else {
+                                    Log::warning('⚠️ [FALLBACK] Provider registration failed for selected location', [
+                                        'locationId' => $fallbackLocationId,
+                                        'status' => $providerResp->status(),
+                                        'response' => $providerResp->json(),
+                                    ]);
+                                }
+                            } catch (\Exception $e) {
+                                Log::error('❌ [FALLBACK] Exception registering provider for selected location', [
+                                    'locationId' => $fallbackLocationId,
+                                    'error' => $e->getMessage(),
                                 ]);
                             }
-                        } catch (\Exception $e) {
-                            Log::error('❌ Exception in fallback provider registration', [
-                                'companyId' => $locationId,
-                                'error' => $e->getMessage()
-                            ]);
+                        } else {
+                            // Last resort: no selected location known. Attempt company-id
+                            // registration (often 403, but kept for backward behavior).
+                            $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
+                                        . '?locationId=' . urlencode($locationId);
+
+                            try {
+                                $providerResp = Http::timeout(30)
+                                    ->acceptJson()
+                                    ->withToken($accessToken)
+                                    ->withHeaders(['Version' => '2021-07-28'])
+                                    ->post($providerUrl, $providerPayload);
+
+                                if ($providerResp->successful()) {
+                                    Log::info('✅ Provider registered with company ID (fallback)', [
+                                        'companyId' => $locationId
+                                    ]);
+                                } else {
+                                    Log::warning('⚠️ Fallback registration failed', [
+                                        'companyId' => $locationId,
+                                        'status' => $providerResp->status(),
+                                        'response' => $providerResp->json()
+                                    ]);
+                                }
+                            } catch (\Exception $e) {
+                                Log::error('❌ Exception in fallback provider registration', [
+                                    'companyId' => $locationId,
+                                    'error' => $e->getMessage()
+                                ]);
+                            }
                         }
                     }
                 } catch (\Exception $e) {
