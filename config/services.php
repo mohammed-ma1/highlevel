@@ -41,6 +41,15 @@ return [
         'redirect_uri' => env('EXTERNAL_REDIRECT_URI', 'https://dashboard.mediasolution.io/connect'),
     ],
 
+    // Tap custom payment provider metadata (used when registering the provider with GHL)
+    'tap' => [
+        'provider_name' => env('TAP_PROVIDER_NAME', 'Tap Payments'),
+        'provider_description' => env('TAP_PROVIDER_DESCRIPTION', 'Innovating payment acceptance & collection in MENA'),
+        'provider_payments_url' => env('TAP_PROVIDER_PAYMENTS_URL', 'https://dashboard.mediasolution.io/charge'),
+        'provider_query_url' => env('TAP_PROVIDER_QUERY_URL', 'https://dashboard.mediasolution.io/api/payment/query'),
+        'provider_image_url' => env('TAP_PROVIDER_IMAGE_URL', 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg'),
+    ],
+
     // Separate OAuth app for UPayments integration
     'external_auth_upayments' => [
         'authorize_url' => env('UPAYMENTS_EXTERNAL_AUTHORIZE_URL', 'https://marketplace.leadconnectorhq.com/oauth/chooselocation'),

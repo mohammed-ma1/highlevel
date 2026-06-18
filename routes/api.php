@@ -3,6 +3,7 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ClientIntegrationController;
+use App\Http\Controllers\MarketplaceWebhookController;
 use App\Http\Controllers\UPaymentsChargeController;
 use App\Http\Controllers\UPaymentsMarketplaceWebhookController;
 use App\Http\Controllers\UPaymentsStatusController;
@@ -32,6 +33,12 @@ Route::post('/upayment/query', [UPaymentsQueryController::class, 'handleQuery'])
 // GHL Marketplace app install/uninstall webhook
 Route::post('/upayment/marketplace-webhook', [UPaymentsMarketplaceWebhookController::class, 'handle'])
     ->name('api.upayment.marketplace.webhook');
+
+// GHL Marketplace app install/uninstall webhook (Tap app)
+// Registers the custom provider for the exact locationId GHL sends, covering the
+// bulk-install race where oauth/installedLocations still reports isInstalled:false.
+Route::post('/marketplace-webhook', [MarketplaceWebhookController::class, 'handle'])
+    ->name('api.marketplace.webhook');
 
 // Get last charge status for popup payment flow
 Route::get('/charge/last-status', [ClientIntegrationController::class, 'getLastChargeStatus'])
