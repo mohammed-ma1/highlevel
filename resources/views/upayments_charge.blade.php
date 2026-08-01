@@ -96,6 +96,14 @@
     let readyCount = 0;
     const MAX_READY_RETRY = 20;
 
+    let currentTrackId = null;
+    let statusPollTimer = null;
+    let statusPollCount = 0;
+    let outcomeSent = false;
+    // Poll every 4s for up to ~15 minutes (the hosted checkout link expires well before that).
+    const STATUS_POLL_INTERVAL = 4000;
+    const MAX_STATUS_POLLS = 225;
+
     function showError(message) {
       const box = document.getElementById('error-box');
       box.textContent = message;
@@ -114,6 +122,22 @@
       return isMac && hasSafari && noChrome;
     }
 
+    // A closed window is not proof of cancellation: the customer may have paid and then closed
+    // the tab. Re-check the real status before reporting a cancel to the platform.
+    function handlePaymentWindowClosed() {
+      if (outcomeSent) return;
+
+      pollPaymentStatus();
+      setTimeout(() => {
+        if (outcomeSent) return;
+        pollPaymentStatus().finally(() => {
+          if (!outcomeSent) {
+            emitOutcome({ type: 'custom_element_close_response' });
+          }
+        });
+      }, 2500);
+    }
+
     function showProceedPaymentPopup(url) {
       const isSafari = detectSafari();
       const btn = document.getElementById('proceed-btn');
@@ -129,7 +153,7 @@
         const checkClosed = setInterval(() => {
           if (paymentPopup.closed) {
             clearInterval(checkClosed);
-            sendMessageToPlatform({ type: 'custom_element_close_response' });
+            handlePaymentWindowClosed();
           }
         }, 1000);
         window.paymentPopupCheckInterval = checkClosed;
@@ -180,6 +204,79 @@
           setTimeout(() => { try { localStorage.removeItem(key); } catch(e) {} }, 1000);
         } catch (e) {}
       }
+    }
+
+    function stopStatusPolling() {
+      if (statusPollTimer) {
+        clearInterval(statusPollTimer);
+        statusPollTimer = null;
+      }
+    }
+
+    // Single funnel for the final outcome so the popup relay and the status poller
+    // can never report the same payment twice.
+    function emitOutcome(message) {
+      if (outcomeSent) return;
+      outcomeSent = true;
+      stopStatusPolling();
+      sendMessageToPlatform(message);
+    }
+
+    /**
+     * The hosted checkout runs in a separate tab, and its postMessage back to this iframe is
+     * unreliable: gateways may sever window.opener (COOP), and the localStorage fallback is
+     * partitioned because this page is a third-party iframe. So ask our own backend instead —
+     * it is same-origin to this iframe and always reachable.
+     */
+    async function pollPaymentStatus() {
+      if (outcomeSent || !currentTrackId || !paymentData) {
+        stopStatusPolling();
+        return;
+      }
+
+      statusPollCount++;
+      if (statusPollCount > MAX_STATUS_POLLS) {
+        stopStatusPolling();
+        return;
+      }
+
+      try {
+        const qs = new URLSearchParams({
+          track_id: currentTrackId,
+          locationId: paymentData.locationId,
+          transactionId: paymentData.transactionId || '',
+          // Let the backend push payment.captured to the platform as soon as the
+          // payment reaches a final state, even if this tab is closed afterwards.
+          notify: '1'
+        });
+
+        const resp = await fetch(`/api/upayment/status?${qs.toString()}`, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' }
+        });
+
+        if (!resp.ok) return;
+
+        const status = await resp.json();
+        if (!status || !status.success) return;
+
+        if (status.state === 'succeeded') {
+          emitOutcome({ type: 'custom_element_success_response', chargeId: currentTrackId });
+        } else if (status.state === 'failed') {
+          emitOutcome({
+            type: 'custom_element_error_response',
+            error: { description: 'Payment failed' }
+          });
+        }
+      } catch (e) {
+        // Transient network error — keep polling.
+      }
+    }
+
+    function startStatusPolling() {
+      if (statusPollTimer || !currentTrackId) return;
+      statusPollCount = 0;
+      statusPollTimer = setInterval(pollPaymentStatus, STATUS_POLL_INTERVAL);
     }
 
     function sendReadyEvent(force = false) {
@@ -248,12 +345,16 @@
         }
 
         checkoutUrl = result.link;
+        currentTrackId = result.trackId || null;
 
         // Same flow as Tap: Safari requires a user gesture; others open immediately.
         showProceedPaymentPopup(checkoutUrl);
+
+        // Authoritative outcome channel — independent of the checkout tab.
+        startStatusPolling();
       } catch (e) {
         showError(e.message || 'تعذّر إنشاء رابط الدفع');
-        sendMessageToPlatform({
+        emitOutcome({
           type: 'custom_element_error_response',
           error: { description: e.message || 'فشل في بدء عملية الدفع' }
         });
@@ -295,7 +396,14 @@
         }
       }
 
-      sendMessageToPlatform(parsed);
+      // A close relayed from the redirect page can arrive while the payment is still
+      // settling; let the poller decide instead of cancelling a payment that succeeded.
+      if (parsed.type === 'custom_element_close_response' && currentTrackId) {
+        handlePaymentWindowClosed();
+        return;
+      }
+
+      emitOutcome(parsed);
     });
 
     // localStorage relay (new-tab scenario)
@@ -304,7 +412,7 @@
         if (event.key && event.key.startsWith('upayments_payment_message_') && event.newValue) {
           const data = JSON.parse(event.newValue);
           if (data.source === 'payment_redirect' && data.message) {
-            sendMessageToPlatform(data.message);
+            emitOutcome(data.message);
           }
         }
       } catch (e) {}

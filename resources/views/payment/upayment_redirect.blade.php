@@ -93,8 +93,16 @@
       return 'unknown';
     }
 
-    async function fetchStatus(trackId, locationId) {
-      const qs = new URLSearchParams({ track_id: trackId, locationId });
+    async function fetchStatus(trackId, locationId, transactionId) {
+      const qs = new URLSearchParams({
+        track_id: trackId,
+        locationId: locationId || '',
+        transactionId: transactionId || '',
+        // Ask the backend to forward payment.captured itself. This page often cannot reach
+        // the platform: gateways may sever window.opener, and the localStorage fallback is
+        // partitioned away from the checkout iframe.
+        notify: '1'
+      });
       const resp = await fetch(`/api/upayment/status?${qs.toString()}`, {
         method: 'GET',
         headers: { 'Accept': 'application/json' }
@@ -117,13 +125,21 @@
       const trackId = params.track_id;
       const result = params.result;
 
+      // Always let the backend confirm and forward the outcome, regardless of what we manage
+      // to post to the platform from this page.
+      const backendStatus = (trackId && params.locationId)
+        ? fetchStatus(trackId, params.locationId, params.transactionId).catch(() => null)
+        : Promise.resolve(null);
+
       // Fast-path based on result param (if present).
       const stateFromResult = mapResultToState(result);
       if (trackId && stateFromResult === 'succeeded') {
+        await backendStatus;
         sendSuccessToPlatform(trackId);
         return;
       }
       if (stateFromResult === 'failed') {
+        await backendStatus;
         sendErrorToPlatform('Payment failed');
         return;
       }
@@ -131,7 +147,10 @@
       // If we have trackId + locationId, ask backend for authoritative status.
       if (trackId && params.locationId) {
         try {
-          const status = await fetchStatus(trackId, params.locationId);
+          const status = await backendStatus;
+          if (!status) {
+            throw new Error('Status API failed');
+          }
           if (status.success && status.state === 'succeeded') {
             sendSuccessToPlatform(trackId);
           } else if (status.success && status.state === 'failed') {

@@ -101,7 +101,13 @@ class UPaymentsChargeController extends Controller
                 . '&transactionId=' . urlencode($finalTransactionId)
                 . '&orderId=' . urlencode($finalOrderId);
             $cancelUrl = $returnUrl . '&cancel=true';
-            $notificationUrl = $appBaseUrl . '/api/upayment/webhook';
+            // UPayments' notification payload carries no location context, so pin it to the URL.
+            // Without this the webhook cannot tell which merchant (and which platform API key)
+            // the payment belongs to.
+            $notificationUrl = $appBaseUrl . '/api/upayment/webhook'
+                . '?locationId=' . urlencode($locationId)
+                . '&transactionId=' . urlencode($finalTransactionId)
+                . '&orderId=' . urlencode($finalOrderId);
 
             // Build Non-Whitelabel request model (hosted checkout).
             $payload = [
@@ -179,6 +185,19 @@ class UPaymentsChargeController extends Controller
                     'message' => 'UPayments did not return a payment link',
                     'raw' => $data,
                 ], 502);
+            }
+
+            // Remember how this trackId maps back to the platform so the notification webhook
+            // (and any later status lookup) can resolve the merchant without guessing.
+            if ($trackId) {
+                cache()->put('upayments_charge_' . $trackId, [
+                    'locationId' => $locationId,
+                    'transactionId' => $finalTransactionId,
+                    'orderId' => $finalOrderId,
+                    'mode' => $mode,
+                    'amount' => $amount,
+                    'currency' => $currency,
+                ], now()->addHours(24));
             }
 
             return response()->json([
@@ -267,8 +286,26 @@ class UPaymentsChargeController extends Controller
                 )
             );
 
+            // Context we pinned to notificationUrl at charge creation, with the cached
+            // trackId mapping as a backup if UPayments drops the query string.
+            $contextLocationId = (string) $request->query('locationId', '');
+            $contextTransactionId = (string) $request->query('transactionId', '');
+            $contextMode = null;
+
+            $cached = $trackId !== '' ? cache()->get('upayments_charge_' . $trackId) : null;
+            if (is_array($cached)) {
+                $contextLocationId = $contextLocationId !== '' ? $contextLocationId : (string) ($cached['locationId'] ?? '');
+                $contextTransactionId = $contextTransactionId !== '' ? $contextTransactionId : (string) ($cached['transactionId'] ?? '');
+                $contextMode = $cached['mode'] ?? null;
+                if ($amount <= 0) {
+                    $amount = (float) ($cached['amount'] ?? 0);
+                }
+            }
+
             // orderRef is the platform transactionId we stored during charge creation.
-            $transactionId = $orderRef !== '' ? $orderRef : $orderId;
+            $transactionId = $contextTransactionId !== ''
+                ? $contextTransactionId
+                : ($orderRef !== '' ? $orderRef : $orderId);
 
             Log::info('🟣 [UPAYMENTS] Webhook parsed', [
                 'trackId' => $trackId,
@@ -276,6 +313,7 @@ class UPaymentsChargeController extends Controller
                 'transactionId' => $transactionId,
                 'orderId' => $orderId,
                 'amount' => $amount,
+                'contextLocationId' => $contextLocationId ?: null,
             ]);
 
             if ($trackId === '' || $transactionId === '') {
@@ -305,20 +343,19 @@ class UPaymentsChargeController extends Controller
                 return response()->json(['status' => true]);
             }
 
-            // Find the user by looking up locationId via the charge metadata.
-            // The webhook doesn't include locationId directly, so we search by order references.
             $user = null;
             $mode = 'test';
 
-            // Try to extract customerExtraData or other location hints
-            $customerExtra = (string) data_get($allData, 'data.transaction.customer_extra_data',
-                data_get($allData, 'customerExtraData',
-                    data_get($allData, 'data.customerExtraData', '')
-                )
-            );
+            if ($contextLocationId !== '') {
+                $user = User::where('lead_location_id', $contextLocationId)->first();
+                if ($user) {
+                    $mode = $contextMode ?: ($user->upayments_mode ?: 'test');
+                }
+            }
 
-            // Search for user across all locations (the transactionId should be unique)
-            $users = User::whereNotNull('upayments_mode')->get();
+            // Last resort only: probe merchants until one can read this trackId. This can pick
+            // the wrong merchant, so it runs only when the pinned context is unavailable.
+            $users = $user ? collect() : User::whereNotNull('upayments_mode')->get();
             foreach ($users as $candidate) {
                 $candidateMode = $candidate->upayments_mode ?: 'test';
                 $candidateToken = $candidateMode === 'live'

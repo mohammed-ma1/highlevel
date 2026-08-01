@@ -146,19 +146,19 @@ class UPaymentsQueryController extends Controller
                 'locationId' => $user->lead_location_id,
             ]);
 
-            $isFinalState = in_array($mapped['state'], ['succeeded', 'failed'], true);
-            if ($isFinalState) {
-                // UPayments returns amount under data.transaction.total_price (string like "20.000")
-                $amount = (float) data_get($json, 'data.transaction.total_price',
-                    data_get($json, 'data.transaction.total_paid_non_kwd',
-                        data_get($json, 'data.order.amount',
-                            data_get($json, 'data.amount',
-                                data_get($json, 'amount', 0)
-                            )
+            // UPayments returns amount under data.transaction.total_price (string like "20.000")
+            $amount = (float) data_get($json, 'data.transaction.total_price',
+                data_get($json, 'data.transaction.total_paid_non_kwd',
+                    data_get($json, 'data.order.amount',
+                        data_get($json, 'data.amount',
+                            data_get($json, 'amount', 0)
                         )
                     )
-                );
+                )
+            );
 
+            $isFinalState = in_array($mapped['state'], ['succeeded', 'failed'], true);
+            if ($isFinalState) {
                 $webhookService = new \App\Services\WebhookService();
                 $webhookService->sendUPaymentsPaymentWebhook(
                     $user,
@@ -170,11 +170,33 @@ class UPaymentsQueryController extends Controller
                 );
             }
 
+            // The platform sets the order/transaction from this response, and it expects the
+            // charge snapshot alongside the flag — a bare success flag can leave it pending.
+            $chargeSnapshot = [
+                'id' => $trackId,
+                'status' => $mapped['state'],
+                'amount' => (int) round($amount * 100),
+                'chargeId' => $trackId,
+                'chargedAt' => (int) now()->timestamp,
+            ];
+
             if ($mapped['state'] === 'succeeded') {
-                return response()->json(['success' => true], 200);
+                return response()->json([
+                    'success' => true,
+                    'failed' => false,
+                    'message' => 'Payment captured',
+                    'chargeId' => $trackId,
+                    'chargeSnapshot' => $chargeSnapshot,
+                ], 200);
             }
             if ($mapped['state'] === 'failed') {
-                return response()->json(['failed' => true], 200);
+                return response()->json([
+                    'success' => false,
+                    'failed' => true,
+                    'message' => 'Payment failed',
+                    'chargeId' => $trackId,
+                    'chargeSnapshot' => $chargeSnapshot,
+                ], 200);
             }
 
             return response()->json(['success' => false], 200);

@@ -85,6 +85,45 @@ class UPaymentsStatusController extends Controller
             $rawResult = $this->extractResult($json);
             $mapped = $this->mapResultToState($rawResult);
 
+            // The browser cannot be trusted to deliver the outcome (the checkout runs in a
+            // separate tab that may be closed). When the caller asks to be notified and the
+            // payment is final, push payment.captured to the platform from the server.
+            if ($request->boolean('notify') && in_array($mapped['state'], ['succeeded', 'failed'], true)) {
+                // The mapping we stored when creating the charge wins over anything the
+                // caller sends, since this endpoint is public.
+                $cached = cache()->get('upayments_charge_' . $trackId);
+                $transactionId = (string) data_get($cached, 'transactionId', '');
+                if ($transactionId === '') {
+                    $transactionId = (string) ($request->input('transactionId') ?? '');
+                }
+
+                if ($transactionId !== '') {
+                    $amount = (float) data_get($json, 'data.transaction.total_price',
+                        data_get($json, 'data.transaction.total_paid_non_kwd',
+                            data_get($json, 'data.order.amount',
+                                data_get($json, 'data.amount',
+                                    data_get($json, 'amount', 0)
+                                )
+                            )
+                        )
+                    );
+
+                    (new \App\Services\WebhookService())->sendUPaymentsPaymentWebhook(
+                        $user,
+                        $trackId,
+                        $transactionId,
+                        $mapped['state'],
+                        $amount,
+                        $mode
+                    );
+                } else {
+                    Log::warning('🟣 [UPAYMENTS] Status: notify requested but no transactionId available', [
+                        'trackId' => $trackId,
+                        'locationId' => $locationId,
+                    ]);
+                }
+            }
+
             return response()->json([
                 'success' => true,
                 'trackId' => $trackId,
