@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\CustomProviderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
@@ -104,15 +105,40 @@ class MarketplaceWebhookController extends Controller
             }
         }
 
+        // Creating the provider config resets the location's connected credentials,
+        // so an INSTALL for an already-configured location must be a no-op.
+        $providerService = new CustomProviderService();
+        $providerState = $providerService->state($tokenToUse, $locationId);
+
+        if (!$providerService->canRegisterProvider($providerState, true)) {
+            Log::info('🔵 [TAP WEBHOOK] INSTALL skipped - location already connected', [
+                'locationId' => $locationId,
+                'provider_state' => $providerState,
+            ]);
+
+            $this->upsertLocationUser($locationId, $resolvedCompanyId, $companyAccessToken);
+
+            return response()->json([
+                'status' => 'ok',
+                'providerRegistered' => true,
+                'skipped' => true,
+            ]);
+        }
+
         $registered = $this->registerProviderForLocation($tokenToUse, $locationId);
 
         if ($registered) {
             $this->upsertLocationUser($locationId, $resolvedCompanyId, $companyAccessToken);
+
+            if ($providerState !== CustomProviderService::STATE_MISSING) {
+                $providerService->restoreStoredConnection($tokenToUse, $locationId);
+            }
         }
 
         Log::info('🔵 [TAP WEBHOOK] INSTALL provider registration result', [
             'locationId' => $locationId,
             'registered' => $registered,
+            'provider_state_before' => $providerState,
         ]);
 
         return response()->json([

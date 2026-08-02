@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use App\Models\User;
+use App\Services\CustomProviderService;
 class ClientIntegrationController extends Controller
 {
     public function connect(Request $request)
@@ -885,6 +886,18 @@ class ClientIntegrationController extends Controller
                     }
                     
                     $installedLocationsUrl = "https://services.leadconnectorhq.com/oauth/installedLocations";
+
+                    $providerService = new CustomProviderService();
+                    $oauthData = [
+                        'access_token' => $accessToken,
+                        'refresh_token' => $refreshToken,
+                        'token_type' => $tokenType,
+                        'expires_in' => $expiresIn,
+                        'scope' => $scope,
+                        'refresh_token_id' => $refreshTokenId,
+                        'company_id' => $companyId,
+                        'user_id' => $providerUserId,
+                    ];
                     
                     // Fetch installed locations
                     Log::info('🔍 Fetching installed locations using installedLocations API', [
@@ -987,6 +1000,7 @@ class ClientIntegrationController extends Controller
                         
                         $locationsToRegister = [];
                         $firstInstalledLocationId = null;
+                        $targetedInstall = false;
 
                         if ($selectedLocationId) {
                             // TARGETED INSTALL: the user selected a specific sub-account in
@@ -1008,6 +1022,7 @@ class ClientIntegrationController extends Controller
 
                             $locationsToRegister[] = $selectedEntry;
                             $firstInstalledLocationId = $selectedLocationId;
+                            $targetedInstall = true;
 
                             Log::info('🎯 [BULK] Targeted install - registering provider ONLY for the user-selected location', [
                                 'selectedLocationId' => $selectedLocationId,
@@ -1054,6 +1069,7 @@ class ClientIntegrationController extends Controller
                         // Register provider for each installed location
                         $successCount = 0;
                         $failCount = 0;
+                        $skippedCount = 0;
                         
                         foreach ($locationsToRegister as $location) {
                             // Handle different response formats - API returns _id
@@ -1097,16 +1113,28 @@ class ClientIntegrationController extends Controller
                                 }
                             }
                             
+                            // Creating the provider config wipes any credentials already
+                            // connected for the location, so leave configured locations alone.
+                            $providerState = $providerService->state($tokenToUse, $actualLocationId);
+                            $isTargetLocation = $targetedInstall && $actualLocationId === $selectedLocationId;
+
+                            if (!$providerService->canRegisterProvider($providerState, $isTargetLocation)) {
+                                $skippedCount++;
+                                Log::info('⏭️ [PROVIDER REGISTRATION] Skipping location that is already set up', [
+                                    'locationId' => $actualLocationId,
+                                    'locationName' => $location['name'] ?? 'N/A',
+                                    'provider_state' => $providerState,
+                                    'is_target_location' => $isTargetLocation,
+                                ]);
+
+                                $this->syncLocationUser($actualLocationId, $oauthData, $location['name'] ?? null);
+                                continue;
+                            }
+
                             $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                                         . '?locationId=' . urlencode($actualLocationId);
                             
-                            $providerPayload = [
-                                'name'        => 'Tap Payments',
-                                'description' => 'Innovating payment acceptance & collection in MENA',
-                                'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
-                                'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
-                                'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
-                            ];
+                            $providerPayload = $providerService->providerPayload();
                             
                             try {
                                 Log::info('📤 [PROVIDER REGISTRATION] Request details', [
@@ -1159,68 +1187,22 @@ class ClientIntegrationController extends Controller
                                         'duration_ms' => $duration
                                     ]);
                                     
-                                    // Create/update user for this location in database
-                                    try {
-                                        $locationUser = User::where('lead_location_id', $actualLocationId)->first();
-                                        
-                                        if (!$locationUser) {
-                                            // Create new user for this location
-                                            $baseEmail = "location_{$actualLocationId}@leadconnector.local";
-                                            $placeholderEmail = $baseEmail;
-                                            $counter = 1;
-                                            
-                                            while (User::where('email', $placeholderEmail)->exists()) {
-                                                $placeholderEmail = "location_{$actualLocationId}_{$counter}@leadconnector.local";
-                                                $counter++;
-                                            }
-                                            
-                                            $locationUser = new User();
-                                            $locationUser->name = $location['name'] ?? "Location {$actualLocationId}";
-                                            $locationUser->email = $placeholderEmail;
-                                            $locationUser->password = Hash::make(Str::random(40));
-                                        }
-                                        
-                                        // Update OAuth tokens and location info
-                                        $locationUser->lead_access_token = $accessToken;
-                                        $locationUser->lead_refresh_token = $refreshToken;
-                                        $locationUser->lead_token_type = $tokenType;
-                                        $locationUser->lead_expires_in = $expiresIn ?: null;
-                                        $locationUser->lead_token_expires_at = $expiresIn ? now()->addSeconds($expiresIn) : null;
-                                        $locationUser->lead_scope = $scope;
-                                        $locationUser->lead_refresh_token_id = $refreshTokenId;
-                                        $locationUser->lead_user_type = 'Location';
-                                        $locationUser->lead_company_id = $companyId;
-                                        $locationUser->lead_location_id = $actualLocationId;
-                                        $locationUser->lead_user_id = $providerUserId;
-                                        $locationUser->lead_is_bulk_installation = true;
-                                        
-                                        $locationUser->save();
-                                        $locationUser->refresh(); // Reload from database to verify
-                                        
-                                        // Verify the save by checking critical fields
-                                        $verifyUser = User::where('lead_location_id', $actualLocationId)->first();
-                                        
-                                        Log::info('✅ [BULK] User saved for location', [
-                                            'locationId' => $actualLocationId,
-                                            'locationName' => $location['name'] ?? 'N/A',
-                                            'user_id' => $locationUser->id,
-                                            'email' => $locationUser->email,
-                                            'verified_in_db' => $verifyUser ? true : false,
-                                            'verified_user_id' => $verifyUser?->id,
-                                            'has_access_token' => !empty($verifyUser?->lead_access_token),
-                                            'has_refresh_token' => !empty($verifyUser?->lead_refresh_token),
-                                            'access_token_length' => strlen($verifyUser?->lead_access_token ?? ''),
-                                            'refresh_token_length' => strlen($verifyUser?->lead_refresh_token ?? ''),
-                                            'lead_location_id' => $verifyUser?->lead_location_id,
-                                            'lead_company_id' => $verifyUser?->lead_company_id,
-                                            'lead_user_id' => $verifyUser?->lead_user_id,
-                                            'lead_refresh_token_id' => $verifyUser?->lead_refresh_token_id
-                                        ]);
-                                    } catch (\Exception $userEx) {
-                                        Log::error('❌ [BULK] Failed to save user for location', [
-                                            'locationId' => $actualLocationId,
-                                            'error' => $userEx->getMessage()
-                                        ]);
+                                    $locationUser = $this->syncLocationUser($actualLocationId, $oauthData, $location['name'] ?? null);
+
+                                    Log::info('✅ [BULK] User saved for location', [
+                                        'locationId' => $actualLocationId,
+                                        'locationName' => $location['name'] ?? 'N/A',
+                                        'user_id' => $locationUser?->id,
+                                        'email' => $locationUser?->email,
+                                        'has_access_token' => !empty($locationUser?->lead_access_token),
+                                        'has_refresh_token' => !empty($locationUser?->lead_refresh_token),
+                                        'lead_company_id' => $locationUser?->lead_company_id,
+                                    ]);
+
+                                    // The fresh provider config has no credentials attached, so
+                                    // put back whatever this location had already connected.
+                                    if ($providerState !== CustomProviderService::STATE_MISSING) {
+                                        $providerService->restoreStoredConnection($tokenToUse, $actualLocationId);
                                     }
                                 } else {
                                     $failCount++;
@@ -1266,7 +1248,8 @@ class ClientIntegrationController extends Controller
                             'total_locations' => count($locations),
                             'installed_locations' => count($locationsToRegister),
                             'successful' => $successCount,
-                            'failed' => $failCount
+                            'failed' => $failCount,
+                            'skipped_already_configured' => $skippedCount
                         ]);
                         
                         // ===== SIMPLE USER CREATION: Use first installed location =====
@@ -1440,13 +1423,7 @@ class ClientIntegrationController extends Controller
                         // company id with a company-scoped token returns 403 Forbidden.
                         $fallbackLocationId = $selectedLocationId ?: null;
 
-                        $providerPayload = [
-                            'name'        => 'Tap Payments',
-                            'description' => 'Innovating payment acceptance & collection in MENA',
-                            'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
-                            'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
-                            'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
-                        ];
+                        $providerPayload = $providerService->providerPayload();
 
                         if ($fallbackLocationId) {
                             // Prefer a location-scoped token for the selected location.
@@ -1461,72 +1438,55 @@ class ClientIntegrationController extends Controller
                             $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                                         . '?locationId=' . urlencode($fallbackLocationId);
 
+                            $fallbackState = $providerService->state($fallbackToken, $fallbackLocationId);
+
                             Log::info('🛟 [FALLBACK] Registering provider for user-selected location (installedLocations unavailable)', [
                                 'selectedLocationId' => $fallbackLocationId,
                                 'companyId' => $companyId,
+                                'provider_state' => $fallbackState,
                                 'installedLocations_status' => $locationsResponse->status(),
                             ]);
 
-                            try {
-                                $providerResp = Http::timeout(40)
-                                    ->acceptJson()
-                                    ->withToken($fallbackToken)
-                                    ->withHeaders(['Version' => '2021-07-28'])
-                                    ->post($providerUrl, $providerPayload);
+                            if (!$providerService->canRegisterProvider($fallbackState, true)) {
+                                Log::info('⏭️ [FALLBACK] Location is already connected - leaving its config untouched', [
+                                    'locationId' => $fallbackLocationId,
+                                ]);
 
-                                if ($providerResp->successful()) {
-                                    Log::info('✅ [FALLBACK] Provider registered for user-selected location', [
-                                        'locationId' => $fallbackLocationId,
-                                        'status' => $providerResp->status(),
-                                    ]);
+                                // Ensure a user row exists for this location so the
+                                // setup page and webhooks can resolve it later.
+                                $this->syncLocationUser($fallbackLocationId, $oauthData);
+                            } else {
+                                try {
+                                    $providerResp = Http::timeout(40)
+                                        ->acceptJson()
+                                        ->withToken($fallbackToken)
+                                        ->withHeaders(['Version' => '2021-07-28'])
+                                        ->post($providerUrl, $providerPayload);
 
-                                    // Ensure a user row exists for this location so the
-                                    // setup page and webhooks can resolve it later.
-                                    try {
-                                        $fallbackUser = User::where('lead_location_id', $fallbackLocationId)->first();
-                                        if (!$fallbackUser) {
-                                            $placeholderEmail = "location_{$fallbackLocationId}@leadconnector.local";
-                                            $counter = 1;
-                                            while (User::where('email', $placeholderEmail)->exists()) {
-                                                $placeholderEmail = "location_{$fallbackLocationId}_{$counter}@leadconnector.local";
-                                                $counter++;
-                                            }
-                                            $fallbackUser = new User();
-                                            $fallbackUser->name = "Location {$fallbackLocationId}";
-                                            $fallbackUser->email = $placeholderEmail;
-                                            $fallbackUser->password = Hash::make(Str::random(40));
-                                        }
-                                        $fallbackUser->lead_access_token = $accessToken;
-                                        $fallbackUser->lead_refresh_token = $refreshToken;
-                                        $fallbackUser->lead_token_type = $tokenType;
-                                        $fallbackUser->lead_expires_in = $expiresIn ?: null;
-                                        $fallbackUser->lead_token_expires_at = $expiresIn ? now()->addSeconds($expiresIn) : null;
-                                        $fallbackUser->lead_scope = $scope;
-                                        $fallbackUser->lead_refresh_token_id = $refreshTokenId;
-                                        $fallbackUser->lead_user_type = 'Location';
-                                        $fallbackUser->lead_company_id = $companyId;
-                                        $fallbackUser->lead_location_id = $fallbackLocationId;
-                                        $fallbackUser->lead_user_id = $providerUserId;
-                                        $fallbackUser->lead_is_bulk_installation = true;
-                                        $fallbackUser->save();
-                                    } catch (\Exception $userEx) {
-                                        Log::error('❌ [FALLBACK] Failed to save user for selected location', [
+                                    if ($providerResp->successful()) {
+                                        Log::info('✅ [FALLBACK] Provider registered for user-selected location', [
                                             'locationId' => $fallbackLocationId,
-                                            'error' => $userEx->getMessage(),
+                                            'status' => $providerResp->status(),
+                                        ]);
+
+                                        $this->syncLocationUser($fallbackLocationId, $oauthData);
+
+                                        if ($fallbackState !== CustomProviderService::STATE_MISSING) {
+                                            $providerService->restoreStoredConnection($fallbackToken, $fallbackLocationId);
+                                        }
+                                    } else {
+                                        Log::warning('⚠️ [FALLBACK] Provider registration failed for selected location', [
+                                            'locationId' => $fallbackLocationId,
+                                            'status' => $providerResp->status(),
+                                            'response' => $providerResp->json(),
                                         ]);
                                     }
-                                } else {
-                                    Log::warning('⚠️ [FALLBACK] Provider registration failed for selected location', [
+                                } catch (\Exception $e) {
+                                    Log::error('❌ [FALLBACK] Exception registering provider for selected location', [
                                         'locationId' => $fallbackLocationId,
-                                        'status' => $providerResp->status(),
-                                        'response' => $providerResp->json(),
+                                        'error' => $e->getMessage(),
                                     ]);
                                 }
-                            } catch (\Exception $e) {
-                                Log::error('❌ [FALLBACK] Exception registering provider for selected location', [
-                                    'locationId' => $fallbackLocationId,
-                                    'error' => $e->getMessage(),
-                                ]);
                             }
                         } else {
                             // Last resort: no selected location known. Attempt company-id
@@ -1577,13 +1537,21 @@ class ClientIntegrationController extends Controller
                 $providerUrl = 'https://services.leadconnectorhq.com/payments/custom-provider/provider'
                             . '?locationId=' . urlencode($locationId);
                 
-                $providerPayload = [
-                    'name'        => 'Tap Payments',
-                    'description' => 'Innovating payment acceptance & collection in MENA',
-                    'paymentsUrl' => 'https://dashboard.mediasolution.io/charge',
-                    'queryUrl'    => 'https://dashboard.mediasolution.io/api/payment/query',
-                    'imageUrl'    => 'https://msgsndr-private.storage.googleapis.com/marketplace/apps/68323dc0642d285465c0b85a/11524e13-1e69-41f4-a378-54a4c8e8931a.jpg',
-                ];
+                $providerService = new CustomProviderService();
+                $providerPayload = $providerService->providerPayload();
+
+                // Creating the provider config drops any credentials the location has
+                // already connected, so a reinstall must not touch a configured location.
+                $providerState = $providerService->state($accessToken, $locationId);
+
+                if (!$providerService->canRegisterProvider($providerState, true)) {
+                    Log::info('⏭️ [PROVIDER REGISTRATION] Location is already connected - leaving its config untouched', [
+                        'locationId' => $locationId,
+                        'provider_state' => $providerState,
+                    ]);
+
+                    return redirect("https://app.gohighlevel.com/v2/location/{$locationId}/payments/integrations");
+                }
 
                 // Log request details before making the call
                 Log::info('=== PROVIDER REGISTRATION REQUEST ===', [
@@ -1671,6 +1639,11 @@ class ClientIntegrationController extends Controller
             } else {
                         $responseData = $providerResp->json();
                         $responseLocationId = $responseData['locationId'] ?? null;
+
+                        // The config was recreated empty - put back whatever was connected before.
+                        if ($providerState !== CustomProviderService::STATE_MISSING) {
+                            $providerService->restoreStoredConnection($accessToken, $locationId);
+                        }
                         
                         // Check if response locationId matches requested locationId
                         if ($responseLocationId && $responseLocationId !== $locationId) {
@@ -4140,6 +4113,58 @@ class ClientIntegrationController extends Controller
                 'success' => false,
                 'message' => 'Internal server error'
             ], 500);
+        }
+    }
+
+    /**
+     * Create or refresh the user row that holds a location's OAuth tokens.
+     *
+     * @param array $oauth Keys: access_token, refresh_token, token_type, expires_in,
+     *                     scope, refresh_token_id, company_id, user_id
+     */
+    private function syncLocationUser(string $locationId, array $oauth, ?string $name = null): ?User
+    {
+        try {
+            $user = User::where('lead_location_id', $locationId)->first();
+
+            if (!$user) {
+                $placeholderEmail = "location_{$locationId}@leadconnector.local";
+                $counter = 1;
+                while (User::where('email', $placeholderEmail)->exists()) {
+                    $placeholderEmail = "location_{$locationId}_{$counter}@leadconnector.local";
+                    $counter++;
+                }
+
+                $user = new User();
+                $user->name = $name ?: "Location {$locationId}";
+                $user->email = $placeholderEmail;
+                $user->password = Hash::make(Str::random(40));
+            }
+
+            $expiresIn = (int) ($oauth['expires_in'] ?? 0);
+
+            $user->lead_access_token = $oauth['access_token'] ?? null;
+            $user->lead_refresh_token = $oauth['refresh_token'] ?? null;
+            $user->lead_token_type = $oauth['token_type'] ?? null;
+            $user->lead_expires_in = $expiresIn ?: null;
+            $user->lead_token_expires_at = $expiresIn ? now()->addSeconds($expiresIn) : null;
+            $user->lead_scope = $oauth['scope'] ?? null;
+            $user->lead_refresh_token_id = $oauth['refresh_token_id'] ?? null;
+            $user->lead_user_type = 'Location';
+            $user->lead_company_id = $oauth['company_id'] ?? null;
+            $user->lead_location_id = $locationId;
+            $user->lead_user_id = $oauth['user_id'] ?? null;
+            $user->lead_is_bulk_installation = true;
+            $user->save();
+
+            return $user;
+        } catch (\Exception $e) {
+            Log::error('❌ [USER SYNC] Failed to save user for location', [
+                'locationId' => $locationId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
         }
     }
 
