@@ -1894,14 +1894,26 @@ class ClientIntegrationController extends Controller
             Log::info('🔵 [CONNECT-DISCONNECT] Starting connect action validation');
             
             try {
+                // Tap rejects malformed credentials at checkout time, long after setup,
+                // so the format is enforced here where the merchant can still act on it.
                 $request->validate([
-                    'merchant_id'          => ['required', 'string'],
+                    'merchant_id'          => ['required', 'string', 'regex:/^\d+$/'],
                     'apiKey'               => ['required', 'string'],
                     'tap_mode'             => ['required', 'in:test,live'],
-                    'live_publishableKey'  => ['required_without:test_publishableKey', 'string'],
-                    'live_secretKey'       => ['nullable', 'string'],
-                    'test_publishableKey'  => ['required_without:live_publishableKey', 'string'],
-                    'test_secretKey'       => ['nullable', 'string'],
+                    'live_publishableKey'  => ['nullable', 'required_if:tap_mode,live', 'string', 'starts_with:pk_live_'],
+                    'live_secretKey'       => ['nullable', 'required_if:tap_mode,live', 'string', 'starts_with:sk_live_'],
+                    'test_publishableKey'  => ['nullable', 'required_if:tap_mode,test', 'string', 'starts_with:pk_test_'],
+                    'test_secretKey'       => ['nullable', 'required_if:tap_mode,test', 'string', 'starts_with:sk_test_'],
+                ], [
+                    'merchant_id.regex' => 'Merchant ID must be the numeric ID from your Tap dashboard (for example 68069980), not your business name.',
+                    'live_secretKey.starts_with' => 'The live secret key must start with sk_live_. A publishable key (pk_) will not work here.',
+                    'test_secretKey.starts_with' => 'The test secret key must start with sk_test_. A publishable key (pk_) will not work here.',
+                    'live_publishableKey.starts_with' => 'The live publishable key must start with pk_live_.',
+                    'test_publishableKey.starts_with' => 'The test publishable key must start with pk_test_.',
+                    'live_secretKey.required_if' => 'Live mode requires the live secret key (sk_live_...).',
+                    'live_publishableKey.required_if' => 'Live mode requires the live publishable key (pk_live_...).',
+                    'test_secretKey.required_if' => 'Test mode requires the test secret key (sk_test_...).',
+                    'test_publishableKey.required_if' => 'Test mode requires the test publishable key (pk_test_...).',
                 ]);
                 Log::info('✅ [CONNECT-DISCONNECT] Validation passed');
             } catch (\Illuminate\Validation\ValidationException $e) {
@@ -2105,6 +2117,10 @@ class ClientIntegrationController extends Controller
             'data'         => $resp->json(),
         ]);
         
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            // Let Laravel redirect back with the field errors instead of
+            // flattening them into a generic 500 the merchant cannot act on.
+            throw $e;
         } catch (\Exception $e) {
             Log::error('❌ [CONNECT-DISCONNECT] Unexpected error', [
                 'error' => $e->getMessage(),
@@ -3238,13 +3254,11 @@ class ClientIntegrationController extends Controller
             $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
             $isLive = $user->tap_mode === 'live';
 
-            // Log the secret key
             Log::info('Using secret key for createTapCharge', [
                 'merchantId' => $merchantId,
                 'locationId' => $locationId,
                 'tap_mode' => $user->tap_mode,
                 'is_live' => $isLive,
-                'secretKey' => $secretKey,
                 'secret_key_prefix' => substr($secretKey, 0, 15) . '...',
                 'secret_key_length' => strlen($secretKey)
             ]);

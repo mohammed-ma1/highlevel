@@ -362,6 +362,19 @@
                                 </div>
                             </div>
 
+                            @if ($errors->any())
+                                <div class="section">
+                                    <div class="response-box response-error">
+                                        <strong>❌ Please check your credentials:</strong>
+                                        <ul style="margin: 0.5rem 0 0; padding-left: 1.25rem;">
+                                            @foreach ($errors->all() as $error)
+                                                <li>{{ $error }}</li>
+                                            @endforeach
+                                        </ul>
+                                    </div>
+                                </div>
+                            @endif
+
                             {{-- Mode Selector --}}
                             <div class="section">
                                 <h2 class="section-title">Payment Mode</h2>
@@ -433,8 +446,10 @@
                                         <label class="form-label">Merchant ID</label>
                                         <input 
                                             name="merchant_id" 
-                                            type="password" 
-                                            placeholder="Enter your Tap Merchant ID" 
+                                            type="text" 
+                                            inputmode="numeric"
+                                            value="{{ old('merchant_id') }}"
+                                            placeholder="68069980" 
                                             class="form-input"
                                             autocomplete="off"
                                         />
@@ -445,7 +460,7 @@
                                         <input 
                                             name="apiKey" 
                                             type="password" 
-                                            placeholder="live_xxx or test_xxx" 
+                                            placeholder="XXtapXX" 
                                             class="form-input"
                                             autocomplete="off"
                                         />
