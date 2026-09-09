@@ -895,6 +895,9 @@
             merchant: {
               id: tapMode === 'live' ? merchantId : ''
             },
+            // GHL hands us the publishable key of the mode the payment link is
+            // set to; it is the only per-transaction signal of live vs test.
+            publishableKey: paymentData.publishableKey,
             amount: paymentData.amount,
             currency: paymentData.currency,
             customer_initiated: true,

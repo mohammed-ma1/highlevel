@@ -49,6 +49,8 @@ class TapConnectValidationTest extends TestCase
             'apiKey' => 'XXtapXX',
             'live_secretKey' => 'sk_live_EOjv14yCinN9IGzSlVmx6s3a',
             'live_publishableKey' => 'pk_live_HyYVabcdefghijklmnopqrst',
+            'test_secretKey' => 'sk_test_kiaxQ4Rt7YuIoPaSdFgHjK',
+            'test_publishableKey' => 'pk_test_MnBvCxZaQwErTyUiOpAsDf',
         ], $overrides));
     }
 
@@ -82,22 +84,25 @@ class TapConnectValidationTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_live_mode_requires_live_credentials(): void
+    /** GHL refuses a connect that only carries one mode, so both pairs are required. */
+    public function test_both_modes_are_required(): void
     {
         Http::fake();
 
         $this->connect(['live_secretKey' => null, 'live_publishableKey' => null])
             ->assertSessionHasErrors(['live_secretKey', 'live_publishableKey']);
 
+        $this->connect(['test_secretKey' => null, 'test_publishableKey' => null])
+            ->assertSessionHasErrors(['test_secretKey', 'test_publishableKey']);
+
         Http::assertNothingSent();
     }
 
-    public function test_test_mode_rejects_live_keys(): void
+    public function test_live_keys_in_the_test_fields_are_rejected(): void
     {
         Http::fake();
 
         $this->connect([
-            'tap_mode' => 'test',
             'test_secretKey' => 'sk_live_EOjv14yCinN9IGzSlVmx6s3a',
             'test_publishableKey' => 'pk_live_HyYVabcdefghijklmnopqrst',
         ])->assertSessionHasErrors(['test_secretKey', 'test_publishableKey']);

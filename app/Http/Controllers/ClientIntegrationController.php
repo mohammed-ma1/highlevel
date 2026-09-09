@@ -1937,20 +1937,22 @@ class ClientIntegrationController extends Controller
                     'merchant_id'          => ['required', 'string', 'regex:/^\d+$/'],
                     'apiKey'               => ['required', 'string'],
                     'tap_mode'             => ['required', 'in:test,live'],
-                    'live_publishableKey'  => ['nullable', 'required_if:tap_mode,live', 'string', 'starts_with:pk_live_'],
-                    'live_secretKey'       => ['nullable', 'required_if:tap_mode,live', 'string', 'starts_with:sk_live_'],
-                    'test_publishableKey'  => ['nullable', 'required_if:tap_mode,test', 'string', 'starts_with:pk_test_'],
-                    'test_secretKey'       => ['nullable', 'required_if:tap_mode,test', 'string', 'starts_with:sk_test_'],
+                    // GoHighLevel rejects a connect that is missing either mode, and it
+                    // switches between them per payment link, so both pairs are required.
+                    'live_publishableKey'  => ['required', 'string', 'starts_with:pk_live_'],
+                    'live_secretKey'       => ['required', 'string', 'starts_with:sk_live_'],
+                    'test_publishableKey'  => ['required', 'string', 'starts_with:pk_test_'],
+                    'test_secretKey'       => ['required', 'string', 'starts_with:sk_test_'],
                 ], [
                     'merchant_id.regex' => 'Merchant ID must be the numeric ID from your Tap dashboard (for example 68069980), not your business name.',
                     'live_secretKey.starts_with' => 'The live secret key must start with sk_live_. A publishable key (pk_) will not work here.',
                     'test_secretKey.starts_with' => 'The test secret key must start with sk_test_. A publishable key (pk_) will not work here.',
                     'live_publishableKey.starts_with' => 'The live publishable key must start with pk_live_.',
                     'test_publishableKey.starts_with' => 'The test publishable key must start with pk_test_.',
-                    'live_secretKey.required_if' => 'Live mode requires the live secret key (sk_live_...).',
-                    'live_publishableKey.required_if' => 'Live mode requires the live publishable key (pk_live_...).',
-                    'test_secretKey.required_if' => 'Test mode requires the test secret key (sk_test_...).',
-                    'test_publishableKey.required_if' => 'Test mode requires the test publishable key (pk_test_...).',
+                    'live_secretKey.required' => 'The live secret key (sk_live_...) is required. GoHighLevel needs both modes configured.',
+                    'live_publishableKey.required' => 'The live publishable key (pk_live_...) is required. GoHighLevel needs both modes configured.',
+                    'test_secretKey.required' => 'The test secret key (sk_test_...) is required. GoHighLevel needs both modes configured.',
+                    'test_publishableKey.required' => 'The test publishable key (pk_test_...) is required. GoHighLevel needs both modes configured.',
                 ]);
                 Log::info('✅ [CONNECT-DISCONNECT] Validation passed');
             } catch (\Illuminate\Validation\ValidationException $e) {
@@ -3260,8 +3262,10 @@ class ClientIntegrationController extends Controller
                 $locationId = $user->lead_location_id;
             }
             
-            // Check tap_mode - merchant.id is only required for live mode
-            $tapMode = $user->tap_mode ?? 'test';
+            // GoHighLevel decides live vs test per payment link and tells us by
+            // sending that mode's publishable key. The mode picked at setup time is
+            // only a fallback - trusting it sent live payment links to Tap's sandbox.
+            $tapMode = $this->resolveChargeMode($user, $data['publishableKey'] ?? null);
             
             // For live mode: require merchant.id (from request or database)
             if ($tapMode === 'live') {
@@ -3287,23 +3291,23 @@ class ClientIntegrationController extends Controller
                 // If still not available, we'll proceed without it (Tap API may handle it)
             }
 
-            // Use the secret key based on the user's stored tap_mode
-            $secretKey = $user->tap_mode === 'live' ? $user->lead_live_secret_key : $user->lead_test_secret_key;
-            $isLive = $user->tap_mode === 'live';
+            $isLive = $tapMode === 'live';
+            $secretKey = $isLive ? $user->lead_live_secret_key : $user->lead_test_secret_key;
 
             Log::info('Using secret key for createTapCharge', [
                 'merchantId' => $merchantId,
                 'locationId' => $locationId,
-                'tap_mode' => $user->tap_mode,
+                'charge_mode' => $tapMode,
+                'stored_tap_mode' => $user->tap_mode,
                 'is_live' => $isLive,
-                'secret_key_prefix' => substr($secretKey, 0, 15) . '...',
-                'secret_key_length' => strlen($secretKey)
+                'secret_key_prefix' => substr((string) $secretKey, 0, 15) . '...',
+                'secret_key_length' => strlen((string) $secretKey)
             ]);
 
             if (!$secretKey) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Secret key not configured for ' . $user->tap_mode . ' mode'
+                    'message' => 'Secret key not configured for ' . $tapMode . ' mode'
                 ], 500)->header('Access-Control-Allow-Origin', '*')
                   ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
@@ -4241,6 +4245,48 @@ class ClientIntegrationController extends Controller
         Log::warning('❌ [ADOPT] No company could mint a location token', ['locationId' => $locationId]);
 
         return null;
+    }
+
+    /**
+     * Decide whether a charge belongs in Tap's live or test environment.
+     *
+     * GoHighLevel sends the publishable key of whichever mode the payment link is
+     * set to, so that key - not the mode chosen once at setup - is what a single
+     * transaction should follow.
+     */
+    private function resolveChargeMode(User $user, ?string $publishableKey): string
+    {
+        $fallback = $user->tap_mode ?? 'live';
+
+        if (!$publishableKey) {
+            return $fallback;
+        }
+
+        if ($user->lead_live_publishable_key && hash_equals($user->lead_live_publishable_key, $publishableKey)) {
+            return 'live';
+        }
+
+        if ($user->lead_test_publishable_key && hash_equals($user->lead_test_publishable_key, $publishableKey)) {
+            return 'test';
+        }
+
+        // The stored keys can drift if the merchant rotated them in Tap without
+        // reconnecting, so fall back to what the key itself says it is.
+        if (str_starts_with($publishableKey, 'pk_live_')) {
+            return 'live';
+        }
+
+        if (str_starts_with($publishableKey, 'pk_test_')) {
+            return 'test';
+        }
+
+        Log::warning('⚠️ [CHARGE MODE] Unrecognised publishable key, falling back to stored mode', [
+            'locationId' => $user->lead_location_id,
+            'publishable_key_prefix' => substr($publishableKey, 0, 12) . '...',
+            'fallback_mode' => $fallback,
+        ]);
+
+        return $fallback;
     }
 
     /**

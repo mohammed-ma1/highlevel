@@ -121,6 +121,8 @@ class TapInstallRecoveryTest extends TestCase
             'apiKey' => 'XXtapXX',
             'live_secretKey' => 'sk_live_EOjv14yCinN9IGzSlVmx6s3a',
             'live_publishableKey' => 'pk_live_HyYVabcdefghijklmnopqrst',
+            'test_secretKey' => 'sk_test_kiaxQ4Rt7YuIoPaSdFgHjK',
+            'test_publishableKey' => 'pk_test_MnBvCxZaQwErTyUiOpAsDf',
         ])->assertSessionHasNoErrors();
 
         $user = User::where('lead_location_id', self::LOCATION_ID)->first();
