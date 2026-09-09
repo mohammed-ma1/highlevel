@@ -85,7 +85,12 @@ class MarketplaceWebhookController extends Controller
         $tokenContext = $this->resolveCompanyToken($locationId, $companyId);
 
         if (!$tokenContext) {
-            Log::info('🔵 [TAP WEBHOOK] No usable access token yet for company/location - deferring to OAuth flow', [
+            // Record which company owns this location even without a token, so the
+            // setup page can borrow the company's token later instead of telling the
+            // merchant the sub-account does not exist.
+            $this->upsertLocationUser($locationId, $companyId, null);
+
+            Log::info('🔵 [TAP WEBHOOK] No usable access token yet - recorded location/company mapping and deferring to OAuth flow', [
                 'locationId' => $locationId,
                 'companyId' => $companyId,
             ]);
@@ -288,7 +293,7 @@ class MarketplaceWebhookController extends Controller
         }
     }
 
-    private function upsertLocationUser(string $locationId, ?string $companyId, string $accessToken): void
+    private function upsertLocationUser(string $locationId, ?string $companyId, ?string $accessToken): void
     {
         try {
             $user = User::where('lead_location_id', $locationId)->first();
@@ -306,15 +311,27 @@ class MarketplaceWebhookController extends Controller
                 $user->name = "Location {$locationId}";
                 $user->email = $placeholderEmail;
                 $user->password = Hash::make(Str::random(40));
-                $user->lead_access_token = $accessToken;
                 $user->lead_user_type = 'Location';
-                $user->lead_company_id = $companyId;
                 $user->lead_location_id = $locationId;
+            }
+
+            // Never overwrite a good token with nothing, and never downgrade a
+            // known company id.
+            if ($accessToken) {
+                $user->lead_access_token = $accessToken;
+            }
+            if ($companyId) {
+                $user->lead_company_id = $companyId;
+            }
+
+            if ($user->isDirty() || !$user->exists) {
                 $user->save();
 
-                Log::info('🔵 [TAP WEBHOOK] Created user row for location', [
+                Log::info('🔵 [TAP WEBHOOK] Stored user row for location', [
                     'locationId' => $locationId,
+                    'companyId' => $user->lead_company_id,
                     'user_id' => $user->id,
+                    'has_token' => !empty($user->lead_access_token),
                 ]);
             }
         } catch (\Exception $e) {

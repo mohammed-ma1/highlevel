@@ -11,6 +11,9 @@ use App\Models\User;
 use App\Services\CustomProviderService;
 class ClientIntegrationController extends Controller
 {
+    /** How many companies to probe when recovering a location with no stored row. */
+    private const ADOPTION_COMPANY_LIMIT = 25;
+
     public function connect(Request $request)
     {
         // Log all requests to this endpoint for debugging
@@ -1045,6 +1048,31 @@ class ClientIntegrationController extends Controller
                             }
                         }
                         
+                        // GHL reports a just-installed sub-account as isInstalled:false for a
+                        // few seconds after the OAuth redirect (the confirming INSTALL webhook
+                        // arrives afterwards). installedLocations is already scoped to this
+                        // app, so treat everything it returned as ours rather than dropping
+                        // the install and leaving the sub-account with no record at all.
+                        if (empty($locationsToRegister) && !empty($locations)) {
+                            foreach ($locations as $location) {
+                                $locId = $location['_id'] ?? $location['id'] ?? $location['locationId'] ?? null;
+                                if (!$locId) {
+                                    continue;
+                                }
+
+                                $locationsToRegister[] = $location;
+                                if ($firstInstalledLocationId === null) {
+                                    $firstInstalledLocationId = $locId;
+                                }
+                            }
+
+                            Log::info('🕒 [BULK] No location reported isInstalled:true yet - falling back to every location returned for this app', [
+                                'companyId' => $companyId,
+                                'count' => count($locationsToRegister),
+                                'note' => 'GHL flips isInstalled a moment after the OAuth redirect',
+                            ]);
+                        }
+
                         Log::info('📝 Installed locations to register provider for (isInstalled: true only)', [
                             'count' => count($locationsToRegister),
                             'firstInstalledLocationId' => $firstInstalledLocationId,
@@ -1402,8 +1430,15 @@ class ClientIntegrationController extends Controller
                                 ], 500);
                             }
                         } else {
-                            Log::warning('⚠️ [BULK] No installed locations found - cannot create user', [
-                                'note' => 'No locations with isInstalled: true found'
+                            // Keep the company token even though we cannot pin it to a
+                            // location yet. The INSTALL webhook arrives seconds later with
+                            // the exact locationId and needs a token to act on it; without
+                            // this the whole install is lost.
+                            $this->storeCompanyToken($companyId, $oauthData);
+
+                            Log::warning('⚠️ [BULK] No installed locations found - stored company token for the pending INSTALL webhook', [
+                                'companyId' => $companyId,
+                                'note' => 'No locations returned by installedLocations'
                             ]);
                         }
                     } else {
@@ -1870,32 +1905,25 @@ class ClientIntegrationController extends Controller
             'has_refresh_token' => !empty($user->lead_refresh_token)
         ]);
 
-        $accessToken = $user->lead_access_token;
-        $refreshToken = $user->lead_refresh_token;
-        $expiresAt = $user->lead_token_expires_at;
+        $accessToken = $this->freshAccessTokenFor($user);
 
-        if (!$accessToken || ($expiresAt && now()->gte($expiresAt))) {
-            if (!$refreshToken) {
-                return response()->json([
-                    'message' => 'Stored token expired and no refresh_token available. Re-connect required.',
-                ], 401);
-            }
+        if (!$accessToken) {
+            // The row may only be the location -> company mapping recorded by the
+            // INSTALL webhook, so fall back to the company's own token.
+            $accessToken = $this->borrowCompanyAccessToken($user);
+        }
 
-            $new = $this->refreshLeadConnectorToken($refreshToken);
-            if (!($new['access_token'] ?? null)) {
-                return response()->json([
-                    'message' => 'Token refresh failed',
-                ], 502);
-            }
+        if (!$accessToken) {
+            Log::warning('❌ [CONNECT-DISCONNECT] No usable access token for location', [
+                'locationId' => $locationId,
+                'companyId' => $user->lead_company_id,
+            ]);
 
-            // Persist refreshed tokens
-            $user->lead_access_token     = $new['access_token'];
-            $user->lead_refresh_token    = $new['refresh_token'] ?? $refreshToken;
-            $user->lead_expires_in       = $new['expires_in'] ?? null;
-            $user->lead_token_expires_at = isset($new['expires_in']) ? now()->addSeconds((int)$new['expires_in']) : null;
-            $user->save();
-
-            $accessToken = $user->lead_access_token;
+            return response()->json([
+                'message' => 'This sub-account is not authorized yet. Please reinstall the Tap Payments app on this sub-account from the GoHighLevel marketplace, then open this page again.',
+                'error' => 'No usable access token for this location',
+                'locationId' => $locationId,
+            ], 401);
         }
 
         // 4) Validate inputs if action=connect
@@ -4149,11 +4177,14 @@ class ClientIntegrationController extends Controller
      */
     private function adoptLocationFromCompany(string $locationId): ?User
     {
+        // Each candidate costs one GHL call, so only the most recently active
+        // companies are probed; anything older is recovered by reinstalling.
         $candidates = User::whereNotNull('lead_company_id')
             ->whereNotNull('lead_access_token')
             ->orderByDesc('updated_at')
             ->get()
             ->unique('lead_company_id')
+            ->take(self::ADOPTION_COMPANY_LIMIT)
             ->values();
 
         Log::info('🛟 [ADOPT] No user row for location - trying sibling company installs', [
@@ -4210,6 +4241,109 @@ class ClientIntegrationController extends Controller
         Log::warning('❌ [ADOPT] No company could mint a location token', ['locationId' => $locationId]);
 
         return null;
+    }
+
+    /**
+     * Reuse the company's token for a location row that has none of its own.
+     */
+    private function borrowCompanyAccessToken(User $user): ?string
+    {
+        if (!$user->lead_company_id) {
+            return null;
+        }
+
+        $sibling = User::where('lead_company_id', $user->lead_company_id)
+            ->whereKeyNot($user->getKey())
+            ->whereNotNull('lead_access_token')
+            ->orderByDesc('updated_at')
+            ->first();
+
+        if (!$sibling) {
+            return null;
+        }
+
+        $token = $this->freshAccessTokenFor($sibling);
+        if (!$token) {
+            return null;
+        }
+
+        $user->lead_access_token = $token;
+        $user->lead_refresh_token = $sibling->lead_refresh_token;
+        $user->lead_token_type = $sibling->lead_token_type;
+        $user->lead_expires_in = $sibling->lead_expires_in;
+        $user->lead_token_expires_at = $sibling->lead_token_expires_at;
+        $user->lead_scope = $sibling->lead_scope;
+        $user->lead_refresh_token_id = $sibling->lead_refresh_token_id;
+        $user->save();
+
+        Log::info('🤝 [TOKEN] Borrowed company token for location', [
+            'locationId' => $user->lead_location_id,
+            'companyId' => $user->lead_company_id,
+            'from_user_id' => $sibling->id,
+        ]);
+
+        return $token;
+    }
+
+    /**
+     * Persist a company-scoped token that cannot be tied to a location yet.
+     *
+     * The INSTALL webhook arrives seconds after the OAuth redirect carrying the
+     * exact locationId, but it can only act if some token for the company exists.
+     */
+    private function storeCompanyToken(?string $companyId, array $oauth): ?User
+    {
+        if (!$companyId || empty($oauth['access_token'])) {
+            return null;
+        }
+
+        try {
+            $user = User::where('lead_company_id', $companyId)
+                ->whereNull('lead_location_id')
+                ->first();
+
+            if (!$user) {
+                $email = "company_{$companyId}@leadconnector.local";
+                $counter = 1;
+                while (User::where('email', $email)->exists()) {
+                    $email = "company_{$companyId}_{$counter}@leadconnector.local";
+                    $counter++;
+                }
+
+                $user = new User();
+                $user->name = "Company {$companyId}";
+                $user->email = $email;
+                $user->password = Hash::make(Str::random(40));
+            }
+
+            $expiresIn = (int) ($oauth['expires_in'] ?? 0);
+
+            $user->lead_access_token = $oauth['access_token'];
+            $user->lead_refresh_token = $oauth['refresh_token'] ?? null;
+            $user->lead_token_type = $oauth['token_type'] ?? null;
+            $user->lead_expires_in = $expiresIn ?: null;
+            $user->lead_token_expires_at = $expiresIn ? now()->addSeconds($expiresIn) : null;
+            $user->lead_scope = $oauth['scope'] ?? null;
+            $user->lead_refresh_token_id = $oauth['refresh_token_id'] ?? null;
+            $user->lead_user_type = 'Company';
+            $user->lead_company_id = $companyId;
+            $user->lead_user_id = $oauth['user_id'] ?? null;
+            $user->save();
+
+            Log::info('🏢 [COMPANY TOKEN] Stored company-level token', [
+                'companyId' => $companyId,
+                'user_id' => $user->id,
+            ]);
+
+            return $user;
+        } catch (\Exception $e) {
+            Log::error('❌ [COMPANY TOKEN] Failed to store company token', [
+                'companyId' => $companyId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
     }
 
     /**
