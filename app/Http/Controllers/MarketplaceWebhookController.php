@@ -127,12 +127,12 @@ class MarketplaceWebhookController extends Controller
 
         $registered = $this->registerProviderForLocation($tokenToUse, $locationId);
 
-        if ($registered) {
-            $this->upsertLocationUser($locationId, $resolvedCompanyId, $companyAccessToken);
+        // Record the location even when registration fails, otherwise the setup
+        // page has no row to work with and rejects the merchant outright.
+        $this->upsertLocationUser($locationId, $resolvedCompanyId, $companyAccessToken);
 
-            if ($providerState !== CustomProviderService::STATE_MISSING) {
-                $providerService->restoreStoredConnection($tokenToUse, $locationId);
-            }
+        if ($registered && $providerState !== CustomProviderService::STATE_MISSING) {
+            $providerService->restoreStoredConnection($tokenToUse, $locationId);
         }
 
         Log::info('🔵 [TAP WEBHOOK] INSTALL provider registration result', [

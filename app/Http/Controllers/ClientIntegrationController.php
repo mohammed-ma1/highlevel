@@ -1835,7 +1835,15 @@ class ClientIntegrationController extends Controller
         // 2) Find the user who previously connected this location
         Log::info('🔍 [CONNECT-DISCONNECT] Looking for user with locationId', ['locationId' => $locationId]);
         $user = User::where('lead_location_id', $locationId)->first();
-        
+
+        if (!$user) {
+            // A sub-account can have the app installed without this app ever having
+            // recorded it: agency-level installs only store the first location GHL
+            // reports as installed, and the INSTALL webhook gives up when no token
+            // exists yet. Adopt the location from a sibling install before failing.
+            $user = $this->adoptLocationFromCompany($locationId);
+        }
+
         if (!$user) {
             // Also check all users in database for debugging
             $allUsers = User::whereNotNull('lead_location_id')->get(['id', 'lead_location_id', 'email']);
@@ -1847,8 +1855,9 @@ class ClientIntegrationController extends Controller
             ]);
             
             return response()->json([
-                'message' => 'No user found for this location. Please complete the OAuth integration first by visiting /connect with proper authorization code.',
+                'message' => 'This sub-account is not connected to the app yet. Please reinstall the Tap Payments app on this sub-account from the GoHighLevel marketplace, then open this page again.',
                 'error' => 'User not found - OAuth integration required',
+                'locationId' => $locationId,
                 'solution' => 'Complete OAuth flow first via /connect endpoint'
             ], 404);
         }
@@ -4127,6 +4136,143 @@ class ClientIntegrationController extends Controller
                 'success' => false,
                 'message' => 'Internal server error'
             ], 500);
+        }
+    }
+
+    /**
+     * Recover a location that has the app installed but no user row of its own.
+     *
+     * A location token can only be minted for a location the app is installed on,
+     * so a successful mint both identifies the owning company and proves the
+     * install. The new row reuses that company's OAuth tokens, which is how every
+     * other location in an agency install is stored anyway.
+     */
+    private function adoptLocationFromCompany(string $locationId): ?User
+    {
+        $candidates = User::whereNotNull('lead_company_id')
+            ->whereNotNull('lead_access_token')
+            ->orderByDesc('updated_at')
+            ->get()
+            ->unique('lead_company_id')
+            ->values();
+
+        Log::info('🛟 [ADOPT] No user row for location - trying sibling company installs', [
+            'locationId' => $locationId,
+            'candidate_companies' => $candidates->pluck('lead_company_id')->all(),
+        ]);
+
+        foreach ($candidates as $candidate) {
+            $accessToken = $this->freshAccessTokenFor($candidate);
+            if (!$accessToken) {
+                continue;
+            }
+
+            $locationToken = $this->getLocationAccessToken($accessToken, $candidate->lead_company_id, $locationId);
+            if (!$locationToken) {
+                continue;
+            }
+
+            $user = $this->syncLocationUser($locationId, [
+                'access_token' => $accessToken,
+                'refresh_token' => $candidate->lead_refresh_token,
+                'token_type' => $candidate->lead_token_type,
+                'expires_in' => $candidate->lead_expires_in,
+                'scope' => $candidate->lead_scope,
+                'refresh_token_id' => $candidate->lead_refresh_token_id,
+                'company_id' => $candidate->lead_company_id,
+                'user_id' => $candidate->lead_user_id,
+            ]);
+
+            if (!$user) {
+                continue;
+            }
+
+            if ($candidate->lead_token_expires_at) {
+                $user->lead_token_expires_at = $candidate->lead_token_expires_at;
+                $user->save();
+            }
+
+            Log::info('✅ [ADOPT] Location adopted from sibling company install', [
+                'locationId' => $locationId,
+                'companyId' => $candidate->lead_company_id,
+                'user_id' => $user->id,
+            ]);
+
+            // The setup page cannot connect credentials until the base provider exists.
+            $providerService = new CustomProviderService();
+            if ($providerService->state($locationToken, $locationId) === CustomProviderService::STATE_MISSING) {
+                $this->registerProviderForLocation($locationToken, $locationId);
+            }
+
+            return $user;
+        }
+
+        Log::warning('❌ [ADOPT] No company could mint a location token', ['locationId' => $locationId]);
+
+        return null;
+    }
+
+    /**
+     * Return a usable access token for a user, refreshing it in place if expired.
+     */
+    private function freshAccessTokenFor(User $user): ?string
+    {
+        $expiresAt = $user->lead_token_expires_at;
+
+        if ($user->lead_access_token && !($expiresAt && now()->gte($expiresAt))) {
+            return $user->lead_access_token;
+        }
+
+        if (!$user->lead_refresh_token) {
+            return null;
+        }
+
+        $new = $this->refreshLeadConnectorToken($user->lead_refresh_token);
+        if (!($new['access_token'] ?? null)) {
+            return null;
+        }
+
+        $user->lead_access_token = $new['access_token'];
+        $user->lead_refresh_token = $new['refresh_token'] ?? $user->lead_refresh_token;
+        $user->lead_expires_in = $new['expires_in'] ?? null;
+        $user->lead_token_expires_at = isset($new['expires_in'])
+            ? now()->addSeconds((int) $new['expires_in'])
+            : null;
+        $user->save();
+
+        return $user->lead_access_token;
+    }
+
+    /**
+     * Create the base custom provider config for a location.
+     */
+    private function registerProviderForLocation(string $accessToken, string $locationId): bool
+    {
+        try {
+            $resp = Http::timeout(30)
+                ->acceptJson()
+                ->withoutRedirecting()
+                ->withToken($accessToken)
+                ->withHeaders(['Version' => '2021-07-28'])
+                ->post(
+                    'https://services.leadconnectorhq.com/payments/custom-provider/provider?locationId=' . urlencode($locationId),
+                    (new CustomProviderService())->providerPayload()
+                );
+
+            Log::info('📤 [ADOPT] Registered base provider for adopted location', [
+                'locationId' => $locationId,
+                'status' => $resp->status(),
+                'successful' => $resp->successful(),
+            ]);
+
+            return $resp->successful();
+        } catch (\Exception $e) {
+            Log::error('❌ [ADOPT] Provider registration failed for adopted location', [
+                'locationId' => $locationId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
         }
     }
 
