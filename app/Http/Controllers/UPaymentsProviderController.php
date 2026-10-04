@@ -103,17 +103,21 @@ class UPaymentsProviderController extends Controller
                 $request->validate([
                     'upayments_mode' => ['required', 'in:test,live'],
                     'upayments_test_token' => ['nullable', 'string'],
+                    'upayments_test_api_secret' => ['nullable', 'string'],
                     // Legacy field name kept for backward compatibility (treated as live API key).
                     'upayments_live_token' => ['nullable', 'string'],
                     'upayments_live_merchant_id' => ['nullable', 'string'],
                     'upayments_live_api_key' => ['nullable', 'string'],
+                    'upayments_live_api_secret' => ['nullable', 'string'],
                 ]);
 
                 $mode = $request->input('upayments_mode', 'test');
                 $testToken = trim((string)$request->input('upayments_test_token', ''));
+                $testApiSecret = trim((string)$request->input('upayments_test_api_secret', ''));
                 $legacyLiveToken = trim((string)$request->input('upayments_live_token', ''));
                 $liveMerchantId = trim((string)$request->input('upayments_live_merchant_id', ''));
                 $liveApiKey = trim((string)$request->input('upayments_live_api_key', ''));
+                $liveApiSecret = trim((string)$request->input('upayments_live_api_secret', ''));
 
                 if ($liveApiKey === '' && $legacyLiveToken !== '') {
                     $liveApiKey = $legacyLiveToken;
@@ -122,6 +126,11 @@ class UPaymentsProviderController extends Controller
                 if ($mode === 'test' && $testToken === '') {
                     return redirect()->back()->with([
                         'api_error' => 'Please provide UPayments Test Token.',
+                    ])->withInput($request->only('information'));
+                }
+                if ($mode === 'test' && $testApiSecret === '' && empty($user->upayments_test_api_secret)) {
+                    return redirect()->back()->with([
+                        'api_error' => 'Please provide the UPayments Test API Secret from Merchant API Details. It is required for HMAC.',
                     ])->withInput($request->only('information'));
                 }
                 if ($mode === 'live' && $liveMerchantId === '') {
@@ -134,10 +143,18 @@ class UPaymentsProviderController extends Controller
                         'api_error' => 'Please provide UPayments Live API Key.',
                     ])->withInput($request->only('information'));
                 }
+                if ($mode === 'live' && $liveApiSecret === '' && empty($user->upayments_live_api_secret)) {
+                    return redirect()->back()->with([
+                        'api_error' => 'Please provide the UPayments Live API Secret from Merchant API Details. It is required for HMAC.',
+                    ])->withInput($request->only('information'));
+                }
 
                 $user->upayments_mode = $mode;
                 if ($testToken !== '') {
                     $user->upayments_test_token = $testToken;
+                }
+                if ($testApiSecret !== '') {
+                    $user->upayments_test_api_secret = $testApiSecret;
                 }
                 if ($liveMerchantId !== '') {
                     $user->upayments_live_merchant_id = $liveMerchantId;
@@ -146,6 +163,9 @@ class UPaymentsProviderController extends Controller
                     // Store in new field and legacy field so older lookups keep working.
                     $user->upayments_live_api_key = $liveApiKey;
                     $user->upayments_live_token = $liveApiKey;
+                }
+                if ($liveApiSecret !== '') {
+                    $user->upayments_live_api_secret = $liveApiSecret;
                 }
                 $user->save();
 

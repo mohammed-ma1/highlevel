@@ -46,6 +46,8 @@ Route::get('/Ulanding', function (Request $request) {
         'test_token' => null,
         'live_merchant_id' => null,
         'live_api_key' => null,
+        'has_test_api_secret' => false,
+        'has_live_api_secret' => false,
         'mode' => null,
     ];
 
@@ -70,6 +72,8 @@ Route::get('/Ulanding', function (Request $request) {
                 $masked['test_token'] = $mask($user->upayments_test_token);
                 $masked['live_merchant_id'] = $mask($user->upayments_live_merchant_id);
                 $masked['live_api_key'] = $mask($user->upayments_live_api_key);
+                $masked['has_test_api_secret'] = !empty($user->upayments_test_api_secret);
+                $masked['has_live_api_secret'] = !empty($user->upayments_live_api_secret);
                 $masked['mode'] = $user->upayments_mode;
             }
         }

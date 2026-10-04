@@ -59,9 +59,11 @@ This will add the following fields to the users table:
 
 And for UPayments:
 - `upayments_mode` - `test|live`
-- `upayments_test_token` - UPayments sandbox token (e.g. `jtest123`)
+- `upayments_test_token` - UPayments sandbox API key (Bearer token)
+- `upayments_test_api_secret` - UPayments sandbox API Secret used to sign HMAC requests
 - `upayments_live_merchant_id` - UPayments production Merchant ID
 - `upayments_live_api_key` - UPayments production API Key (Bearer Token)
+- `upayments_live_api_secret` - UPayments production API Secret used to sign HMAC requests
 - `upayments_live_token` - (legacy) UPayments production token field (still supported; treated as API Key)
 
 ### 2. GoHighLevel Marketplace App Configuration
@@ -108,7 +110,7 @@ Select the appropriate types:
 
 1. Create/install the **UPayments** marketplace app (separate OAuth client) and complete OAuth via `GET /uconnect`
 2. Open the setup UI at `GET /Ulanding` from the GHL integration flow
-3. Enter the UPayments **Test Token** (Sandbox) and/or **Live Merchant ID + API Key** (Production), select the mode, and click **Connect Provider**
+3. Enter the UPayments **Test API Key + API Secret** (Sandbox) and/or **Live Merchant ID + API Key + API Secret** (Production), select the mode, and click **Connect Provider**. The API Secret is in Merchant API Details and is required to sign requests. After 31 December 2026, UPayments rejects unsigned API calls.
 
 Production endpoints:
 - Production API base URL: `https://apiv2api.upayments.com/api/v1/`
@@ -117,6 +119,7 @@ Production endpoints:
 UPayments API reference:
 - Create charge: [UPayments “Make charge”](https://developers.upayments.com/reference/addcharge)
 - Get status: [UPayments “Get Payment Status”](https://developers.upayments.com/reference/checkpaymentstatus)
+- HMAC: [UPayments “HMAC Authentication”](https://developers.upayments.com/reference/hmac-authentication)
 
 ## Payment Flow
 

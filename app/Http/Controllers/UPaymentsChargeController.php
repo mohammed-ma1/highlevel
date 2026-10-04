@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\UPaymentsClient;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -70,12 +70,10 @@ class UPaymentsChargeController extends Controller
                 ], 400);
             }
 
-            $baseUrl = $mode === 'live'
-                ? config('services.upayments.live_base_url', 'https://apiv2api.upayments.com/api/v1/')
-                : config('services.upayments.test_base_url', 'https://sandboxapi.upayments.com/api/v1/');
-
-            $baseUrl = rtrim($baseUrl, '/') . '/';
-            $endpoint = $baseUrl . 'charge';
+            $client = new UPaymentsClient();
+            $credentials = $client->credentials($user, $mode);
+            $apiSecret = $credentials['secret'];
+            $endpoint = $client->baseUrl($mode) . 'charge';
 
             $contact = $request->input('contact') ?: $request->input('customer');
             $customerUniqueId = (string) data_get($contact, 'id', '');
@@ -155,13 +153,11 @@ class UPaymentsChargeController extends Controller
                 'orderId' => $finalOrderId,
                 'transactionId' => $finalTransactionId,
                 'has_live_merchant_id' => !empty($user->upayments_live_merchant_id),
+                'hmac' => $apiSecret !== null,
                 'token_prefix' => substr((string)$token, 0, 8) . '...',
             ]);
 
-            $resp = Http::timeout(30)
-                ->acceptJson()
-                ->withToken($token)
-                ->post($endpoint, $payload);
+            $resp = $client->request('POST', $mode, $token, $apiSecret, 'charge', $payload, 30);
 
             if ($resp->failed()) {
                 Log::error('🟣 [UPAYMENTS] Charge API failed', [
@@ -366,17 +362,20 @@ class UPaymentsChargeController extends Controller
                     continue;
                 }
 
-                $baseUrl = $candidateMode === 'live'
-                    ? config('services.upayments.live_base_url', 'https://apiv2api.upayments.com/api/v1/')
-                    : config('services.upayments.test_base_url', 'https://sandboxapi.upayments.com/api/v1/');
-                $baseUrl = rtrim($baseUrl, '/') . '/';
-                $statusEndpoint = $baseUrl . 'get-payment-status/' . urlencode($trackId);
+                $client = new UPaymentsClient();
+                $candidateCredentials = $client->credentials($candidate, $candidateMode);
+                $statusPath = 'get-payment-status/' . rawurlencode($trackId);
 
                 try {
-                    $resp = Http::timeout(10)
-                        ->acceptJson()
-                        ->withToken($candidateToken)
-                        ->get($statusEndpoint);
+                    $resp = $client->request(
+                        'GET',
+                        $candidateMode,
+                        $candidateToken,
+                        $candidateCredentials['secret'],
+                        $statusPath,
+                        null,
+                        10
+                    );
 
                     if ($resp->successful()) {
                         $user = $candidate;

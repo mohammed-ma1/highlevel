@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\UPaymentsClient;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class UPaymentsStatusController extends Controller
@@ -34,15 +34,17 @@ class UPaymentsStatusController extends Controller
             $mode = $request->has('liveMode')
                 ? ($request->boolean('liveMode') ? 'live' : 'test')
                 : ($user->upayments_mode ?: 'test');
-            $token = $mode === 'live'
-                ? ($user->upayments_live_api_key ?? $user->upayments_live_token ?? null)
-                : ($user->upayments_test_token ?? null);
+            $client = new UPaymentsClient();
+            $credentials = $client->credentials($user, $mode);
+            $token = $credentials['token'];
+            $apiSecret = $credentials['secret'];
 
             // If mode token is missing, try the other one as fallback.
             if (empty($token)) {
-                $token = $mode === 'live'
-                    ? ($user->upayments_test_token ?? null)
-                    : ($user->upayments_live_api_key ?? $user->upayments_live_token ?? null);
+                $fallbackMode = $mode === 'live' ? 'test' : 'live';
+                $fallback = $client->credentials($user, $fallbackMode);
+                $token = $fallback['token'];
+                $apiSecret = $fallback['secret'];
             }
 
             if (empty($token)) {
@@ -52,25 +54,18 @@ class UPaymentsStatusController extends Controller
                 ], 400);
             }
 
-            $baseUrl = $mode === 'live'
-                ? config('services.upayments.live_base_url', 'https://apiv2api.upayments.com/api/v1/')
-                : config('services.upayments.test_base_url', 'https://sandboxapi.upayments.com/api/v1/');
-            $baseUrl = rtrim($baseUrl, '/') . '/';
-
-            $endpoint = $baseUrl . 'get-payment-status/' . urlencode($trackId);
+            $statusPath = 'get-payment-status/' . rawurlencode($trackId);
 
             Log::info('🟣 [UPAYMENTS] Fetching payment status', [
                 'mode' => $mode,
-                'endpoint' => $endpoint,
+                'endpoint' => $client->baseUrl($mode) . $statusPath,
                 'locationId' => $locationId,
                 'trackId' => $trackId,
+                'hmac' => $apiSecret !== null,
                 'token_prefix' => substr((string)$token, 0, 8) . '...',
             ]);
 
-            $resp = Http::timeout(20)
-                ->acceptJson()
-                ->withToken($token)
-                ->get($endpoint);
+            $resp = $client->request('GET', $mode, $token, $apiSecret, $statusPath, null, 20);
 
             if ($resp->failed()) {
                 return response()->json([

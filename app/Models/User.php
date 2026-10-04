@@ -29,6 +29,8 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'upayments_test_api_secret',
+        'upayments_live_api_secret',
     ];
 
     /**

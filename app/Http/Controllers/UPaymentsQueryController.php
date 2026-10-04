@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\UPaymentsClient;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class UPaymentsQueryController extends Controller
@@ -103,24 +103,17 @@ class UPaymentsQueryController extends Controller
             return response()->json(['failed' => true], 200);
         }
 
-        $token = $mode === 'live'
-            ? ($user->upayments_live_api_key ?? $user->upayments_live_token ?? null)
-            : ($user->upayments_test_token ?? null);
+        $client = new UPaymentsClient();
+        $credentials = $client->credentials($user, $mode);
+        $token = $credentials['token'];
         if (empty($token)) {
             return response()->json(['failed' => true], 200);
         }
 
-        $baseUrl = $mode === 'live'
-            ? config('services.upayments.live_base_url', 'https://apiv2api.upayments.com/api/v1/')
-            : config('services.upayments.test_base_url', 'https://sandboxapi.upayments.com/api/v1/');
-        $baseUrl = rtrim($baseUrl, '/') . '/';
-        $endpoint = $baseUrl . 'get-payment-status/' . urlencode($trackId);
+        $statusPath = 'get-payment-status/' . rawurlencode($trackId);
 
         try {
-            $resp = Http::timeout(20)
-                ->acceptJson()
-                ->withToken($token)
-                ->get($endpoint);
+            $resp = $client->request('GET', $mode, $token, $credentials['secret'], $statusPath, null, 20);
 
             if ($resp->failed()) {
                 Log::warning('🟣 [UPAYMENTS] Verify: status API failed', [

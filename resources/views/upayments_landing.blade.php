@@ -195,7 +195,8 @@
                                     <div style="margin-top: 0.35rem;">
                                         Once your test transactions are well tested and your application is ready to start collecting payments, switch to Live mode and use your Production credentials:
                                         <ul style="margin: 0.35rem 0 0 1.1rem; padding: 0;">
-                                            <li><strong>Merchant ID</strong> and <strong>API Key</strong> (Bearer Token) from your UPay Dashboard (Merchant API Detail).</li>
+                                            <li><strong>Merchant ID</strong>, <strong>API Key</strong> (Bearer Token), and <strong>API Secret</strong> from your UPay Dashboard (Merchant API Details).</li>
+                                            <li>The API Secret signs every gateway request with HMAC. Unsigned requests stop working after 31 December 2026.</li>
                                             <li><strong>Production API</strong>: <code>https://apiv2api.upayments.com/api/v1/</code></li>
                                             <li>Example: <code>https://sandboxapi.upayments.com/api/v1/charge</code> becomes <code>https://apiv2api.upayments.com/api/v1/charge</code></li>
                                         </ul>
@@ -218,6 +219,18 @@
                                     </div>
 
                                     <div class="form-group">
+                                        <label class="form-label">Test Mode: API Secret (HMAC)</label>
+                                        <input
+                                            name="upayments_test_api_secret"
+                                            type="password"
+                                            placeholder="{{ !empty($masked['has_test_api_secret']) ? 'Saved — leave blank to keep it' : 'From Merchant API Details' }}"
+                                            class="form-input"
+                                            autocomplete="off"
+                                            data-saved="{{ !empty($masked['has_test_api_secret']) ? '1' : '0' }}"
+                                        />
+                                    </div>
+
+                                    <div class="form-group">
                                         <label class="form-label">Live Mode: Merchant ID</label>
                                         <input
                                             name="upayments_live_merchant_id"
@@ -236,6 +249,18 @@
                                             placeholder="{{  '**********' }}"
                                             class="form-input"
                                             autocomplete="off"
+                                        />
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="form-label">Live Mode: API Secret (HMAC)</label>
+                                        <input
+                                            name="upayments_live_api_secret"
+                                            type="password"
+                                            placeholder="{{ !empty($masked['has_live_api_secret']) ? 'Saved — leave blank to keep it' : 'From Merchant API Details' }}"
+                                            class="form-input"
+                                            autocomplete="off"
+                                            data-saved="{{ !empty($masked['has_live_api_secret']) ? '1' : '0' }}"
                                         />
                                     </div>
                                 </div>
@@ -275,14 +300,22 @@
                 const form = document.getElementById('upaymentsForm');
                 const modeInputs = Array.from(form.querySelectorAll('input[name="upayments_mode"]'));
                 const testTokenInput = form.querySelector('input[name="upayments_test_token"]');
+                const testSecretInput = form.querySelector('input[name="upayments_test_api_secret"]');
                 const liveMerchantInput = form.querySelector('input[name="upayments_live_merchant_id"]');
                 const liveApiKeyInput = form.querySelector('input[name="upayments_live_api_key"]');
+                const liveSecretInput = form.querySelector('input[name="upayments_live_api_secret"]');
+
+                function needsSecret(input) {
+                    return !input || input.dataset.saved !== '1';
+                }
 
                 function syncRequired() {
                     const selected = (modeInputs.find(i => i.checked) || {}).value || 'test';
                     if (testTokenInput) testTokenInput.required = selected === 'test';
+                    if (testSecretInput) testSecretInput.required = selected === 'test' && needsSecret(testSecretInput);
                     if (liveMerchantInput) liveMerchantInput.required = selected === 'live';
                     if (liveApiKeyInput) liveApiKeyInput.required = selected === 'live';
+                    if (liveSecretInput) liveSecretInput.required = selected === 'live' && needsSecret(liveSecretInput);
                 }
 
                 modeInputs.forEach(i => i.addEventListener('change', syncRequired));
