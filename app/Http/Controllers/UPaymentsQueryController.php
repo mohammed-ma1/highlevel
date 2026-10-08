@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\PaymentAccessGuard;
 use App\Services\UPaymentsClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -73,6 +74,16 @@ class UPaymentsQueryController extends Controller
                     'locationId' => $user->lead_location_id,
                 ]);
                 return response()->json(['failed' => true], 200);
+            }
+
+            $accessGuard = new PaymentAccessGuard();
+            if ($accessGuard->isBlocked($user)) {
+                return response()->json([
+                    'success' => false,
+                    'failed' => true,
+                    'blocked' => true,
+                    'message' => $accessGuard->messageAr(),
+                ], 200);
             }
 
             switch ($type) {

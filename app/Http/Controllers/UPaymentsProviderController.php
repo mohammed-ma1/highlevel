@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\PaymentAccessGuard;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -69,6 +70,23 @@ class UPaymentsProviderController extends Controller
                 return response()->json([
                     'message' => 'No user found for this location. Please complete the OAuth integration first by visiting /uconnect.',
                 ], 404);
+            }
+
+            $accessGuard = new PaymentAccessGuard();
+            if ($accessGuard->isBlocked($user)) {
+                Log::warning('🟣 [UPAYMENTS] Provider action blocked for restricted account', [
+                    'locationId' => $locationId,
+                    'action' => $action,
+                    'user_id' => $user->id,
+                ]);
+
+                if ($action === 'connect') {
+                    return redirect()->back()->with([
+                        'api_error' => $accessGuard->messageAr(),
+                    ])->withInput($request->only('information'));
+                }
+
+                return $accessGuard->blockedJsonResponse();
             }
 
             // Ensure the stored platform token exists / refresh if needed.

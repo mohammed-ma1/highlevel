@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\PaymentAccessGuard;
 use App\Services\UPaymentsClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -44,6 +45,16 @@ class UPaymentsChargeController extends Controller
                     'success' => false,
                     'message' => 'User not found for locationId',
                 ], 404);
+            }
+
+            $accessGuard = new PaymentAccessGuard();
+            if ($accessGuard->isBlocked($user)) {
+                Log::warning('🟣 [UPAYMENTS] Charge blocked for restricted account', [
+                    'locationId' => $locationId,
+                    'user_id' => $user->id,
+                ]);
+
+                return $accessGuard->blockedJsonResponse();
             }
 
             // Use the mode the merchant chose during provider connection as the

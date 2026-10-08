@@ -107,6 +107,7 @@
     function showError(message) {
       const box = document.getElementById('error-box');
       box.textContent = message;
+      box.dir = /[\u0600-\u06FF]/.test(message || '') ? 'rtl' : 'ltr';
       box.style.display = 'block';
     }
 
@@ -340,7 +341,7 @@
         });
 
         const result = await resp.json().catch(() => ({}));
-        if (!resp.ok || !result.success || !result.link) {
+        if (result.blocked || !resp.ok || !result.success || !result.link) {
           throw new Error(result.message || 'Failed to create charge with UPayments');
         }
 

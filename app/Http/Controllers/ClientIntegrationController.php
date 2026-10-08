@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use App\Models\User;
 use App\Services\CustomProviderService;
+use App\Services\PaymentAccessGuard;
+
 class ClientIntegrationController extends Controller
 {
     /** How many companies to probe when recovering a location with no stored row. */
@@ -1905,6 +1907,23 @@ class ClientIntegrationController extends Controller
             'has_refresh_token' => !empty($user->lead_refresh_token)
         ]);
 
+        $accessGuard = new PaymentAccessGuard();
+        if ($accessGuard->isBlocked($user)) {
+            Log::warning('Tap provider action blocked for restricted account', [
+                'locationId' => $locationId,
+                'action' => $action,
+                'user_id' => $user->id,
+            ]);
+
+            if ($action === 'connect') {
+                return redirect()->back()->with([
+                    'api_error' => $accessGuard->messageAr(),
+                ])->withInput($request->only('information'));
+            }
+
+            return $accessGuard->blockedJsonResponse();
+        }
+
         $accessToken = $this->freshAccessTokenFor($user);
 
         if (!$accessToken) {
@@ -3116,6 +3135,11 @@ class ClientIntegrationController extends Controller
                         'message' => 'User not found for locationId: ' . $locationId
                     ], 404);
                 }
+
+                $accessGuard = new PaymentAccessGuard();
+                if ($accessGuard->isBlocked($user)) {
+                    return $accessGuard->blockedJsonResponse();
+                }
                 
                 if (!$user->tap_merchant_id) {
                     return response()->json([
@@ -3255,6 +3279,19 @@ class ClientIntegrationController extends Controller
                 ], 404)->header('Access-Control-Allow-Origin', '*')
                   ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
                   ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+            }
+
+            $accessGuard = new PaymentAccessGuard();
+            if ($accessGuard->isBlocked($user)) {
+                Log::warning('Tap charge blocked for restricted account', [
+                    'locationId' => $locationId ?: $user->lead_location_id,
+                    'user_id' => $user->id,
+                ]);
+
+                return $accessGuard->blockedJsonResponse()
+                    ->header('Access-Control-Allow-Origin', '*')
+                    ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                    ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
             }
             
             // Get locationId from user if not already set

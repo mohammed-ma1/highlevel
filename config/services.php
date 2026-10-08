@@ -59,6 +59,14 @@ return [
         'redirect_uri' => env('UPAYMENTS_EXTERNAL_REDIRECT_URI', 'https://dashboard.mediasolution.io/uconnect'),
     ],
 
+    // Block specific merchant locations or identities from Tap / UPayments (see PaymentAccessGuard).
+    'payment_access' => [
+        'blocked_location_ids' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('PAYMENT_BLOCKED_LOCATION_IDS', ''))
+        ))),
+    ],
+
     'upayments' => [
         'test_base_url' => env('UPAYMENTS_TEST_BASE_URL', 'https://sandboxapi.upayments.com/api/v1/'),
         'live_base_url' => env('UPAYMENTS_LIVE_BASE_URL', 'https://apiv2api.upayments.com/api/v1/'),

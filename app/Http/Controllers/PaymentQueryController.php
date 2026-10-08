@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use App\Models\User;
+use App\Services\PaymentAccessGuard;
 use App\Services\TapPaymentService;
 
 class PaymentQueryController extends Controller
@@ -284,6 +285,16 @@ class PaymentQueryController extends Controller
                 ]);
                 return response()->json([
                     'failed' => true
+                ], 200);
+            }
+
+            $accessGuard = new PaymentAccessGuard();
+            if ($accessGuard->isBlocked($user)) {
+                return response()->json([
+                    'success' => false,
+                    'failed' => true,
+                    'blocked' => true,
+                    'message' => $accessGuard->messageAr(),
                 ], 200);
             }
             

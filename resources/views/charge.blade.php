@@ -792,6 +792,7 @@
       const errorDiv = document.getElementById('error-message');
       if (errorDiv) {
         errorDiv.textContent = message;
+        errorDiv.dir = /[\u0600-\u06FF]/.test(message || '') ? 'rtl' : 'ltr';
         errorDiv.style.display = 'block';
       }
       const successDiv = document.getElementById('success-message');
